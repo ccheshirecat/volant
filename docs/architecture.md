@@ -59,6 +59,7 @@
   - `POST /api/v1/vms` creates a VM (CPU/memory/cmdline payload).
   - `GET /api/v1/vms/:name` retrieves a single VM.
   - `DELETE /api/v1/vms/:name` destroys a VM and releases its resources.
+  - `GET /api/v1/system/status` returns system metrics (VM count, CPU/MEM placeholders).
 - `GET /api/v1/events/vms` streams lifecycle events over Server-Sent Events (SSE) sourced from the internal event bus.
 - Request/response payloads are JSON; future work will introduce authn/z, pagination, and richer error semantics.
 
@@ -68,6 +69,37 @@
   - AG-UI WebSocket emitter translating internal events into protocol schema.
   - MCP handler for AI orchestration.
 - Future work: durable event log for replay/audit.
+
+## TUI Architecture
+The interactive TUI (`internal/cli/tui`) is built with Bubble Tea and its ecosystem (bubbles, lipgloss) for a multi-pane "God Mode" dashboard. It maintains a stateful connection to the viper-server via the client package for REST and SSE.
+
+### Layout and Components
+- **Header Pane**: Polls `/api/v1/system/status` every 5s for live metrics (VM count, CPU/MEM %). Styled with lipgloss for status bar.
+- **VM List Pane**: Uses `bubbles/list` for selectable VM items (name, status, IP, CPU/MEM). Initial data from `GET /api/v1/vms`; updates on SSE events via `WatchVMEvents`.
+- **Log Viewer Pane**: `bubbles/viewport` for scrolling real-time logs from SSE events (timestamp, type, message). Appends new lines, limits to 100.
+- **Command Input Pane**: `bubbles/textinput` for command entry (e.g., "vms create my-vm"). Supports tab to switch panes, enter to execute (parses to REST calls like CreateVM), history placeholder.
+
+### Data Flow
+- **Initialization**: Fetches VMs and status, starts SSE stream, tick for polling.
+- **Updates**: SSE events trigger VM refresh and log append; tick refreshes status/VMs.
+- **Interaction**: Key bindings (tab/enter/up/down/q) for navigation/execution. Commands proxy to REST (e.g., create VM emits event for live update).
+- **Error Handling**: Displays errors in view; stream closure noted.
+
+### TUI Data Flow Diagram
+```mermaid
+graph LR
+    A[viper-server Event Bus: VM Events] --> B[SSE /api/v1/events/vms]
+    A --> C[REST /api/v1/system/status Poll]
+    D[TUI Model: Init] --> E[client.ListVMs GET]
+    D --> F[client.GetSystemStatus Poll]
+    D --> G[client.WatchVMEvents SSE]
+    G --> H[Event Ch → vmEventMsg → Log Append + VM Refresh]
+    F --> I[systemStatusMsg → Header Update]
+    E --> J[vmListMsg → bubbles/list Items]
+    K[Command Input: Enter] --> L[Parse → client.CreateVM POST]
+    L --> M[Event Emit → SSE Update]
+    M --> H
+```
 
 ## Security & Observability (Preview)
 - Authn/z layer to be defined (API tokens or mutual TLS) before release.

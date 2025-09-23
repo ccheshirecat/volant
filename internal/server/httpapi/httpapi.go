@@ -42,6 +42,8 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus) http
 
 	v1 := r.Group("/api/v1")
 	{
+		v1.GET("/system/status", api.systemStatus)
+
 		vms := v1.Group("/vms")
 		{
 			vms.GET("", api.listVMs)
@@ -305,4 +307,27 @@ func statusFromError(err error) int {
 	default:
 		return http.StatusInternalServerError
 	}
+}
+
+// SystemStatusResponse is the response for system metrics.
+type SystemStatusResponse struct {
+	VMCount int     `json:"vm_count"`
+	CPU     float64 `json:"cpu_percent"`
+	MEM     float64 `json:"mem_percent"`
+}
+
+// systemStatus returns basic system metrics.
+func (api *apiServer) systemStatus(c *gin.Context) {
+	vms, err := api.engine.ListVMs(c.Request.Context())
+	if err != nil {
+		api.logger.Error("system status", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch status"})
+		return
+	}
+	resp := SystemStatusResponse{
+		VMCount: len(vms),
+		CPU:     0.0, // Placeholder; integrate real metrics later
+		MEM:     0.0, // Placeholder
+	}
+	c.JSON(http.StatusOK, resp)
 }
