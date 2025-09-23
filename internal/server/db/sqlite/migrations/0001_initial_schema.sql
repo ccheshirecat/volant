@@ -1,0 +1,48 @@
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS vms (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL,
+    pid INTEGER,
+    ip_address TEXT NOT NULL UNIQUE,
+    mac_address TEXT NOT NULL UNIQUE,
+    cpu_cores INTEGER NOT NULL CHECK (cpu_cores > 0),
+    memory_mb INTEGER NOT NULL CHECK (memory_mb > 0),
+    kernel_cmdline TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS ip_allocations (
+    ip_address TEXT PRIMARY KEY,
+    vm_id INTEGER,
+    status TEXT NOT NULL,
+    leased_at TIMESTAMP,
+    FOREIGN KEY (vm_id) REFERENCES vms(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS workloads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    plugin TEXT NOT NULL,
+    status TEXT NOT NULL,
+    metadata TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS plugins (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    version TEXT NOT NULL,
+    metadata TEXT,
+    installed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_ip_allocations_status ON ip_allocations(status);
+CREATE INDEX IF NOT EXISTS idx_vms_status ON vms(status);

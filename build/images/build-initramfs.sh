@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "docker is required" >&2
+  exit 1
+fi
+
+REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+CONTEXT="$REPO_ROOT/build/images"
+OUTPUT_DIR="$REPO_ROOT/build/artifacts"
+AGENT_BIN=${1:-$REPO_ROOT/bin/viper-agent}
+IMAGE_TAG=${IMAGE_TAG:-viper-initramfs:latest}
+INITRAMFS_NAME=${INITRAMFS_NAME:-viper-initramfs.cpio.gz}
+KERNEL_URL=${KERNEL_URL:-https://github.com/cloud-hypervisor/linux/releases/download/ch-release-v6.12.8-20250613/vmlinux-x86_64}
+
+mkdir -p "$OUTPUT_DIR"
+
+if [ ! -f "$AGENT_BIN" ]; then
+  echo "agent binary not found at $AGENT_BIN" >&2
+  exit 1
+fi
+
+printf 'Building image... ' >&2
+docker build --build-arg VIPER_AGENT_BINARY=$(realpath "$AGENT_BIN") -t "$IMAGE_TAG" "$CONTEXT" >/dev/null
+echo 'done' >&2
+
+TMPDIR=$(mktemp -d)
+cleanup() {
+  rm -rf "$TMPDIR"
+}
+trap cleanup EXIT
+
+CID=$(docker create "$IMAGE_TAG")
+trap "docker rm -f $CID >/dev/null || true; cleanup" EXIT
+
+docker export "$CID" | tar -C "$TMPDIR" -xf -
+
+pushd "$TMPDIR" >/dev/null
+find . | cpio -o -H newc | gzip -9 > "$OUTPUT_DIR/$INITRAMFS_NAME"
+popd >/dev/null
+
+docker rm -f "$CID" >/dev/null
+
+KERNEL_DEST="$OUTPUT_DIR/vmlinux-x86_64"
+if [ ! -f "$KERNEL_DEST" ]; then
+  echo "Downloading kernel to $KERNEL_DEST" >&2
+  curl -L "$KERNEL_URL" -o "$KERNEL_DEST"
+fi
+
+echo "Artifacts written to $OUTPUT_DIR"

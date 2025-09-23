@@ -1,0 +1,30 @@
+#!/bin/sh
+set -eu
+
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev || true
+
+CMDLINE="$(cat /proc/cmdline)"
+IP_CFG="$(printf '%s' "$CMDLINE" | tr ' ' '\n' | grep '^ip=' | cut -d= -f2)"
+if [ -z "$IP_CFG" ]; then
+    echo "missing ip= kernel parameter" >&2
+else
+    IFS=':' read IPADDR GATEWAY NETMASK HOSTNAME IFACE REST <<EOFIP
+$IP_CFG
+EOFIP
+    if [ -n "$HOSTNAME" ]; then
+        hostname "$HOSTNAME"
+    fi
+    if [ -n "$IFACE" ]; then
+        ip link set "$IFACE" up || true
+        if [ -n "$IPADDR" ]; then
+            ip addr add "$IPADDR" dev "$IFACE" || true
+        fi
+        if [ -n "$GATEWAY" ]; then
+            ip route add default via "$GATEWAY" || true
+        fi
+    fi
+fi
+
+exec /usr/local/bin/viper-agent
