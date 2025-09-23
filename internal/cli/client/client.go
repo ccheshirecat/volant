@@ -208,3 +208,23 @@ func (c *Client) do(req *http.Request, out any) error {
 	}
 	return nil
 }
+
+// SystemStatus represents the system metrics.
+type SystemStatus struct {
+	VMCount int `json:"vm_count"`
+	CPU     float64 `json:"cpu_percent"`
+	MEM     float64 `json:"mem_percent"`
+}
+
+// GetSystemStatus fetches system metrics.
+func (c *Client) GetSystemStatus(ctx context.Context) (*SystemStatus, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, "/api/v1/system/status", nil)
+	if err != nil {
+		return nil, err
+	}
+	var status SystemStatus
+	if err := c.do(req, &status); err != nil {
+		return nil, err
+	}
+	return &status, nil
+}
