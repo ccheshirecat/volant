@@ -11,11 +11,16 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 
+	"github.com/viperhq/viper/internal/protocol/agui"
 	"github.com/viperhq/viper/internal/server/db"
 	"github.com/viperhq/viper/internal/server/eventbus"
 	"github.com/viperhq/viper/internal/server/orchestrator"
 	orchestratorevents "github.com/viperhq/viper/internal/server/orchestrator/events"
+	"github.com/gorilla/websocket"
+
+	"github.com/viperhq/viper/internal/protocol/agui"
 )
 
 // New constructs the HTTP API router backed by the orchestrator engine.
@@ -44,6 +49,8 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus) http
 	{
 		v1.GET("/system/status", api.systemStatus)
 
+		v1.POST("/mcp", api.handleMCP)
+
 		vms := v1.Group("/vms")
 		{
 			vms.GET("", api.listVMs)
@@ -57,6 +64,8 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus) http
 			events.GET("/vms", api.streamVMEvents)
 		}
 	}
+
+	r.GET("/ws/v1/agui", api.aguiWebSocket)
 
 	return r
 }
@@ -232,6 +241,13 @@ func (api *apiServer) createVM(c *gin.Context) {
 		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
 		return
 	}
+	// Emit event for async notification
+	api.bus.Publish(orchestratorevents.VMEvent{
+		Type:      orchestratorevents.VMTypeCreated,
+		Name:      vm.Name,
+		Timestamp: time.Now().UTC(),
+		Message:   "VM created",
+	})
 	c.JSON(http.StatusCreated, vmToResponse(vm))
 }
 
@@ -309,6 +325,166 @@ func statusFromError(err error) int {
 	}
 }
 
+// MCPRequest is the incoming MCP request format.
+type MCPRequest struct {
+	Command string                 `json:"command"`
+	Params  map[string]interface{} `json:"params"`
+}
+
+// MCPResponse is the outgoing MCP response format.
+type MCPResponse struct {
+	Result interface{} `json:"result"`
+	Error  string      `json:"error,omitempty"`
+}
+
+// handleMCP handles MCP requests.
+func (api *apiServer) handleMCP(c *gin.Context) {
+	var req MCPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, MCPResponse{Error: err.Error()})
+		return
+	}
+
+	ctx := c.Request.Context()
+	var result interface{}
+	var err error
+
+	switch req.Command {
+	case "viper.vms.list":
+		vms, e := api.engine.ListVMs(ctx)
+		if e != nil {
+			err = e
+		} else {
+			vmList := make([]map[string]interface{}, len(vms))
+			for i, vm := range vms {
+				vmList[i] = map[string]interface{}{
+					"id":         vm.ID,
+					"name":       vm.Name,
+					"status":     vm.Status,
+					"ip_address": vm.IPAddress,
+					"cpu_cores":  vm.CPUCores,
+					"memory_mb":  vm.MemoryMB,
+				}
+			}
+			result = vmList
+		}
+	case "viper.vms.create":
+		name, ok := req.Params["name"].(string)
+		if !ok {
+			err = fmt.Errorf("name param required")
+		} else {
+			vm, e := api.engine.CreateVM(ctx, orchestrator.CreateVMRequest{
+				Name:     name,
+				CPUCores: 2,
+				MemoryMB: 2048,
+			})
+			if e != nil {
+				err = e
+			} else {
+				result = map[string]interface{}{
+					"id":         vm.ID,
+					"name":       vm.Name,
+					"status":     vm.Status,
+					"ip_address": vm.IPAddress,
+					"cpu_cores":  vm.CPUCores,
+					"memory_mb":  vm.MemoryMB,
+				}
+				// Emit event for async notification
+				api.bus.Publish(orchestratorevents.VMEvent{
+					Type:      orchestratorevents.VMTypeCreated,
+					Name:      vm.Name,
+					Timestamp: time.Now().UTC(),
+					Message:   "VM created via MCP",
+				})
+			}
+		}
+	case "viper.system.get_capabilities":
+		result = map[string]interface{}{
+			"capabilities": []map[string]interface{}{
+				{
+					"name":        "viper.vms.create",
+					"description": "Create a new microVM",
+					"params": map[string]interface{}{
+						"name": "string (required)",
+						"cpu_cores": "int (default 2)",
+						"memory_mb": "int (default 2048)",
+					},
+				},
+				{
+					"name":        "viper.vms.list",
+					"description": "List all microVMs",
+					"params": map[string]interface{}{},
+				},
+			},
+		}
+	default:
+		err = fmt.Errorf("unknown command: %s", req.Command)
+	}
+
+	resp := MCPResponse{Result: result}
+	if err != nil {
+		resp.Error = err.Error()
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// aguiWebSocket handles AG-UI WebSocket connections.
+func (api *apiServer) aguiWebSocket(c *gin.Context) {
+	conn, err := (&websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}).Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		api.logger.Error("agui ws upgrade", "error", err)
+		return
+	}
+	defer conn.Close()
+
+	ctx := c.Request.Context()
+	eventsCh := make(chan any, 16)
+	unsubscribe, err := api.bus.Subscribe(orchestratorevents.TopicVMEvents, eventsCh)
+	if err != nil {
+		api.logger.Error("agui ws subscribe", "error", err)
+		return
+	}
+	defer unsubscribe()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case payload := <-eventsCh:
+			if payload == nil {
+				continue
+			}
+			vmEvent, ok := payload.(orchestratorevents.VMEvent)
+			if !ok {
+				continue
+			}
+			// Translate to AG-UI event
+			var aguiEvent interface{}
+			switch vmEvent.Type {
+			case orchestratorevents.VMTypeCreated:
+				aguiEvent = agui.RunStartedEvent{
+					ID:   vmEvent.Name,
+					Name: "VM " + vmEvent.Name + " started",
+				}
+			case orchestratorevents.VMTypeRunning:
+				aguiEvent = agui.TextMessageEvent{
+					Type: "text",
+					Text: "VM " + vmEvent.Name + " is running",
+				}
+			case orchestratorevents.VMTypeStopped:
+				aguiEvent = agui.RunFinishedEvent{
+					Output: "VM " + vmEvent.Name + " stopped",
+				}
+			default:
+				continue
+			}
+			if err := conn.WriteJSON(aguiEvent); err != nil {
+				return
+			}
+		}
+	}
+}
+
 // SystemStatusResponse is the response for system metrics.
 type SystemStatusResponse struct {
 	VMCount int     `json:"vm_count"`
@@ -330,4 +506,164 @@ func (api *apiServer) systemStatus(c *gin.Context) {
 		MEM:     0.0, // Placeholder
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// MCPRequest is the incoming MCP request format.
+type MCPRequest struct {
+	Command string                 `json:"command"`
+	Params  map[string]interface{} `json:"params"`
+}
+
+// MCPResponse is the outgoing MCP response format.
+type MCPResponse struct {
+	Result interface{} `json:"result"`
+	Error  string      `json:"error,omitempty"`
+}
+
+// handleMCP handles MCP requests.
+func (api *apiServer) handleMCP(c *gin.Context) {
+	var req MCPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, MCPResponse{Error: err.Error()})
+		return
+	}
+
+	ctx := c.Request.Context()
+	var result interface{}
+	var err error
+
+	switch req.Command {
+	case "viper.vms.list":
+		vms, e := api.engine.ListVMs(ctx)
+		if e != nil {
+			err = e
+		} else {
+			vmList := make([]map[string]interface{}, len(vms))
+			for i, vm := range vms {
+				vmList[i] = map[string]interface{}{
+					"id":         vm.ID,
+					"name":       vm.Name,
+					"status":     vm.Status,
+					"ip_address": vm.IPAddress,
+					"cpu_cores":  vm.CPUCores,
+					"memory_mb":  vm.MemoryMB,
+				}
+			}
+			result = vmList
+		}
+	case "viper.vms.create":
+		name, ok := req.Params["name"].(string)
+		if !ok {
+			err = fmt.Errorf("name param required")
+		} else {
+			vm, e := api.engine.CreateVM(ctx, orchestrator.CreateVMRequest{
+				Name:     name,
+				CPUCores: 2,
+				MemoryMB: 2048,
+			})
+			if e != nil {
+				err = e
+			} else {
+				result = map[string]interface{}{
+					"id":         vm.ID,
+					"name":       vm.Name,
+					"status":     vm.Status,
+					"ip_address": vm.IPAddress,
+					"cpu_cores":  vm.CPUCores,
+					"memory_mb":  vm.MemoryMB,
+				}
+				// Emit event for async notification
+				api.bus.Publish(orchestratorevents.VMEvent{
+					Type:      orchestratorevents.VMTypeCreated,
+					Name:      vm.Name,
+					Timestamp: time.Now().UTC(),
+					Message:   "VM created via MCP",
+				})
+			}
+		}
+	case "viper.system.get_capabilities":
+		result = map[string]interface{}{
+			"capabilities": []map[string]interface{}{
+				{
+					"name":        "viper.vms.create",
+					"description": "Create a new microVM",
+					"params": map[string]interface{}{
+						"name": "string (required)",
+						"cpu_cores": "int (default 2)",
+						"memory_mb": "int (default 2048)",
+					},
+				},
+				{
+					"name":        "viper.vms.list",
+					"description": "List all microVMs",
+					"params": map[string]interface{}{},
+				},
+			},
+		}
+	default:
+		err = fmt.Errorf("unknown command: %s", req.Command)
+	}
+
+	resp := MCPResponse{Result: result}
+	if err != nil {
+		resp.Error = err.Error()
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// aguiWebSocket handles AG-UI WebSocket connections.
+func (api *apiServer) aguiWebSocket(c *gin.Context) {
+	conn, err := (&websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}).Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		api.logger.Error("agui ws upgrade", "error", err)
+		return
+	}
+	defer conn.Close()
+
+	ctx := c.Request.Context()
+	eventsCh := make(chan any, 16)
+	unsubscribe, err := api.bus.Subscribe(orchestratorevents.TopicVMEvents, eventsCh)
+	if err != nil {
+		api.logger.Error("agui ws subscribe", "error", err)
+		return
+	}
+	defer unsubscribe()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case payload := <-eventsCh:
+			if payload == nil {
+				continue
+			}
+			vmEvent, ok := payload.(orchestratorevents.VMEvent)
+			if !ok {
+				continue
+			}
+			// Translate to AG-UI event
+			var aguiEvent interface{}
+			switch vmEvent.Type {
+			case orchestratorevents.VMTypeCreated:
+				aguiEvent = agui.RunStartedEvent{
+					ID:   vmEvent.Name,
+					Name: "VM " + vmEvent.Name + " started",
+				}
+			case orchestratorevents.VMTypeRunning:
+				aguiEvent = agui.TextMessageEvent{
+					Type: "text",
+					Text: "VM " + vmEvent.Name + " is running",
+				}
+			case orchestratorevents.VMTypeStopped:
+				aguiEvent = agui.RunFinishedEvent{
+					Output: "VM " + vmEvent.Name + " stopped",
+				}
+			default:
+				continue
+			}
+			if err := conn.WriteJSON(aguiEvent); err != nil {
+				return
+			}
+		}
+	}
 }
