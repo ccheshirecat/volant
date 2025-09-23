@@ -5,11 +5,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	orchestratorevents "github.com/viperhq/viper/internal/server/orchestrator/events"
 )
@@ -58,8 +61,30 @@ type CreateVMRequest struct {
 	KernelCmdline string `json:"kernel_cmdline,omitempty"`
 }
 
+const (
+	VMEventTypeCreated = orchestratorevents.TypeVMCreated
+	VMEventTypeRunning = orchestratorevents.TypeVMRunning
+	VMEventTypeStopped = orchestratorevents.TypeVMStopped
+	VMEventTypeCrashed = orchestratorevents.TypeVMCrashed
+	VMEventTypeDeleted = orchestratorevents.TypeVMDeleted
+	VMEventTypeLog     = orchestratorevents.TypeVMLog
+)
+
+const (
+	VMLogStreamStdout = orchestratorevents.LogStreamStdout
+	VMLogStreamStderr = orchestratorevents.LogStreamStderr
+)
+
 // VMEvent represents a lifecycle event streamed from the server.
 type VMEvent = orchestratorevents.VMEvent
+
+// VMLogEvent represents a single log line emitted by a VM or agent process.
+type VMLogEvent struct {
+	Name      string    `json:"name"`
+	Stream    string    `json:"stream"`
+	Line      string    `json:"line"`
+	Timestamp time.Time `json:"timestamp"`
+}
 
 func (c *Client) ListVMs(ctx context.Context) ([]VM, error) {
 	req, err := c.newRequest(ctx, http.MethodGet, "/api/v1/vms", nil)
@@ -162,6 +187,64 @@ func (c *Client) WatchVMEvents(ctx context.Context, handler func(VMEvent)) error
 	}
 
 	return nil
+}
+
+func (c *Client) WatchVMLogs(ctx context.Context, name string, handler func(VMLogEvent)) error {
+	if name == "" {
+		return fmt.Errorf("client: vm name required")
+	}
+	if handler == nil {
+		return fmt.Errorf("client: handler required")
+	}
+
+	path := fmt.Sprintf("/ws/v1/vms/%s/logs", url.PathEscape(name))
+	wsURL := c.baseURL.ResolveReference(&url.URL{Path: path})
+	switch wsURL.Scheme {
+	case "http":
+		wsURL.Scheme = "ws"
+	case "https":
+		wsURL.Scheme = "wss"
+	case "ws", "wss":
+	default:
+		return fmt.Errorf("client: unsupported scheme %q", wsURL.Scheme)
+	}
+
+	dialer := websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 30 * time.Second,
+	}
+
+	conn, resp, err := dialer.DialContext(ctx, wsURL.String(), nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	if err != nil {
+		return fmt.Errorf("client: watch vm logs dial: %w", err)
+	}
+	defer conn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+			_ = conn.Close()
+		case <-done:
+		}
+	}()
+
+	for {
+		var event VMLogEvent
+		if err := conn.ReadJSON(&event); err != nil {
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || errors.Is(err, context.Canceled) {
+				close(done)
+				return nil
+			}
+			close(done)
+			return fmt.Errorf("client: read vm log: %w", err)
+		}
+		handler(event)
+	}
 }
 
 func (c *Client) newRequest(ctx context.Context, method, path string, body any) (*http.Request, error) {

@@ -1,8 +1,12 @@
 package httpapi
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -18,12 +22,22 @@ import (
 	"github.com/viperhq/viper/internal/server/eventbus"
 	"github.com/viperhq/viper/internal/server/orchestrator"
 	orchestratorevents "github.com/viperhq/viper/internal/server/orchestrator/events"
-	"github.com/gorilla/websocket"
-
-	"github.com/viperhq/viper/internal/protocol/agui"
 )
 
-// New constructs the HTTP API router backed by the orchestrator engine.
+const agentDefaultPort = 8080
+
+var hopHeaders = map[string]struct{}{
+	"connection":          {},
+	"keep-alive":          {},
+	"proxy-authenticate":  {},
+	"proxy-authorization": {},
+	"te":                  {},
+	"trailer":             {},
+	"trailers":            {},
+	"transfer-encoding":   {},
+	"upgrade":             {},
+}
+
 func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -39,7 +53,13 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus) http
 		r.Use(apiKeyMiddleware(apiKey))
 	}
 
-	api := &apiServer{logger: logger, engine: engine, bus: bus}
+	api := &apiServer{
+		logger:      logger,
+		engine:      engine,
+		bus:         bus,
+		agentPort:   agentDefaultPort,
+		agentClient: &http.Client{Timeout: 120 * time.Second},
+	}
 
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -57,6 +77,7 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus) http
 			vms.POST("", api.createVM)
 			vms.GET(":name", api.getVM)
 			vms.DELETE(":name", api.deleteVM)
+			vms.Any(":name/agent/*path", api.proxyAgent)
 		}
 
 		events := v1.Group("/events")
@@ -65,12 +86,12 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus) http
 		}
 	}
 
+	r.GET("/ws/v1/vms/:name/logs", api.vmLogsWebSocket)
 	r.GET("/ws/v1/agui", api.aguiWebSocket)
 
 	return r
 }
 
-// requestLogger adapts slog to Gin's middleware interface.
 func requestLogger(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -142,9 +163,11 @@ func apiKeyMiddleware(expected string) gin.HandlerFunc {
 }
 
 type apiServer struct {
-	logger *slog.Logger
-	engine orchestrator.Engine
-	bus    eventbus.Bus
+	logger      *slog.Logger
+	engine      orchestrator.Engine
+	bus         eventbus.Bus
+	agentPort   int
+	agentClient *http.Client
 }
 
 type createVMRequest struct {
@@ -242,8 +265,8 @@ func (api *apiServer) createVM(c *gin.Context) {
 		return
 	}
 	// Emit event for async notification
-	api.bus.Publish(orchestratorevents.VMEvent{
-		Type:      orchestratorevents.VMTypeCreated,
+	api.bus.Publish(c.Request.Context(), orchestratorevents.TopicVMEvents, orchestratorevents.VMEvent{
+		Type:      orchestratorevents.TypeVMCreated,
 		Name:      vm.Name,
 		Timestamp: time.Now().UTC(),
 		Message:   "VM created",
@@ -314,185 +337,6 @@ func (api *apiServer) streamVMEvents(c *gin.Context) {
 	}
 }
 
-func statusFromError(err error) int {
-	switch {
-	case errors.Is(err, orchestrator.ErrVMNotFound):
-		return http.StatusNotFound
-	case errors.Is(err, orchestrator.ErrVMExists):
-		return http.StatusConflict
-	default:
-		return http.StatusInternalServerError
-	}
-}
-
-// MCPRequest is the incoming MCP request format.
-type MCPRequest struct {
-	Command string                 `json:"command"`
-	Params  map[string]interface{} `json:"params"`
-}
-
-// MCPResponse is the outgoing MCP response format.
-type MCPResponse struct {
-	Result interface{} `json:"result"`
-	Error  string      `json:"error,omitempty"`
-}
-
-// handleMCP handles MCP requests.
-func (api *apiServer) handleMCP(c *gin.Context) {
-	var req MCPRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, MCPResponse{Error: err.Error()})
-		return
-	}
-
-	ctx := c.Request.Context()
-	var result interface{}
-	var err error
-
-	switch req.Command {
-	case "viper.vms.list":
-		vms, e := api.engine.ListVMs(ctx)
-		if e != nil {
-			err = e
-		} else {
-			vmList := make([]map[string]interface{}, len(vms))
-			for i, vm := range vms {
-				vmList[i] = map[string]interface{}{
-					"id":         vm.ID,
-					"name":       vm.Name,
-					"status":     vm.Status,
-					"ip_address": vm.IPAddress,
-					"cpu_cores":  vm.CPUCores,
-					"memory_mb":  vm.MemoryMB,
-				}
-			}
-			result = vmList
-		}
-	case "viper.vms.create":
-		name, ok := req.Params["name"].(string)
-		if !ok {
-			err = fmt.Errorf("name param required")
-		} else {
-			vm, e := api.engine.CreateVM(ctx, orchestrator.CreateVMRequest{
-				Name:     name,
-				CPUCores: 2,
-				MemoryMB: 2048,
-			})
-			if e != nil {
-				err = e
-			} else {
-				result = map[string]interface{}{
-					"id":         vm.ID,
-					"name":       vm.Name,
-					"status":     vm.Status,
-					"ip_address": vm.IPAddress,
-					"cpu_cores":  vm.CPUCores,
-					"memory_mb":  vm.MemoryMB,
-				}
-				// Emit event for async notification
-				api.bus.Publish(orchestratorevents.VMEvent{
-					Type:      orchestratorevents.VMTypeCreated,
-					Name:      vm.Name,
-					Timestamp: time.Now().UTC(),
-					Message:   "VM created via MCP",
-				})
-			}
-		}
-	case "viper.system.get_capabilities":
-		result = map[string]interface{}{
-			"capabilities": []map[string]interface{}{
-				{
-					"name":        "viper.vms.create",
-					"description": "Create a new microVM",
-					"params": map[string]interface{}{
-						"name": "string (required)",
-						"cpu_cores": "int (default 2)",
-						"memory_mb": "int (default 2048)",
-					},
-				},
-				{
-					"name":        "viper.vms.list",
-					"description": "List all microVMs",
-					"params": map[string]interface{}{},
-				},
-			},
-		}
-	default:
-		err = fmt.Errorf("unknown command: %s", req.Command)
-	}
-
-	resp := MCPResponse{Result: result}
-	if err != nil {
-		resp.Error = err.Error()
-	}
-	c.JSON(http.StatusOK, resp)
-}
-
-// aguiWebSocket handles AG-UI WebSocket connections.
-func (api *apiServer) aguiWebSocket(c *gin.Context) {
-	conn, err := (&websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}).Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		api.logger.Error("agui ws upgrade", "error", err)
-		return
-	}
-	defer conn.Close()
-
-	ctx := c.Request.Context()
-	eventsCh := make(chan any, 16)
-	unsubscribe, err := api.bus.Subscribe(orchestratorevents.TopicVMEvents, eventsCh)
-	if err != nil {
-		api.logger.Error("agui ws subscribe", "error", err)
-		return
-	}
-	defer unsubscribe()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case payload := <-eventsCh:
-			if payload == nil {
-				continue
-			}
-			vmEvent, ok := payload.(orchestratorevents.VMEvent)
-			if !ok {
-				continue
-			}
-			// Translate to AG-UI event
-			var aguiEvent interface{}
-			switch vmEvent.Type {
-			case orchestratorevents.VMTypeCreated:
-				aguiEvent = agui.RunStartedEvent{
-					ID:   vmEvent.Name,
-					Name: "VM " + vmEvent.Name + " started",
-				}
-			case orchestratorevents.VMTypeRunning:
-				aguiEvent = agui.TextMessageEvent{
-					Type: "text",
-					Text: "VM " + vmEvent.Name + " is running",
-				}
-			case orchestratorevents.VMTypeStopped:
-				aguiEvent = agui.RunFinishedEvent{
-					Output: "VM " + vmEvent.Name + " stopped",
-				}
-			default:
-				continue
-			}
-			if err := conn.WriteJSON(aguiEvent); err != nil {
-				return
-			}
-		}
-	}
-}
-
-// SystemStatusResponse is the response for system metrics.
-type SystemStatusResponse struct {
-	VMCount int     `json:"vm_count"`
-	CPU     float64 `json:"cpu_percent"`
-	MEM     float64 `json:"mem_percent"`
-}
-
-// systemStatus returns basic system metrics.
 func (api *apiServer) systemStatus(c *gin.Context) {
 	vms, err := api.engine.ListVMs(c.Request.Context())
 	if err != nil {
@@ -508,19 +352,22 @@ func (api *apiServer) systemStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// MCPRequest is the incoming MCP request format.
+type SystemStatusResponse struct {
+	VMCount int     `json:"vm_count"`
+	CPU     float64 `json:"cpu_percent"`
+	MEM     float64 `json:"mem_percent"`
+}
+
 type MCPRequest struct {
 	Command string                 `json:"command"`
 	Params  map[string]interface{} `json:"params"`
 }
 
-// MCPResponse is the outgoing MCP response format.
 type MCPResponse struct {
 	Result interface{} `json:"result"`
 	Error  string      `json:"error,omitempty"`
 }
 
-// handleMCP handles MCP requests.
 func (api *apiServer) handleMCP(c *gin.Context) {
 	var req MCPRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -573,8 +420,8 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 					"memory_mb":  vm.MemoryMB,
 				}
 				// Emit event for async notification
-				api.bus.Publish(orchestratorevents.VMEvent{
-					Type:      orchestratorevents.VMTypeCreated,
+				api.bus.Publish(ctx, orchestratorevents.TopicVMEvents, orchestratorevents.VMEvent{
+					Type:      orchestratorevents.TypeVMCreated,
 					Name:      vm.Name,
 					Timestamp: time.Now().UTC(),
 					Message:   "VM created via MCP",
@@ -588,7 +435,7 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 					"name":        "viper.vms.create",
 					"description": "Create a new microVM",
 					"params": map[string]interface{}{
-						"name": "string (required)",
+						"name":      "string (required)",
 						"cpu_cores": "int (default 2)",
 						"memory_mb": "int (default 2048)",
 					},
@@ -596,7 +443,7 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 				{
 					"name":        "viper.vms.list",
 					"description": "List all microVMs",
-					"params": map[string]interface{}{},
+					"params":      map[string]interface{}{},
 				},
 			},
 		}
@@ -611,7 +458,6 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// aguiWebSocket handles AG-UI WebSocket connections.
 func (api *apiServer) aguiWebSocket(c *gin.Context) {
 	conn, err := (&websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}).Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -644,17 +490,17 @@ func (api *apiServer) aguiWebSocket(c *gin.Context) {
 			// Translate to AG-UI event
 			var aguiEvent interface{}
 			switch vmEvent.Type {
-			case orchestratorevents.VMTypeCreated:
+			case orchestratorevents.TypeVMCreated:
 				aguiEvent = agui.RunStartedEvent{
 					ID:   vmEvent.Name,
 					Name: "VM " + vmEvent.Name + " started",
 				}
-			case orchestratorevents.VMTypeRunning:
+			case orchestratorevents.TypeVMRunning:
 				aguiEvent = agui.TextMessageEvent{
 					Type: "text",
 					Text: "VM " + vmEvent.Name + " is running",
 				}
-			case orchestratorevents.VMTypeStopped:
+			case orchestratorevents.TypeVMStopped:
 				aguiEvent = agui.RunFinishedEvent{
 					Output: "VM " + vmEvent.Name + " stopped",
 				}
@@ -665,5 +511,275 @@ func (api *apiServer) aguiWebSocket(c *gin.Context) {
 				return
 			}
 		}
+	}
+}
+
+type agentLogEvent struct {
+	Stream    string    `json:"stream"`
+	Line      string    `json:"line"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+type vmLogPayload struct {
+	Name      string    `json:"name"`
+	Stream    string    `json:"stream"`
+	Line      string    `json:"line"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+func (api *apiServer) proxyAgent(c *gin.Context) {
+	if api.agentClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "agent proxy unavailable"})
+		return
+	}
+
+	name := c.Param("name")
+	vm, err := api.engine.GetVM(c.Request.Context(), name)
+	if err != nil {
+		api.logger.Error("proxy agent get vm", "vm", name, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve vm"})
+		return
+	}
+	if vm == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "vm not found"})
+		return
+	}
+	if vm.Status != db.VMStatusRunning {
+		c.JSON(http.StatusConflict, gin.H{"error": "vm not running"})
+		return
+	}
+	if vm.IPAddress == "" {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "vm ip address unavailable"})
+		return
+	}
+	if strings.EqualFold(c.GetHeader("Upgrade"), "websocket") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "websocket upgrade not supported"})
+		return
+	}
+
+	proxyPath := c.Param("path")
+	if proxyPath == "" {
+		proxyPath = "/"
+	}
+	target := api.agentURL(vm, proxyPath)
+	if raw := c.Request.URL.RawQuery; raw != "" {
+		target = target + "?" + raw
+	}
+
+	var bodyReader io.Reader = http.NoBody
+	if c.Request.Body != nil {
+		bodyBytes, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		if err := c.Request.Body.Close(); err != nil {
+			api.logger.Debug("proxy agent body close", "vm", vm.Name, "error", err)
+		}
+		if len(bodyBytes) > 0 {
+			bodyReader = bytes.NewReader(bodyBytes)
+		}
+	}
+
+	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, target, bodyReader)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create proxy request"})
+		return
+	}
+
+	req.Header = make(http.Header)
+	copyHeaders(req.Header, c.Request.Header)
+	req.Header.Del("Accept-Encoding")
+	req.Host = fmt.Sprintf("%s:%d", vm.IPAddress, api.agentPort)
+
+	resp, err := api.agentClient.Do(req)
+	if err != nil {
+		api.logger.Error("proxy agent request", "vm", vm.Name, "error", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	for key := range c.Writer.Header() {
+		c.Writer.Header().Del(key)
+	}
+	copyHeaders(c.Writer.Header(), resp.Header)
+	c.Status(resp.StatusCode)
+
+	if _, err := io.Copy(c.Writer, resp.Body); err != nil {
+		api.logger.Debug("proxy agent copy", "vm", vm.Name, "error", err)
+	}
+	c.Abort()
+}
+
+func (api *apiServer) vmLogsWebSocket(c *gin.Context) {
+	if api.agentClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "agent proxy unavailable"})
+		return
+	}
+
+	conn, err := (&websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}).Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		api.logger.Error("vm logs ws upgrade", "error", err)
+		return
+	}
+	defer conn.Close()
+
+	ctx := c.Request.Context()
+	name := c.Param("name")
+
+	vm, err := api.engine.GetVM(ctx, name)
+	if err != nil {
+		api.logger.Error("vm logs get vm", "vm", name, "error", err)
+		writeWebSocketClose(conn, websocket.CloseInternalServerErr, "failed to resolve vm")
+		return
+	}
+	if vm == nil {
+		writeWebSocketClose(conn, websocket.CloseNormalClosure, "vm not found")
+		return
+	}
+	if vm.Status != db.VMStatusRunning || vm.IPAddress == "" {
+		writeWebSocketClose(conn, websocket.CloseTryAgainLater, "vm not ready")
+		return
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, api.agentURL(vm, "/v1/logs/stream"), nil)
+	if err != nil {
+		writeWebSocketClose(conn, websocket.CloseInternalServerErr, "stream request failed")
+		return
+	}
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := api.agentClient.Do(req)
+	if err != nil {
+		api.logger.Error("vm logs stream", "vm", vm.Name, "error", err)
+		writeWebSocketClose(conn, websocket.CloseTryAgainLater, "agent unreachable")
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		writeWebSocketClose(conn, websocket.CloseTryAgainLater, fmt.Sprintf("agent returned %d", resp.StatusCode))
+		return
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	var builder strings.Builder
+	flush := func() bool {
+		if builder.Len() == 0 {
+			return true
+		}
+		payload := builder.String()
+		builder.Reset()
+
+		var raw agentLogEvent
+		if err := json.Unmarshal([]byte(payload), &raw); err != nil {
+			api.logger.Debug("agent log decode", "vm", vm.Name, "error", err)
+			return true
+		}
+
+		event := vmLogPayload{
+			Name:      vm.Name,
+			Stream:    raw.Stream,
+			Line:      raw.Line,
+			Timestamp: raw.Timestamp,
+		}
+		if err := conn.WriteJSON(event); err != nil {
+			return false
+		}
+
+		if api.bus != nil {
+			e := orchestratorevents.VMEvent{
+				Type:      orchestratorevents.TypeVMLog,
+				Name:      vm.Name,
+				Status:    orchestratorevents.VMStatusRunning,
+				IPAddress: vm.IPAddress,
+				Timestamp: raw.Timestamp,
+				Message:   raw.Line,
+				Stream:    raw.Stream,
+				Line:      raw.Line,
+			}
+			if err := api.bus.Publish(ctx, orchestratorevents.TopicVMEvents, e); err != nil {
+				api.logger.Debug("publish vm log", "vm", vm.Name, "error", err)
+			}
+		}
+		return true
+	}
+
+	for {
+		if err := ctx.Err(); err != nil {
+			writeWebSocketClose(conn, websocket.CloseNormalClosure, err.Error())
+			return
+		}
+
+		if !scanner.Scan() {
+			_ = flush()
+			if err := scanner.Err(); err != nil && ctx.Err() == nil {
+				api.logger.Debug("vm log stream ended", "vm", vm.Name, "error", err)
+			}
+			writeWebSocketClose(conn, websocket.CloseNormalClosure, "stream closed")
+			return
+		}
+
+		line := scanner.Text()
+		if line == "" {
+			if !flush() {
+				writeWebSocketClose(conn, websocket.CloseAbnormalClosure, "client closed")
+				return
+			}
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if builder.Len() > 0 {
+			builder.WriteByte('\n')
+		}
+		builder.WriteString(data)
+	}
+}
+
+func (api *apiServer) agentURL(vm *db.VM, path string) string {
+	if path == "" {
+		path = "/"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return fmt.Sprintf("http://%s:%d%s", vm.IPAddress, api.agentPort, path)
+}
+
+func copyHeaders(dst, src http.Header) {
+	for key := range dst {
+		if _, hop := hopHeaders[strings.ToLower(key)]; hop {
+			dst.Del(key)
+		}
+	}
+	for key, values := range src {
+		if _, hop := hopHeaders[strings.ToLower(key)]; hop {
+			continue
+		}
+		dst.Del(key)
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
+}
+
+func writeWebSocketClose(conn *websocket.Conn, code int, message string) {
+	_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, message), time.Now().Add(time.Second))
+}
+
+func statusFromError(err error) int {
+	switch {
+	case errors.Is(err, orchestrator.ErrVMNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, orchestrator.ErrVMExists):
+		return http.StatusConflict
+	default:
+		return http.StatusInternalServerError
 	}
 }
