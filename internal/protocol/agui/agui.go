@@ -1,7 +1,5 @@
 package agui
 
-import "time"
-
 // RunStartedEvent signals the start of a run.
 type RunStartedEvent struct {
 	ID   string `json:"id"`
