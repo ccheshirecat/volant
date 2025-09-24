@@ -28,11 +28,37 @@ const (
 	DefaultRemoteAddr         = "0.0.0.0"
 	DefaultRemotePort         = 9222
 	defaultUserDataDirName    = "viper-agent-data"
-	defaultExecPath           = "/headless-shell/headless-shell"
 	DefaultActionTimeout      = 60 * time.Second
 	devtoolsProbeRetryBackoff = 250 * time.Millisecond
 	devtoolsProbeAttempts     = 20
 )
+
+var defaultExecCandidates = []string{
+	"/headless-chrome/headless-chrome",
+	"/headless-shell/headless-shell",
+	"/usr/bin/headless-shell",
+	"/usr/bin/chromium",
+	"/usr/bin/google-chrome",
+}
+
+func resolveExecPath(requested string) (string, error) {
+	candidates := make([]string, 0, len(defaultExecCandidates)+1)
+	if path := strings.TrimSpace(requested); path != "" {
+		candidates = append(candidates, path)
+	}
+	candidates = append(candidates, defaultExecCandidates...)
+
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("browser: could not find a headless Chrome binary; tried %s", strings.Join(candidates, ", "))
+}
 
 // BrowserConfig controls how the chromedp managed browser instance is launched.
 type BrowserConfig struct {
@@ -101,16 +127,11 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 		return nil, fmt.Errorf("browser: ensure user data dir: %w", err)
 	}
 
-	if cfg.ExecPath == "" {
-		if _, err := os.Stat(defaultExecPath); err == nil {
-			cfg.ExecPath = defaultExecPath
-		}
+	resolvedExecPath, err := resolveExecPath(cfg.ExecPath)
+	if err != nil {
+		return nil, err
 	}
-	if cfg.ExecPath != "" {
-		if _, err := os.Stat(cfg.ExecPath); err != nil {
-			return nil, fmt.Errorf("browser: exec path %q not found: %w", cfg.ExecPath, err)
-		}
-	}
+	cfg.ExecPath = resolvedExecPath
 
 	if cfg.DefaultTimeout <= 0 {
 		cfg.DefaultTimeout = DefaultActionTimeout
@@ -731,6 +752,25 @@ func probeDevTools(port int) (devToolsInternal, error) {
 		}, nil
 	}
 	return devToolsInternal{}, fmt.Errorf("browser: unable to discover devtools endpoint on port %d", port)
+}
+
+func resolveExecPath(requested string) (string, error) {
+	candidates := make([]string, 0, len(defaultExecCandidates)+1)
+	if path := strings.TrimSpace(requested); path != "" {
+		candidates = append(candidates, path)
+	}
+	candidates = append(candidates, defaultExecCandidates...)
+
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("browser: could not find a headless Chrome binary; tried %s", strings.Join(candidates, ", "))
 }
 
 func jsString(value string) string {
