@@ -241,6 +241,8 @@ After=network.target
 
 [Service]
 Type=simple
+User=root
+Group=root
 Environment=VIPER_KERNEL=%s
 Environment=VIPER_INITRAMFS=%s
 Environment=VIPER_BRIDGE=%s
