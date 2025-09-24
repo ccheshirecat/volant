@@ -191,7 +191,7 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 		}
 	}()
 
-	devtools, err := waitForDevTools(startupCtx, logEmitter, connectHost, cfg.RemoteDebuggingPort)
+	devtoolsInfo, err := waitForDevTools(startupCtx, logEmitter, connectHost, cfg.RemoteDebuggingPort)
 	if err != nil {
 		_ = cmd.Process.Kill()
 		return nil, fmt.Errorf("browser: devtools startup: %w", err)
@@ -227,7 +227,7 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 		ctx:                browserCtx,
 		cancel:             combinedCancel,
 		log:                logEmitter,
-		devtools:           devtools,
+		devtools:           devtoolsInfo,
 		port:               cfg.RemoteDebuggingPort,
 		userDataDir:        cfg.UserDataDir,
 		cleanupUserDataDir: cleanupUserDataDir,
@@ -767,6 +767,10 @@ func devtoolsConnectHost(addr string) string {
 	default:
 		return addr
 	}
+}
+
+func probeDevTools(host string, port int) (devToolsInternal, error) {
+	return waitForDevTools(context.Background(), nil, host, port)
 }
 
 func waitForDevTools(ctx context.Context, emitter *logEmitter, host string, port int) (devToolsInternal, error) {
