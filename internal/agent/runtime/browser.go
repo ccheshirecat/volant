@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -95,15 +96,17 @@ type devToolsInternal struct {
 // Browser orchestrates a chromedp-controlled headless browser instance and
 // provides higher-level automation helpers.
 type Browser struct {
-	cfg         BrowserConfig
-	allocCtx    context.Context
-	allocCancel context.CancelFunc
-	ctx         context.Context
-	cancel      context.CancelFunc
+    cfg                BrowserConfig
+    chrome             *exec.Cmd
+    ctx                context.Context
+    cancel             context.CancelFunc
+    port               int
+    userDataDir        string
+    cleanupUserDataDir bool
 
-	mu       sync.Mutex
-	log      *logEmitter
-	devtools devToolsInternal
+    mu       sync.Mutex
+    log      *logEmitter
+    devtools devToolsInternal
 }
 
 // NewBrowser launches a headless Chrome instance reachable through chromedp.
@@ -116,15 +119,27 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 	if cfg.RemoteDebuggingAddr == "" {
 		cfg.RemoteDebuggingAddr = DefaultRemoteAddr
 	}
+
 	if cfg.RemoteDebuggingPort == 0 {
-		cfg.RemoteDebuggingPort = DefaultRemotePort
+		availablePort, err := allocateFreePort()
+		if err != nil {
+			return nil, fmt.Errorf("browser: allocate devtools port: %w", err)
+		}
+		cfg.RemoteDebuggingPort = availablePort
 	}
 
-	if cfg.UserDataDir == "" {
-		cfg.UserDataDir = filepath.Join(os.TempDir(), defaultUserDataDirName)
-	}
-	if err := os.MkdirAll(cfg.UserDataDir, 0o755); err != nil {
-		return nil, fmt.Errorf("browser: ensure user data dir: %w", err)
+	cleanupUserDataDir := false
+	if strings.TrimSpace(cfg.UserDataDir) == "" {
+		tmpDir, err := os.MkdirTemp("", defaultUserDataDirName+"-")
+		if err != nil {
+			return nil, fmt.Errorf("browser: create user data dir: %w", err)
+		}
+		cfg.UserDataDir = tmpDir
+		cleanupUserDataDir = true
+	} else {
+		if err := os.MkdirAll(cfg.UserDataDir, 0o755); err != nil {
+			return nil, fmt.Errorf("browser: ensure user data dir: %w", err)
+		}
 	}
 
 	resolvedExecPath, err := resolveExecPath(cfg.ExecPath)
@@ -139,75 +154,103 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 
 	logEmitter := newLogEmitter()
 
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("disable-gpu", true),
-		chromedp.Flag("disable-dev-shm-usage", true),
-		chromedp.Flag("headless", true),
-		chromedp.Flag("hide-scrollbars", true),
-		chromedp.Flag("mute-audio", true),
-		chromedp.Flag("no-default-browser-check", true),
-		chromedp.Flag("no-first-run", true),
-		chromedp.Flag("no-sandbox", true),
-		chromedp.Flag("remote-debugging-address", cfg.RemoteDebuggingAddr),
-		chromedp.Flag("remote-debugging-port", cfg.RemoteDebuggingPort),
-		chromedp.UserDataDir(cfg.UserDataDir),
+	cmd := exec.CommandContext(ctx, cfg.ExecPath,
+		"--disable-gpu",
+		"--disable-dev-shm-usage",
+		"--headless",
+		"--hide-scrollbars",
+		"--mute-audio",
+		"--no-default-browser-check",
+		"--no-first-run",
+		"--no-sandbox",
+		fmt.Sprintf("--remote-debugging-address=127.0.0.1"),
+		fmt.Sprintf("--remote-debugging-port=%d", cfg.RemoteDebuggingPort),
+		fmt.Sprintf("--user-data-dir=%s", cfg.UserDataDir),
 	)
-	if cfg.ExecPath != "" {
-		opts = append(opts, chromedp.ExecPath(cfg.ExecPath))
+	cmd.Env = append(os.Environ(), fmt.Sprintf("TMPDIR=%s", cfg.UserDataDir))
+	cmd.Stdout = &logWriter{stream: "browser", emitter: logEmitter}
+	cmd.Stderr = &logWriter{stream: "browser", emitter: logEmitter}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("browser: start chrome: %w", err)
 	}
 
-	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, opts...)
+	// Observe unexpected exits.
+	go func() {
+		if waitErr := cmd.Wait(); waitErr != nil {
+			logEmitter.Publish(LogEvent{
+				Stream:    "browser",
+				Line:      fmt.Sprintf("chrome exited unexpectedly: %v", waitErr),
+				Timestamp: time.Now().UTC(),
+			})
+		}
+	}()
 
-	logFunc := func(format string, args ...interface{}) {
-		logEmitter.Publish(LogEvent{
-			Stream:    "chromedp",
-			Line:      fmt.Sprintf(format, args...),
-			Timestamp: time.Now().UTC(),
-		})
-	}
+	remoteAllocatorCtx, cancelAllocator := chromedp.NewRemoteAllocator(ctx, fmt.Sprintf("ws://127.0.0.1:%d/devtools/browser", cfg.RemoteDebuggingPort))
+	browserCtx, cancelCtx := chromedp.NewContext(remoteAllocatorCtx)
 
-	browserCtx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(logFunc))
-
-	// Prime the browser process.
-	if err := chromedp.Run(browserCtx); err != nil {
-		cancel()
-		allocCancel()
-		return nil, fmt.Errorf("browser: start: %w", err)
-	}
-
-	// Enable network domain for cookie/profile operations.
 	if err := chromedp.Run(browserCtx, network.Enable()); err != nil {
-		cancel()
-		allocCancel()
+		cancelCtx()
+		cancelAllocator()
+		_ = cmd.Process.Kill()
 		return nil, fmt.Errorf("browser: enable network: %w", err)
 	}
 
 	devtools, err := probeDevTools(cfg.RemoteDebuggingPort)
 	if err != nil {
-		cancel()
-		allocCancel()
+		cancelCtx()
+		cancelAllocator()
+		_ = cmd.Process.Kill()
 		return nil, err
 	}
 
-	b := &Browser{
-		cfg:         cfg,
-		allocCtx:    allocCtx,
-		allocCancel: allocCancel,
-		ctx:         browserCtx,
-		cancel:      cancel,
-		log:         logEmitter,
-		devtools:    devtools,
+	combinedCancel := func() {
+		cancelCtx()
+		cancelAllocator()
 	}
 
-	b.publish("agent", fmt.Sprintf("headless browser ready (devtools port %d)", cfg.RemoteDebuggingPort))
+	b := &Browser{
+		cfg:                cfg,
+		chrome:             cmd,
+		ctx:                browserCtx,
+		cancel:             combinedCancel,
+		log:                logEmitter,
+		devtools:           devtools,
+		port:               cfg.RemoteDebuggingPort,
+		userDataDir:        cfg.UserDataDir,
+		cleanupUserDataDir: cleanupUserDataDir,
+	}
+
+	b.publish("agent", fmt.Sprintf("headless browser ready (exec=%s, devtools 127.0.0.1:%d, profile=%s)", cfg.ExecPath, cfg.RemoteDebuggingPort, cfg.UserDataDir))
 	return b, nil
 }
 
 // Close tears down the browser process and resources.
 func (b *Browser) Close() {
 	b.cancel()
-	b.allocCancel()
+	if b.chrome != nil && b.chrome.Process != nil {
+		_ = b.chrome.Process.Kill()
+		_, _ = b.chrome.Process.Wait()
+	}
+	if b.cleanupUserDataDir && b.userDataDir != "" {
+		_ = os.RemoveAll(b.userDataDir)
+	}
 	b.log.Close()
+}
+
+// Port exposes the DevTools port. Useful for observability/proxying.
+func (b *Browser) Port() int {
+	return b.port
+}
+
+func allocateFreePort() (int, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer listener.Close()
+	addr := listener.Addr().(*net.TCPAddr)
+	return addr.Port, nil
 }
 
 // DevToolsInfo returns debugging metadata.
@@ -802,4 +845,28 @@ func truncateForLog(input string, limit int) string {
 		return input[:limit]
 	}
 	return input[:limit-3] + "..."
+}
+
+// logWriter bridges Chrome's stdout/stderr into the logEmitter.
+type logWriter struct {
+	stream  string
+	emitter *logEmitter
+}
+
+func (w *logWriter) Write(p []byte) (int, error) {
+	if w == nil || w.emitter == nil {
+		return len(p), nil
+	}
+	lines := strings.Split(string(p), "\n")
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		w.emitter.Publish(LogEvent{
+			Stream:    w.stream,
+			Line:      line,
+			Timestamp: time.Now().UTC(),
+		})
+	}
+	return len(p), nil
 }

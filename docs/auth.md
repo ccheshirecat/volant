@@ -1,3 +1,8 @@
+---
+title: Authentication
+description: API access control and security
+---
+
 # API Access Control (Draft)
 
 ## Objectives

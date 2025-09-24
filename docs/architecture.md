@@ -1,114 +1,94 @@
+---
+title: Architecture
+description: System architecture and component overview
+---
+
 # Architecture Overview
 
-## System Components
-- **viper-server**: Native orchestrator responsible for lifecycle management of Cloud Hypervisor microVMs, static IP allocation, and API exposure (REST, MCP, AG-UI).
-- **viper-agent**: In-VM Go service that proxies browser automation commands to a headless Chrome (chromedp/headless-shell) instance, exposes CDP forwarding, and persists artifacts.
-- **VM Image Pipeline**: Docker → initramfs build that assembles the Chrome runtime, custom `/bin/viper-init`, and agent binary into bootable artifacts.
-- **Client Tooling**: Dual-mode `viper` CLI (Cobra) and interactive Bubble Tea TUI providing human and automation entry points.
+## Core Systems
 
-## Control Flow Summary
-1. **VM Creation**
-   - REST/MCP request hits `viper-server`.
-   - Server begins SQLite transaction, leases deterministic IP, and persists VM metadata.
-   - Engine launches Cloud Hypervisor process with kernel/initramfs and static IP embedded in kernel cmdline.
-   - Event bus broadcasts VM lifecycle event for TUI, AG-UI, and other subscribers.
+### viper-server
+- Embedded orchestrator written in Go.
+- Owns lifecycle of Cloud Hypervisor microVMs (create, monitor, destroy).
+- Maintains authoritative state in SQLite (`~/.viper/state.db`).
+- Exposes REST, MCP (`POST /api/mcp`), and AG-UI (`GET /ws/v1/agui`) surfaces.
+- Houses the DevTools proxy (`/api/v1/vms/{name}/agent`) so clients never hit guest IPs directly.
 
-2. **In-VM Boot**
-   - Kernel executes `/bin/viper-init` which mounts virtual filesystems, parses `ip=` from `/proc/cmdline`, configures `eth0`, and `exec`s `viper-agent`.
-   - Agent launches headless Chrome, exposes REST+CDP endpoints.
+### viper-agent
+- Runs inside each microVM as PID 1 after `/bin/viper-init` hands off.
+- Launches headless Chrome with a per-instance user-data dir and devtools port.
+- Presents REST endpoints that mirror browser automation primitives.
+- Streams logs/artifacts back via the control plane proxy.
+- Observability: structured logs, exit watchdog, metrics hooks (roadmap).
 
-3. **Task Execution**
-   - CLI/TUI/MCP actions proxy through `viper-server` to the agent (`/v1/vms/{name}/agent`).
-   - Results, logs, and artifacts stream back through the proxy and event bus.
+### Image Pipeline
+- `build/images/build-initramfs.sh` builds a Docker image with chrome + agent + `viper-init`.
+- Exports `vmlinux` and `viper-initramfs.cpio.gz` for the orchestrator.
+- Make target `build-images` fixes checksums and ensures artifacts exist.
 
-4. **Teardown**
-   - Destroy request terminates Cloud Hypervisor process, updates state, and releases IP within the same SQLite transaction.
+### Client Surfaces
+- CLI (`cmd/viper`): Cobra commands for automation and `cobra` friendly UX.
+- TUI: Bubble Tea app connecting through REST/SSE for real-time status.
+- Programmatic: REST, MCP, AG-UI, and DevTools proxy over HTTP/WebSockets.
 
-## Persistence
-- Embedded SQLite at `$HOME/.viper/state.db` managed via the in-process `sqlite` store (`internal/server/db/sqlite`) using the CGO-backed `github.com/mattn/go-sqlite3` driver.
-- Go-embedded migrations execute sequentially at boot, recording state in `schema_migrations` for deterministic upgrades.
-- Typed repositories provide CRUD and lifecycle helpers:
-  - `VirtualMachines()` handles creation, runtime status updates (PID/status), kernel cmdline updates, and deletion.
-  - `IPAllocations()` manages pool seeding (`EnsurePool`), deterministic leasing, VM assignment, and release semantics.
-- Core tables:
-  - `vms(id, name, status, pid, ip_address, cpu_cores, memory_mb, created_at, updated_at)`
-  - `ip_allocations(ip_address PRIMARY KEY, vm_id NULLABLE, status, leased_at)`
-  - `workloads(... TBD ...)`
-  - `plugins(... TBD ...)`
-- `Store.WithTx` coordinates transactional workflows so IP leases and VM lifecycle mutations commit atomically.
+## Control Plane Lifecycle
 
-## Orchestrator Engine (Current State)
-- `internal/server/orchestrator` exposes a production engine constructor with dependency injection for `db.Store`, logging, and subnet metadata.
-- `Engine.Start` seeds the IP pool via `EnsurePool`, guaranteeing availability before servicing requests.
-- `CreateVM` performs validation, leases the next available static IP, assigns a deterministic MAC (stable hash of name+IP), persists metadata, and delegates to the runtime launcher to boot the VM. A background monitor watches the hypervisor process and marks the VM `stopped`/`crashed` while cleaning up taps and sockets.
-- `DestroyVM` tears down VM metadata and releases the associated IP in the same transaction.
-- Public queries (`ListVMs`, `GetVM`) surface persisted state ahead of REST exposure.
-- A pluggable runtime layer (`internal/server/orchestrator/runtime`) defines the launch contract; the initial `cloudhypervisor.Launcher` assembles the `cloud-hypervisor` command, manages API sockets/logs, and exposes graceful shutdown hooks.
-- Lifecycle changes emit structured events on `eventbus.Bus` (`internal/server/orchestrator/events`), enabling REST/MCP/AG-UI layers to stream `VM_CREATED`, `VM_RUNNING`, `VM_STOPPED`, and `VM_CRASHED` notifications.
+### 1. VM Creation
+1. Client issues REST/MCP call.
+2. Server begins SQLite transaction, leases next static IP, and persists VM metadata.
+3. `cloudhypervisor.Launcher` stages dedicated kernel/initramfs copies and starts `cloud-hypervisor` with static `ip=` cmdline and tap device.
+4. Event bus emits `VM_CREATED` → SSE/TUI/AG-UI listeners update immediately.
+
+### 2. Boot & Agent Initialization
+1. Kernel boots with `init=/init` (`viper-init`).
+2. `viper-init` mounts pseudo filesystems, configures networking, and supervises `viper-agent`.
+3. Agent spawns Chrome (per-instance port/profile) and announces readiness via the control plane.
+
+### 3. Task Execution
+1. All automation endpoints (`/api/v1/vms/{name}/agent/...`) tunnel through the server.
+2. Outgoing requests are signed/authorized (roadmap) and forwarded into the VM.
+3. Responses/logs are streamed back to the caller, while the event bus updates the TUI/AG-UI feed.
+
+### 4. Teardown
+1. Destroy request terminates hypervisor process.
+2. Transaction releases the IP lease and deletes VM record.
+3. Tap device and per-instance artifacts (kernel/initramfs copies, user-data dir) are removed.
+4. Event bus emits `VM_STOPPED` or `VM_CRASHED` depending on exit status.
+
+## Persistence & Data Model
+- **Database:** SQLite via `mattn/go-sqlite3`; migrations embedded and applied on boot.
+- **Tables:**
+  - `vms`: ID, name, status, PID, CPU/memory, IP, timestamps.
+  - `ip_allocations`: IP, VM association, lease metadata.
+  - `plugins`, `workloads`: reserved for extension modules.
+- **Transactions:** `Store.WithTx` ensures IP leases and VM state mutate atomically.
+- **Event Log:** In-memory publish/subscribe now; durable storage on the roadmap.
 
 ## Networking Model
-- Host bridge `viperbr0` at `192.168.127.1/24` created by `viper setup`.
-- NAT enabled via `iptables` MASQUERADE to allow outbound access.
-- MicroVMs receive static IP via kernel cmdline to avoid DHCP complexity.
-- MAC addresses generated per VM with deterministic prefix to simplify filtering.
-- `network.BridgeManager` provisions tap interfaces via `ip tuntap`/`ip link`, attaches them to the bridge, and tears them down during VM destruction. A `NoopManager` remains available for non-Linux development hosts.
+- `viper setup` creates bridge `viperbr0` (`192.168.127.1/24`) and configures NAT (iptables `MASQUERADE`).
+- MicroVMs receive static IP via kernel cmdline (`ip=a.b.c.d::gateway:netmask:hostname:eth0:off`).
+- MAC addresses derived from SHA-1 of `name|ip` to keep them deterministic.
+- `BridgeManager` provisions tap interfaces, attaches them to bridge, cleans them up on teardown.
+- DevTools ports are bound to `127.0.0.1` and proxied by the server, never exposed on the guest network.
 
-## API Layer
-- `internal/server/httpapi` uses Gin to expose REST endpoints at `/api/v1`:
-  - `GET /api/v1/vms` lists orchestrated microVMs.
-  - `POST /api/v1/vms` creates a VM (CPU/memory/cmdline payload).
-  - `GET /api/v1/vms/:name` retrieves a single VM.
-  - `DELETE /api/v1/vms/:name` destroys a VM and releases its resources.
-  - `GET /api/v1/system/status` returns system metrics (VM count, CPU/MEM placeholders).
-- `GET /api/v1/events/vms` streams lifecycle events over Server-Sent Events (SSE) sourced from the internal event bus.
-- Request/response payloads are JSON; future work will introduce authn/z, pagination, and richer error semantics.
+## API Surfaces (High-Level)
+- **REST:** `/api/v1/...` for VM lifecycle, status, logs, and agent proxy.
+- **Agent REST (proxied):** Browser navigation, DOM operations, profiles, screenshots.
+- **Events:** SSE (`/api/v1/events/vms`) + WebSocket for AG-UI.
+- **MCP:** `POST /api/mcp` maps commands (e.g., `viper.vms.create`) to orchestrator actions.
+- **AG-UI:** `GET /ws/v1/agui` streams run events for AI/UI clients.
 
-## Eventing & Protocols
-- Internal event bus fan-outs lifecycle events to:
-  - REST SSE/WebSocket endpoints for TUI.
-  - AG-UI WebSocket emitter translating internal events into protocol schema.
-  - MCP handler for AI orchestration.
-- Future work: durable event log for replay/audit.
+See the dedicated API reference section for the full OpenAPI spec and protocol schemas.
 
-## TUI Architecture
-The interactive TUI (`internal/cli/tui`) is built with Bubble Tea and its ecosystem (bubbles, lipgloss) for a multi-pane "God Mode" dashboard. It maintains a stateful connection to the viper-server via the client package for REST and SSE.
+## Observability
+- Structured logging via `log/slog` on the server, channeled into SSE and AG-UI.
+- Agent anonymized logs forwarded through the server (captured from Chrome stdout/stderr).
+- Event bus instrumentation on the roadmap (Prometheus/OpenTelemetry exporters).
+- TUI surfaces live VM/log streams; API exposes `/api/v1/system/status` for health.
 
-### Layout and Components
-- **Header Pane**: Polls `/api/v1/system/status` every 5s for live metrics (VM count, CPU/MEM %). Styled with lipgloss for status bar.
-- **VM List Pane**: Uses `bubbles/list` for selectable VM items (name, status, IP, CPU/MEM). Initial data from `GET /api/v1/vms`; updates on SSE events via `WatchVMEvents`.
-- **Log Viewer Pane**: `bubbles/viewport` for scrolling real-time logs from SSE events (timestamp, type, message). Appends new lines, limits to 100.
-- **Command Input Pane**: `bubbles/textinput` for command entry (e.g., "vms create my-vm"). Supports tab to switch panes, enter to execute (parses to REST calls like CreateVM), history placeholder.
+## Extensibility
+- Pluggable runtime interface allows future hypervisors or container back-ends.
+- MCP/AG-UI command adapters open protocol integration with AI systems.
+- Planned plugin system (stored in `plugins` table) for workload automation modules.
 
-### Data Flow
-- **Initialization**: Fetches VMs and status, starts SSE stream, tick for polling.
-- **Updates**: SSE events trigger VM refresh and log append; tick refreshes status/VMs.
-- **Interaction**: Key bindings (tab/enter/up/down/q) for navigation/execution. Commands proxy to REST (e.g., create VM emits event for live update).
-- **Error Handling**: Displays errors in view; stream closure noted.
-
-### TUI Data Flow Diagram
-```mermaid
-graph LR
-    A[viper-server Event Bus: VM Events] --> B[SSE /api/v1/events/vms]
-    A --> C[REST /api/v1/system/status Poll]
-    D[TUI Model: Init] --> E[client.ListVMs GET]
-    D --> F[client.GetSystemStatus Poll]
-    D --> G[client.WatchVMEvents SSE]
-    G --> H[Event Ch → vmEventMsg → Log Append + VM Refresh]
-    F --> I[systemStatusMsg → Header Update]
-    E --> J[vmListMsg → bubbles/list Items]
-    K[Command Input: Enter] --> L[Parse → client.CreateVM POST]
-    L --> M[Event Emit → SSE Update]
-    M --> H
-```
-
-## Security & Observability (Preview)
-- Authn/z layer to be defined (API tokens or mutual TLS) before release.
-- Structured logging via `log/slog`; metrics/exporters to be added (Prometheus/OpenTelemetry).
-- Agent-server communication constrained to private subnet; host firewall rules enforced by installer.
-
-## Open Questions
-- Migration tooling selection (golang-migrate vs. sqlc w/ migrations?).
-- Artifact distribution strategy for kernel/initramfs (local cache vs. remote registry).
-- Secret management for profile injection (encryption at rest, retrieval flows).
-
-This document evolves alongside implementation milestones; keep it updated as contracts solidify.
+Keep this page current as implementation evolves; treat it as the canonical blueprint for Viper operators and contributors.
