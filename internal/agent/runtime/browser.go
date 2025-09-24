@@ -14,20 +14,22 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
 	cpruntime "github.com/chromedp/cdproto/runtime"
+	"github.com/chromedp/cdproto/storage"
 	"github.com/chromedp/chromedp"
 )
 
 const (
-	defaultRemoteAddr         = "0.0.0.0"
-	defaultRemotePort         = 9222
+	DefaultRemoteAddr         = "0.0.0.0"
+	DefaultRemotePort         = 9222
 	defaultUserDataDirName    = "viper-agent-data"
 	defaultExecPath           = "/usr/bin/headless-shell"
-	defaultActionTimeout      = 60 * time.Second
+	DefaultActionTimeout      = 60 * time.Second
 	devtoolsProbeRetryBackoff = 250 * time.Millisecond
 	devtoolsProbeAttempts     = 20
 )
@@ -86,10 +88,10 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 
 	cfg.RemoteDebuggingAddr = strings.TrimSpace(cfg.RemoteDebuggingAddr)
 	if cfg.RemoteDebuggingAddr == "" {
-		cfg.RemoteDebuggingAddr = defaultRemoteAddr
+		cfg.RemoteDebuggingAddr = DefaultRemoteAddr
 	}
 	if cfg.RemoteDebuggingPort == 0 {
-		cfg.RemoteDebuggingPort = defaultRemotePort
+		cfg.RemoteDebuggingPort = DefaultRemotePort
 	}
 
 	if cfg.UserDataDir == "" {
@@ -111,7 +113,7 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 	}
 
 	if cfg.DefaultTimeout <= 0 {
-		cfg.DefaultTimeout = defaultActionTimeout
+		cfg.DefaultTimeout = DefaultActionTimeout
 	}
 
 	logEmitter := newLogEmitter()
@@ -217,7 +219,8 @@ func (b *Browser) Navigate(timeout time.Duration, url string) error {
 // Reload refreshes the current page.
 func (b *Browser) Reload(timeout time.Duration, ignoreCache bool) error {
 	return b.run(timeout, "reload", "Reloading current page", func(ctx context.Context) (string, error) {
-		if err := chromedp.Run(ctx, chromedp.Reload(ignoreCache)); err != nil {
+		action := page.Reload().WithIgnoreCache(ignoreCache)
+		if err := action.Do(ctx); err != nil {
 			return "", err
 		}
 		return "reload completed", nil
@@ -267,7 +270,7 @@ func (b *Browser) SetUserAgent(timeout time.Duration, ua, acceptLanguage, platfo
 		return errors.New("user agent must not be empty")
 	}
 	return b.run(timeout, "set_user_agent", fmt.Sprintf("Setting user agent: %s", ua), func(ctx context.Context) (string, error) {
-		params := network.SetUserAgentOverride(ua)
+		params := emulation.SetUserAgentOverride(ua)
 		if acceptLanguage != "" {
 			params = params.WithAcceptLanguage(acceptLanguage)
 		}
@@ -281,159 +284,41 @@ func (b *Browser) SetUserAgent(timeout time.Duration, ua, acceptLanguage, platfo
 	})
 }
 
-// Click performs a click on the provided selector.
-func (b *Browser) Click(timeout time.Duration, selector, button string) error {
-	if selector == "" {
-		return errors.New("selector required")
-	}
-	btn := input.ButtonLeft
-	switch strings.ToLower(button) {
-	case "middle":
-		btn = input.ButtonMiddle
-	case "right":
-		btn = input.ButtonRight
-	case "", "left":
-	default:
-		return fmt.Errorf("unsupported button %q", button)
-	}
-
-	return b.run(timeout, "click", fmt.Sprintf("Clicking %s (%s button)", selector, btn), func(ctx context.Context) (string, error) {
-		actions := chromedp.Tasks{
-			chromedp.WaitVisible(selector, chromedp.ByQuery),
-			chromedp.Click(selector, chromedp.ByQuery, chromedp.Button(btn)),
-		}
-		if err := chromedp.Run(ctx, actions); err != nil {
-			return "", err
-		}
-		return "click dispatched", nil
-	})
-}
-
-// Type sends keystrokes to the element referenced by selector.
-func (b *Browser) Type(timeout time.Duration, selector, value string, clear bool) error {
-	if selector == "" {
-		return errors.New("selector required")
-	}
-	return b.run(timeout, "type", fmt.Sprintf("Typing into %s", selector), func(ctx context.Context) (string, error) {
-		tasks := chromedp.Tasks{
-			chromedp.WaitVisible(selector, chromedp.ByQuery),
-			chromedp.Focus(selector, chromedp.ByQuery),
-		}
-		if clear {
-			tasks = append(tasks, chromedp.Clear(selector, chromedp.ByQuery))
-		}
-		tasks = append(tasks, chromedp.SendKeys(selector, value, chromedp.ByQuery))
-		if err := chromedp.Run(ctx, tasks); err != nil {
-			return "", err
-		}
-		return "text entry complete", nil
-	})
-}
-
-// GetText returns the text content of the selector.
-func (b *Browser) GetText(timeout time.Duration, selector string, visible bool) (string, error) {
-	if selector == "" {
-		return "", errors.New("selector required")
-	}
-	var text string
-	err := b.run(timeout, "get_text", fmt.Sprintf("Reading text from %s", selector), func(ctx context.Context) (string, error) {
-		action := chromedp.Text(selector, &text, chromedp.ByQuery)
-		if visible {
-			action = chromedp.Text(selector, &text, chromedp.ByQuery, chromedp.NodeVisible)
-		}
-		if err := chromedp.Run(ctx, action); err != nil {
-			return "", err
-		}
-		return "text captured", nil
-	})
-	return text, err
-}
-
-// GetHTML returns the inner HTML of the selector.
-func (b *Browser) GetHTML(timeout time.Duration, selector string) (string, error) {
-	if selector == "" {
-		return "", errors.New("selector required")
-	}
-	var html string
-	err := b.run(timeout, "get_html", fmt.Sprintf("Retrieving HTML from %s", selector), func(ctx context.Context) (string, error) {
-		if err := chromedp.Run(ctx, chromedp.InnerHTML(selector, &html, chromedp.ByQuery)); err != nil {
-			return "", err
-		}
-		return "html captured", nil
-	})
-	return html, err
-}
-
-// GetAttribute returns the value of a DOM attribute.
-func (b *Browser) GetAttribute(timeout time.Duration, selector, name string) (string, bool, error) {
-	if selector == "" || name == "" {
-		return "", false, errors.New("selector and attribute name required")
-	}
-	var value string
-	var ok bool
-	err := b.run(timeout, "get_attribute", fmt.Sprintf("Reading attribute %s from %s", name, selector), func(ctx context.Context) (string, error) {
-		if err := chromedp.Run(ctx, chromedp.AttributeValue(selector, name, &value, &ok, chromedp.ByQuery)); err != nil {
-			return "", err
-		}
-		if ok {
-			return "attribute captured", nil
-		}
-		return "attribute not present", nil
-	})
-	return value, ok, err
-}
-
-// WaitForSelector waits for a selector to be visible or ready.
-func (b *Browser) WaitForSelector(timeout time.Duration, selector string, visible bool) error {
-	if selector == "" {
-		return errors.New("selector required")
-	}
-	actionLabel := "ready"
-	if visible {
-		actionLabel = "visible"
-	}
-	return b.run(timeout, "wait_for_selector", fmt.Sprintf("Waiting for %s to become %s", selector, actionLabel), func(ctx context.Context) (string, error) {
-		var err error
-		if visible {
-			err = chromedp.Run(ctx, chromedp.WaitVisible(selector, chromedp.ByQuery))
-		} else {
-			err = chromedp.Run(ctx, chromedp.WaitReady(selector, chromedp.ByQuery))
-		}
-		if err != nil {
-			return "", err
-		}
-		return "selector satisfied", nil
-	})
-}
-
 // WaitForNavigation blocks until the current navigation finishes loading.
 func (b *Browser) WaitForNavigation(timeout time.Duration) error {
 	return b.run(timeout, "wait_for_navigation", "Waiting for navigation to complete", func(ctx context.Context) (string, error) {
-		done := make(chan struct{}, 1)
-		cancelListener := chromedp.ListenTarget(ctx, func(ev interface{}) {
-			switch ev.(type) {
-			case *page.EventLoadEventFired, *page.EventDOMContentEventFired:
+		listener := make(chan struct{}, 1)
+		lctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		chromedp.ListenTarget(lctx, func(ev any) {
+			switch evt := ev.(type) {
+			case *page.EventLifecycleEvent:
+				if evt.Name == "DOMContentLoaded" || evt.Name == "load" {
+					select {
+					case listener <- struct{}{}:
+					default:
+					}
+				}
+			case *page.EventLoadEventFired, *page.EventDomContentEventFired, *page.EventNavigatedWithinDocument, *page.EventFrameNavigated:
 				select {
-				case done <- struct{}{}:
+				case listener <- struct{}{}:
 				default:
 				}
 			}
 		})
-		defer cancelListener()
+
+		timer := time.NewTimer(b.timeout(timeout))
+		defer timer.Stop()
 
 		select {
-		case <-done:
+		case <-listener:
 			return "navigation finished", nil
-		case <-time.After(200 * time.Millisecond):
-			// Fallback to explicit readiness check if we did not observe an event promptly.
+		case <-timer.C:
+			return "", errors.New("navigation timed out")
 		case <-ctx.Done():
 			return "", ctx.Err()
 		}
-
-		if err := chromedp.Run(ctx, chromedp.WaitReady("body", chromedp.ByQuery)); err != nil {
-			return "", err
-		}
-		return "document ready", nil
 	})
 }
 
@@ -491,12 +376,15 @@ func (b *Browser) Screenshot(timeout time.Duration, fullPage bool, format string
 				}
 
 				if fullPage {
-					metrics, err := page.GetLayoutMetrics().Do(ctx)
+					_, _, _, _, _, cssContent, err := page.GetLayoutMetrics().Do(ctx)
 					if err != nil {
 						return err
 					}
-					width := metrics.ContentSize.Width
-					height := metrics.ContentSize.Height
+					if cssContent == nil {
+						return errors.New("browser: css content metrics unavailable")
+					}
+					width := cssContent.Width
+					height := cssContent.Height
 					params = params.WithClip(&page.Viewport{
 						X:      0,
 						Y:      0,
@@ -531,7 +419,7 @@ func (b *Browser) SetCookies(timeout time.Duration, cookies []*network.CookiePar
 			}
 			return "cleared cookies", nil
 		}
-		if err := network.SetCookies(cookies...).Do(ctx); err != nil {
+		if err := network.SetCookies(cookies).Do(ctx); err != nil {
 			return "", err
 		}
 		return "cookies applied", nil
@@ -542,7 +430,7 @@ func (b *Browser) SetCookies(timeout time.Duration, cookies []*network.CookiePar
 func (b *Browser) GetCookies(timeout time.Duration) ([]*network.Cookie, error) {
 	var cookies []*network.Cookie
 	err := b.run(timeout, "get_cookies", "Retrieving cookies", func(ctx context.Context) (string, error) {
-		response, err := network.GetAllCookies().Do(ctx)
+		response, err := storage.GetCookies().Do(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -602,6 +490,150 @@ func (b *Browser) GetStorage(timeout time.Duration) (StoragePayload, error) {
 		return fmt.Sprintf("storage extracted (local=%d, session=%d)", len(result.Local), len(result.Session)), nil
 	})
 	return result, err
+}
+
+// Click dispatches a mouse click event to a specific element.
+func (b *Browser) Click(timeout time.Duration, selector, button string) error {
+	if selector == "" {
+		return errors.New("selector required")
+	}
+	btn := strings.ToLower(button)
+	switch btn {
+	case "", "left":
+		btn = "left"
+	case "middle", "right":
+	default:
+		return fmt.Errorf("unsupported button %q", button)
+	}
+
+	return b.run(timeout, "click", fmt.Sprintf("Clicking %s (%s button)", selector, btn), func(ctx context.Context) (string, error) {
+		actions := chromedp.Tasks{chromedp.WaitVisible(selector, chromedp.ByQuery)}
+		if btn == "left" {
+			actions = append(actions, chromedp.Click(selector, chromedp.ByQuery))
+		} else {
+			var nodes []*cdp.Node
+			actions = append(actions,
+				chromedp.Nodes(selector, &nodes, chromedp.ByQuery, chromedp.NodeVisible),
+				chromedp.ActionFunc(func(ctx context.Context) error {
+					if len(nodes) == 0 {
+						return fmt.Errorf("selector %s did not resolve to a node", selector)
+					}
+
+					var opts []chromedp.MouseOption
+					switch btn {
+					case "middle":
+						opts = append(opts, chromedp.ButtonType(input.Middle))
+					case "right":
+						opts = append(opts, chromedp.ButtonType(input.Right))
+					}
+
+					return chromedp.MouseClickNode(nodes[0], opts...).Do(ctx)
+				}),
+			)
+		}
+
+		if err := chromedp.Run(ctx, actions); err != nil {
+			return "", err
+		}
+		return "click dispatched", nil
+	})
+}
+
+// Type writes text into a specific element.
+func (b *Browser) Type(timeout time.Duration, selector, value string, clear bool) error {
+	if selector == "" {
+		return errors.New("selector required")
+	}
+	return b.run(timeout, "type", fmt.Sprintf("Typing into %s", selector), func(ctx context.Context) (string, error) {
+		tasks := chromedp.Tasks{
+			chromedp.WaitVisible(selector, chromedp.ByQuery),
+			chromedp.Focus(selector, chromedp.ByQuery),
+		}
+		if clear {
+			tasks = append(tasks, chromedp.Clear(selector, chromedp.ByQuery))
+		}
+		tasks = append(tasks, chromedp.SendKeys(selector, value, chromedp.ByQuery))
+		if err := chromedp.Run(ctx, tasks); err != nil {
+			return "", err
+		}
+		return "text entry complete", nil
+	})
+}
+
+// GetText retrieves the text content of a specific element.
+func (b *Browser) GetText(timeout time.Duration, selector string, visible bool) (string, error) {
+	if selector == "" {
+		return "", errors.New("selector required")
+	}
+	var text string
+	err := b.run(timeout, "get_text", fmt.Sprintf("Reading text from %s", selector), func(ctx context.Context) (string, error) {
+		action := chromedp.Text(selector, &text, chromedp.ByQuery)
+		if visible {
+			action = chromedp.Text(selector, &text, chromedp.ByQuery, chromedp.NodeVisible)
+		}
+		if err := chromedp.Run(ctx, action); err != nil {
+			return "", err
+		}
+		return "text captured", nil
+	})
+	return text, err
+}
+
+// GetHTML retrieves the HTML content of a specific element.
+func (b *Browser) GetHTML(timeout time.Duration, selector string) (string, error) {
+	if selector == "" {
+		return "", errors.New("selector required")
+	}
+	var html string
+	err := b.run(timeout, "get_html", fmt.Sprintf("Retrieving HTML from %s", selector), func(ctx context.Context) (string, error) {
+		if err := chromedp.Run(ctx, chromedp.InnerHTML(selector, &html, chromedp.ByQuery)); err != nil {
+			return "", err
+		}
+		return "html captured", nil
+	})
+	return html, err
+}
+
+// GetAttribute retrieves the value of a specific attribute from an element.
+func (b *Browser) GetAttribute(timeout time.Duration, selector, name string) (string, bool, error) {
+	if selector == "" || name == "" {
+		return "", false, errors.New("selector and attribute name required")
+	}
+	var value string
+	var ok bool
+	err := b.run(timeout, "get_attribute", fmt.Sprintf("Reading attribute %s from %s", name, selector), func(ctx context.Context) (string, error) {
+		if err := chromedp.Run(ctx, chromedp.AttributeValue(selector, name, &value, &ok, chromedp.ByQuery)); err != nil {
+			return "", err
+		}
+		if ok {
+			return "attribute captured", nil
+		}
+		return "attribute not present", nil
+	})
+	return value, ok, err
+}
+
+// WaitForSelector waits for a specific element to become visible or ready.
+func (b *Browser) WaitForSelector(timeout time.Duration, selector string, visible bool) error {
+	if selector == "" {
+		return errors.New("selector required")
+	}
+	actionLabel := "ready"
+	if visible {
+		actionLabel = "visible"
+	}
+	return b.run(timeout, "wait_for_selector", fmt.Sprintf("Waiting for %s to become %s", selector, actionLabel), func(ctx context.Context) (string, error) {
+		var err error
+		if visible {
+			err = chromedp.Run(ctx, chromedp.WaitVisible(selector, chromedp.ByQuery))
+		} else {
+			err = chromedp.Run(ctx, chromedp.WaitReady(selector, chromedp.ByQuery))
+		}
+		if err != nil {
+			return "", err
+		}
+		return "selector satisfied", nil
+	})
 }
 
 // timeout normalises supplied durations against the configured default.
@@ -721,12 +753,12 @@ func decodeRemoteObject(obj *cpruntime.RemoteObject) (interface{}, error) {
 		return nil, nil
 	}
 	switch obj.Type {
-	case cpruntime.TypeUndefined, cpruntime.TypeNull:
+	case cpruntime.TypeUndefined:
 		return nil, nil
-	case cpruntime.TypeString, cpruntime.TypeBoolean, cpruntime.TypeNumber:
+	case cpruntime.TypeString, cpruntime.TypeBoolean, cpruntime.TypeNumber, cpruntime.TypeBigint:
 		return obj.Value, nil
 	case cpruntime.TypeObject:
-		if obj.Subtype == cpruntime.ObjectSubtypeNull {
+		if obj.Subtype == cpruntime.SubtypeNull {
 			return nil, nil
 		}
 		if obj.Value != nil {

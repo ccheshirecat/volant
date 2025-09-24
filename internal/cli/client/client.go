@@ -86,6 +86,15 @@ type VMLogEvent struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+type DevToolsInfo struct {
+	WebSocketURL   string `json:"websocket_url"`
+	WebSocketPath  string `json:"websocket_path"`
+	BrowserVersion string `json:"browser_version"`
+	UserAgent      string `json:"user_agent"`
+	Address        string `json:"address"`
+	Port           int    `json:"port"`
+}
+
 func (c *Client) ListVMs(ctx context.Context) ([]VM, error) {
 	req, err := c.newRequest(ctx, http.MethodGet, "/api/v1/vms", nil)
 	if err != nil {
@@ -247,6 +256,65 @@ func (c *Client) WatchVMLogs(ctx context.Context, name string, handler func(VMLo
 	}
 }
 
+func (c *Client) AgentRequest(ctx context.Context, vmName, method, path string, body any, out any) error {
+	if strings.TrimSpace(vmName) == "" {
+		return fmt.Errorf("client: vm name required")
+	}
+	if method == "" {
+		method = http.MethodGet
+	}
+	if path == "" {
+		path = "/"
+	}
+	var rawQuery string
+	if idx := strings.Index(path, "?"); idx >= 0 {
+		rawQuery = path[idx+1:]
+		path = path[:idx]
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	basePath := fmt.Sprintf("/api/v1/vms/%s/agent%s", url.PathEscape(vmName), path)
+
+	resolved := c.baseURL.ResolveReference(&url.URL{
+		Path:     basePath,
+		RawQuery: rawQuery,
+	})
+
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			return fmt.Errorf("client: encode body: %w", err)
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, resolved.String(), &buf)
+	if err != nil {
+		return fmt.Errorf("client: agent request: %w", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	return c.do(req, out)
+}
+
+func (c *Client) GetAgentDevTools(ctx context.Context, vmName string) (*DevToolsInfo, error) {
+	var info DevToolsInfo
+	if err := c.AgentRequest(ctx, vmName, http.MethodGet, "/v1/devtools", nil, &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
+func (c *Client) BaseURL() *url.URL {
+	if c.baseURL == nil {
+		return nil
+	}
+	clone := *c.baseURL
+	return &clone
+}
+
 func (c *Client) newRequest(ctx context.Context, method, path string, body any) (*http.Request, error) {
 	resolved := c.baseURL.ResolveReference(&url.URL{Path: path})
 	var buf bytes.Buffer
@@ -294,7 +362,7 @@ func (c *Client) do(req *http.Request, out any) error {
 
 // SystemStatus represents the system metrics.
 type SystemStatus struct {
-	VMCount int `json:"vm_count"`
+	VMCount int     `json:"vm_count"`
 	CPU     float64 `json:"cpu_percent"`
 	MEM     float64 `json:"mem_percent"`
 }

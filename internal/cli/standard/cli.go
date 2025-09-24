@@ -12,21 +12,22 @@ func Execute() error {
 }
 
 func newRootCmd() *cobra.Command {
-    cmd := &cobra.Command{
-        Use:   "viper",
-        Short: "Viper command-line interface",
-        Long:  "Viper CLI provides access to the orchestrator, browser agents, and tooling.",
-        RunE: func(cmd *cobra.Command, args []string) error {
-            return cmd.Help()
-        },
-    }
+	cmd := &cobra.Command{
+		Use:   "viper",
+		Short: "Viper command-line interface",
+		Long:  "Viper CLI provides access to the orchestrator, browser agents, and tooling.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+	}
 
-    cmd.PersistentFlags().StringP("api", "a", envOrDefault("VIPER_API_BASE", "http://127.0.0.1:7777"), "viper-server base URL")
+	cmd.PersistentFlags().StringP("api", "a", envOrDefault("VIPER_API_BASE", "http://127.0.0.1:7777"), "viper-server base URL")
 
-    cmd.AddCommand(newVersionCmd())
-    cmd.AddCommand(newVMsCmd())
-    cmd.AddCommand(newSetupCmd())
-    return cmd
+	cmd.AddCommand(newVersionCmd())
+	cmd.AddCommand(newVMsCmd())
+	cmd.AddCommand(newBrowsersCmd())
+	cmd.AddCommand(newSetupCmd())
+	return cmd
 }
 
 func newVersionCmd() *cobra.Command {
