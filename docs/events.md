@@ -1,11 +1,11 @@
 ---
 title: "Event Streaming"
-description: "SSE and WebSocket event feeds for Viper."
+description: "SSE and WebSocket event feeds for Overhyped."
 ---
 
 # Event Streaming
 
-Viper provides multiple real-time feeds for lifecycle and log data.
+Overhyped provides multiple real-time feeds for lifecycle and log data.
 
 ## Server-Sent Events (SSE)
 
@@ -51,7 +51,7 @@ GET /ws/v1/vms/{name}/devtools/
 ```
 
 - Proxies Chrome DevTools Protocol WebSocket to local clients.
-- Use with `viper browsers proxy` for local debugging.
+- Use with `hype browsers proxy` for local debugging.
 
 ## Event Bus
 

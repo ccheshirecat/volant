@@ -21,11 +21,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"github.com/ccheshirecat/viper/internal/protocol/agui"
-	"github.com/ccheshirecat/viper/internal/server/db"
-	"github.com/ccheshirecat/viper/internal/server/eventbus"
-	"github.com/ccheshirecat/viper/internal/server/orchestrator"
-	orchestratorevents "github.com/ccheshirecat/viper/internal/server/orchestrator/events"
+	"github.com/ccheshirecat/overhyped/internal/protocol/agui"
+	"github.com/ccheshirecat/overhyped/internal/server/db"
+	"github.com/ccheshirecat/overhyped/internal/server/eventbus"
+	"github.com/ccheshirecat/overhyped/internal/server/orchestrator"
+	orchestratorevents "github.com/ccheshirecat/overhyped/internal/server/orchestrator/events"
 )
 
 const (
@@ -51,12 +51,12 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus) http
 	r.Use(gin.Recovery())
 	r.Use(requestLogger(logger))
 
-	if cidr := os.Getenv("VIPER_API_ALLOW_CIDR"); cidr != "" {
+	if cidr := os.Getenv("OVERHYPED_API_ALLOW_CIDR"); cidr != "" {
 		allowList := strings.Split(cidr, ",")
 		r.Use(ipFilterMiddleware(logger, allowList))
 	}
 
-	if apiKey := os.Getenv("VIPER_API_KEY"); apiKey != "" {
+	if apiKey := os.Getenv("OVERHYPED_API_KEY"); apiKey != "" {
 		r.Use(apiKeyMiddleware(apiKey))
 	}
 
@@ -158,7 +158,7 @@ func ipFilterMiddleware(logger *slog.Logger, cidrs []string) gin.HandlerFunc {
 
 func apiKeyMiddleware(expected string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		provided := c.GetHeader("X-Viper-API-Key")
+		provided := c.GetHeader("X-Overhyped-API-Key")
 		if provided == "" {
 			provided = c.Query("api_key")
 		}
@@ -388,7 +388,7 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 	var err error
 
 	switch req.Command {
-	case "viper.vms.list":
+	case "hype.vms.list":
 		vms, e := api.engine.ListVMs(ctx)
 		if e != nil {
 			err = e
@@ -406,7 +406,7 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 			}
 			result = vmList
 		}
-	case "viper.vms.create":
+	case "hype.vms.create":
 		name, ok := req.Params["name"].(string)
 		if !ok {
 			err = fmt.Errorf("name param required")
@@ -436,11 +436,11 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 				})
 			}
 		}
-	case "viper.system.get_capabilities":
+	case "hype.system.get_capabilities":
 		result = map[string]interface{}{
 			"capabilities": []map[string]interface{}{
 				{
-					"name":        "viper.vms.create",
+					"name":        "hype.vms.create",
 					"description": "Create a new microVM",
 					"params": map[string]interface{}{
 						"name":      "string (required)",
@@ -449,7 +449,7 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 					},
 				},
 				{
-					"name":        "viper.vms.list",
+					"name":        "hype.vms.list",
 					"description": "List all microVMs",
 					"params":      map[string]interface{}{},
 				},

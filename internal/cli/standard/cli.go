@@ -13,15 +13,15 @@ func Execute() error {
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "viper",
-		Short: "Viper command-line interface",
-		Long:  "Viper CLI provides access to the orchestrator, browser agents, and tooling.",
+		Use:   "hype",
+		Short: "hype command-line interface",
+		Long:  "hype CLI provides access to the orchestrator, browser agents, and tooling.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
 	}
 
-	cmd.PersistentFlags().StringP("api", "a", envOrDefault("VIPER_API_BASE", "http://127.0.0.1:7777"), "viper-server base URL")
+	cmd.PersistentFlags().StringP("api", "a", envOrDefault("OVERHYPED_API_BASE", "http://127.0.0.1:7777"), "hyped base URL")
 
 	cmd.AddCommand(newVersionCmd())
 	cmd.AddCommand(newVMsCmd())
@@ -33,9 +33,9 @@ func newRootCmd() *cobra.Command {
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print the Viper client version",
+		Short: "Print the hype client version",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Fprintf(cmd.OutOrStdout(), "Viper CLI (prototype)\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "hype CLI (prototype)\n")
 		},
 	}
 }

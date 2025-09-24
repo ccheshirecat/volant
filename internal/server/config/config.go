@@ -7,13 +7,13 @@ import (
 )
 
 const (
-    defaultDBPath        = "~/.viper/state.db"
+    defaultDBPath        = "~/.overhyped/state.db"
     defaultAPIListenAddr = "127.0.0.1:7777"
-    defaultBridgeName    = "viperbr0"
+    defaultBridgeName    = "hypebr0"
     defaultSubnetCIDR    = "192.168.127.0/24"
     defaultHostIP        = "192.168.127.1"
-    defaultRuntimeDir    = "~/.viper/run"
-    defaultLogDir        = "~/.viper/logs"
+    defaultRuntimeDir    = "~/.overhyped/run"
+    defaultLogDir        = "~/.overhyped/logs"
 )
 
 // ServerConfig captures the runtime configuration required by the daemon.
@@ -34,16 +34,16 @@ type ServerConfig struct {
 // opinionated defaults when unset.
 func FromEnv() (ServerConfig, error) {
 	cfg := ServerConfig{
-		DatabasePath:     getenv("VIPER_DB_PATH", defaultDBPath),
-		APIListenAddr:    getenv("VIPER_API_LISTEN", defaultAPIListenAddr),
-		BridgeName:       getenv("VIPER_BRIDGE", defaultBridgeName),
-        SubnetCIDR:       getenv("VIPER_SUBNET", defaultSubnetCIDR),
-        HostIP:           getenv("VIPER_HOST_IP", defaultHostIP),
-        KernelImagePath:  os.Getenv("VIPER_KERNEL"),
-        InitramfsPath:    os.Getenv("VIPER_INITRAMFS"),
-        HypervisorBinary: getenv("VIPER_HYPERVISOR", "cloud-hypervisor"),
-        RuntimeDir:       getenv("VIPER_RUNTIME_DIR", defaultRuntimeDir),
-        LogDir:           getenv("VIPER_LOG_DIR", defaultLogDir),
+		DatabasePath:     getenv("  OVERHYPED_DB_PATH", defaultDBPath),
+		APIListenAddr:    getenv("OVERHYPED_API_LISTEN", defaultAPIListenAddr),
+		BridgeName:       getenv("OVERHYPED_BRIDGE", defaultBridgeName),
+        SubnetCIDR:       getenv("OVERHYPED_SUBNET", defaultSubnetCIDR),
+        HostIP:           getenv("OVERHYPED_HOST_IP", defaultHostIP),
+        KernelImagePath:  os.Getenv("OVERHYPED_KERNEL"),
+        InitramfsPath:    os.Getenv("OVERHYPED_INITRAMFS"),
+        HypervisorBinary: getenv("OVERHYPED_HYPERVISOR", "cloud-hypervisor"),
+        RuntimeDir:       getenv("OVERHYPED_RUNTIME_DIR", defaultRuntimeDir),
+        LogDir:           getenv("OVERHYPED_LOG_DIR", defaultLogDir),
     }
 
 	if _, _, err := net.ParseCIDR(cfg.SubnetCIDR); err != nil {

@@ -21,7 +21,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 
-	"github.com/ccheshirecat/viper/internal/cli/client"
+	"github.com/ccheshirecat/overhyped/internal/cli/client"
 )
 
 func newBrowsersCmd() *cobra.Command {

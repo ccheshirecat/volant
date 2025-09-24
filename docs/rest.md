@@ -1,21 +1,21 @@
 ---
 title: "REST API"
-description: "Overview of the Viper REST interface and references to the OpenAPI document."
+description: "Overview of the Overhyped REST interface and references to the OpenAPI document."
 ---
 
 # REST API
 
-The Viper control plane exposes a JSON/HTTP API for VM lifecycle management, event streaming, and agent proxying.
+The Overhyped control plane exposes a JSON/HTTP API for VM lifecycle management, event streaming, and agent proxying.
 
 ## Base URL
 
 - Default: `http://127.0.0.1:7777`
-- Override: `VIPER_API_BASE` environment variable / CLI `--api` flag
+- Override: `OVERHYPED_API_BASE` environment variable / CLI `--api` flag
 
 ## Authentication
 
-- Development builds: unauthenticated (subject to `VIPER_API_ALLOW_CIDR` whitelist)
-- Production: configure `VIPER_API_KEY` for API key headers (WIP)
+- Development builds: unauthenticated (subject to `OVERHYPED_API_ALLOW_CIDR` whitelist)
+- Production: configure `OVERHYPED_API_KEY` for API key headers (WIP)
 
 ## OpenAPI Specification
 
@@ -38,10 +38,10 @@ For full reference, embed `docs/api/openapi.yaml` in your docs site. Highlights:
 
 ## Environment Variables
 
-- `VIPER_API_BASE`: Override server base URL (client only)
-- `VIPER_API_KEY`: API token
-- `VIPER_API_ALLOW_CIDR`: Comma-separated CIDR whitelist for REST access
-- `VIPER_KERNEL`, `VIPER_INITRAMFS`: Default kernel artifacts for service templates
+- `OVERHYPED_API_BASE`: Override server base URL (client only)
+- `OVERHYPED_API_KEY`: API token
+- `OVERHYPED_API_ALLOW_CIDR`: Comma-separated CIDR whitelist for REST access
+- `OVERHYPED_KERNEL`, `OVERHYPED_INITRAMFS`: Default kernel artifacts for service templates
 
 ## HTTP Status Codes
 

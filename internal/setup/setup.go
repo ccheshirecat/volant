@@ -30,10 +30,10 @@ type Result struct {
 	Commands []string
 }
 
-// Run performs host configuration for the Viper environment.
+// Run performs host configuration for the OVERHYPED environment.
 func Run(ctx context.Context, opts Options) (*Result, error) {
 	if opts.BridgeName == "" {
-		opts.BridgeName = "viperbr0"
+		opts.BridgeName = "hypebr0"
 	}
 	if opts.SubnetCIDR == "" {
 		opts.SubnetCIDR = "192.168.127.0/24"
@@ -42,17 +42,17 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		opts.HostCIDR = "192.168.127.1/24"
 	}
 	if opts.RuntimeDir == "" {
-		opts.RuntimeDir = "~/.viper/run"
+		opts.RuntimeDir = "~/.overhyped/run"
 	}
 	if opts.LogDir == "" {
-		opts.LogDir = "~/.viper/logs"
+		opts.LogDir = "~/.overhyped/logs"
 	}
 
 	res := &Result{}
 
 	if !opts.DryRun {
 		if os.Geteuid() != 0 {
-			return nil, errors.New("viper setup must be run as root (use --dry-run to preview)")
+			return nil, errors.New("hype setup must be run as root (use --dry-run to preview)")
 		}
 	}
 
@@ -234,21 +234,21 @@ func writeServiceFile(binaryPath, kernelPath, initramfsPath string, opts Options
 		return fmt.Errorf("initramfs path invalid: %w", err)
 	}
 
-	logFile := filepath.Join(logDir, "viper-server.log")
+	logFile := filepath.Join(logDir, "hyped.log")
 	service := fmt.Sprintf(`[Unit]
-Description=Viper Control Plane
+Description=OVERHYPED Control Plane
 After=network.target
 
 [Service]
 Type=simple
 User=root
 Group=root
-Environment=VIPER_KERNEL=%s
-Environment=VIPER_INITRAMFS=%s
-Environment=VIPER_BRIDGE=%s
-Environment=VIPER_SUBNET=%s
-Environment=VIPER_RUNTIME_DIR=%s
-Environment=VIPER_LOG_DIR=%s
+Environment=OVERHYPED_KERNEL=%s
+Environment=OVERHYPED_INITRAMFS=%s
+Environment=OVERHYPED_BRIDGE=%s
+Environment=OVERHYPED_SUBNET=%s
+Environment=OVERHYPED_RUNTIME_DIR=%s
+Environment=OVERHYPED_LOG_DIR=%s
 ExecStart=%s
 Restart=always
 RestartSec=5

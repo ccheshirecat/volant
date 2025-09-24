@@ -1,13 +1,13 @@
 ---
 title: "CLI & TUI"
-description: "Using the viper command-line interface and interactive TUI."
+description: "Using the hype command-line interface and interactive TUI."
 ---
 
 # CLI & TUI Reference
 
 ## Overview
 
-`viper` is a dual-mode binary:
+`hype` is a dual-mode binary:
 
 - **Command-line** (Cobra commands for scripting)
 - **Interactive TUI** (Bubble Tea dashboard)
@@ -15,32 +15,32 @@ description: "Using the viper command-line interface and interactive TUI."
 ## Basic Commands
 
 ```bash
-viper --help
-viper vms list
-viper vms create my-vm --cpu 2 --memory 2048
-viper vms delete my-vm
-viper setup --dry-run
+hype --help
+hype vms list
+hype vms create my-vm --cpu 2 --memory 2048
+hype vms delete my-vm
+hype setup --dry-run
 ```
 
 ### Global Flags
 
-- `--api`, `-a`: Override server base URL (`VIPER_API_BASE`)
+- `--api`, `-a`: Override server base URL (`OVERHYPED_API_BASE`)
 - `--help`: Show usage
 
-## `viper vms`
+## `hype vms`
 
 | Subcommand | Description | Examples |
 | --- | --- | --- |
-| `list` | List VMs | `viper vms list` |
-| `get <name>` | Show VM details | `viper vms get demo` |
-| `create <name>` | Create VM | `viper vms create demo --cpu 4 --memory 4096 --kernel-cmdline "console=ttyS0"` |
-| `delete <name>` | Destroy VM | `viper vms delete demo` |
+| `list` | List VMs | `hype vms list` |
+| `get <name>` | Show VM details | `hype vms get demo` |
+| `create <name>` | Create VM | `hype vms create demo --cpu 4 --memory 4096 --kernel-cmdline "console=ttyS0"` |
+| `delete <name>` | Destroy VM | `hype vms delete demo` |
 
 Flags for `create`:
 - `--cpu`, `--memory`
 - `--kernel-cmdline`
 
-## `viper setup`
+## `hype setup`
 
 See [Installation](../setup/installer.md). Useful flags:
 
@@ -50,18 +50,18 @@ See [Installation](../setup/installer.md). Useful flags:
 - `--service-file`
 - `--dry-run`
 
-## `viper browsers proxy`
+## `overhyped browsers proxy`
 
 Expose remote Chrome DevTools locally:
 
 ```bash
-viper browsers proxy demo --port 9223
+hype browsers proxy demo --port 9223
 open http://localhost:9223/json/version
 ```
 
 ## Interactive TUI
 
-Launch by running `viper` without arguments.
+Launch by running `hype` without arguments.
 
 ### Layout
 
@@ -98,12 +98,12 @@ Launch by running `viper` without arguments.
 
 ## Environment Variables
 
-- `VIPER_API_BASE`: Base URL
-- `VIPER_BRIDGE`, `VIPER_SUBNET`, etc. for setup defaults
-- `VIPER_KERNEL`, `VIPER_INITRAMFS` for setup service template
+- `OVEERHYPED_API_BASE`: Base URL
+- `OVERHYPED_BRIDGE`, `OVERHYPED_SUBNET`, etc. for setup defaults
+- `OVERHYPED_KERNEL`, `OVERHYPED_INITRAMFS` for setup service template
 
 ## Troubleshooting
 
-- `viper --api http://host:port` if server runs remotely
-- Check `~/.viper/logs/` or `journalctl -u viper-server`
-- Ensure bridge (`ip link show viperbr0`) and NAT rules exist
+- `hype --api http://host:port` if server runs remotely
+- Check `~/.overhyped/logs/` or `journalctl -u hyped`
+- Ensure bridge (`ip link show hypebr0`) and NAT rules exist

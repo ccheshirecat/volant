@@ -8,11 +8,11 @@ description: Docker to initramfs image processing
 The image build flow produces two artifacts consumed by the orchestrator:
 
 - `vmlinuz-x86_64` – downloaded from the Cloud Hypervisor kernel release (default URL baked into the script).
-- `viper-initramfs.cpio.gz` – initramfs containing Chrome headless + `viper-agent` and the custom C init.
+- `overhyped-initramfs.cpio.gz` – initramfs containing Chrome headless + `hype-agent` and the custom C init.
 
 ## Requirements
 - Docker (tested with Docker Desktop on macOS/Linux).
-- `viper-agent` binary built at `bin/viper-agent` (handled automatically via Makefile).
+- `hype-agent` binary built at `bin/hype-agent` (handled automatically via Makefile).
 - For GHCR pulls (chromedp/headless-shell): If you encounter 403 Forbidden, run `docker login ghcr.io` with a GitHub personal access token (read:packages scope for anonymous rate limits).
 
 ## Top-Level Makefile Integration
@@ -24,10 +24,10 @@ The build is now fully integrated into the top-level `Makefile` via the `build-i
    make build-images
    ```
 2. This target:
-   - Builds the `viper-agent` binary (dependency on `build-agent`).
+   - Builds the `hype-agent` binary (dependency on `build-agent`).
    - Creates `build/artifacts/` directory if needed.
-   - Executes `./build/images/build-initramfs.sh bin/viper-agent` (passes agent path).
-   - Moves outputs (`viper-initramfs.cpio.gz`, `vmlinuz-x86_64`) to `build/artifacts/`.
+   - Executes `./build/images/build-initramfs.sh bin/hype-agent` (passes agent path).
+   - Moves outputs (`overhyped-initramfs.cpio.gz`, `vmlinuz-x86_64`) to `build/artifacts/`.
    - Generates `checksums.txt` with SHA256 sums in the artifacts dir.
    - Verifies files exist (fails build if missing).
 3. Artifacts are ready in `build/artifacts/` for orchestrator consumption.
@@ -35,10 +35,10 @@ The build is now fully integrated into the top-level `Makefile` via the `build-i
 ### Build Workflow Diagram
 ```mermaid
 graph TD
-    A[make build-images] --> B[build-agent: Compile viper-agent binary]
-    B --> C[Docker build: chromedp/headless-shell base + viper-init C binary + agent copy]
+    A[make build-images] --> B[build-agent: Compile hype-agent binary]
+    B --> C[Docker build: chromedp/headless-shell base + overhyped-init C binary + agent copy]
     C --> D[Export container FS to cpio archive]
-    D --> E[Gzip compress to viper-initramfs.cpio.gz]
+    D --> E[Gzip compress to overhyped-initramfs.cpio.gz]
     E --> F[Download/verify vmlinuz kernel from CH release]
     F --> G[Move to build/artifacts/]
     G --> H[Generate SHA256 checksums.txt]
@@ -48,7 +48,7 @@ graph TD
 
 ## Script Details
 The underlying `./build/images/build-initramfs.sh` script:
-- Builds the Docker context under `build/images/` which compiles a statically linked `/sbin/viper-init` (C) and copies `viper-agent` into the Chromedp headless-shell base image.
+- Builds the Docker context under `build/images/` which compiles a statically linked `/sbin/overhyped-init` (C) and copies `hype-agent` into the Chromedp headless-shell base image.
 - Exports the container filesystem and packages it into a gzip-compressed `cpio` archive suitable for use as an initramfs.
 - Downloads the default Cloud Hypervisor kernel (`vmlinuz-x86_64`) if not already present.
 

@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ccheshirecat/viper/internal/setup"
+	"github.com/ccheshirecat/overhyped/internal/setup"
 )
 
 func newSetupCmd() *cobra.Command {
@@ -26,7 +26,7 @@ func newSetupCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Configure host networking and services for Viper",
+		Short: "Configure host networking and services for Overhyped",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
 			defer cancel()
@@ -47,13 +47,13 @@ func newSetupCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("resolve executable: %w", err)
 			}
-			serverBinary := filepath.Join(filepath.Dir(exe), "viper-server")
+			serverBinary := filepath.Join(filepath.Dir(exe), "hyped")
 
 			if kernelPath == "" {
 				kernelPath = "build/artifacts/vmlinux-x86_64"
 			}
 			if initramfsPath == "" {
-				initramfsPath = "build/artifacts/viper-initramfs.cpio.gz"
+				initramfsPath = "build/artifacts/overhyped-initramfs.cpio.gz"
 			}
 
 			opts := setup.Options{
@@ -89,15 +89,15 @@ func newSetupCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&bridge, "bridge", envOrDefault("VIPER_BRIDGE", "viperbr0"), "Name of the Linux bridge to create")
-	cmd.Flags().StringVar(&subnet, "subnet", envOrDefault("VIPER_SUBNET", "192.168.127.0/24"), "Managed subnet CIDR")
-	cmd.Flags().StringVar(&hostIP, "host-ip", envOrDefault("VIPER_HOST_IP", "192.168.127.1"), "Host IP address inside the bridge subnet")
+	cmd.Flags().StringVar(&bridge, "bridge", envOrDefault("OVERHYPED_BRIDGE", "hypebr0"), "Name of the Linux bridge to create")
+	cmd.Flags().StringVar(&subnet, "subnet", envOrDefault("OVERHYPED_SUBNET", "192.168.127.0/24"), "Managed subnet CIDR")
+	cmd.Flags().StringVar(&hostIP, "host-ip", envOrDefault("overhyped_HOST_IP", "192.168.127.1"), "Host IP address inside the bridge subnet")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print commands without executing them")
-	cmd.Flags().StringVar(&runtimeDir, "runtime-dir", envOrDefault("VIPER_RUNTIME_DIR", "~/.viper/run"), "Runtime directory for VM sockets")
-	cmd.Flags().StringVar(&logDir, "log-dir", envOrDefault("VIPER_LOG_DIR", "~/.viper/logs"), "Log directory for VM logs")
-	cmd.Flags().StringVar(&serviceFile, "service-file", "/etc/systemd/system/viper-server.service", "Path to write systemd service unit (empty to skip)")
-	cmd.Flags().StringVar(&kernelPath, "kernel", envOrDefault("VIPER_KERNEL", ""), "Path to kernel image for service (default: build/artifacts/vmlinux-x86_64)")
-	cmd.Flags().StringVar(&initramfsPath, "initramfs", envOrDefault("VIPER_INITRAMFS", ""), "Path to initramfs image for service (default: build/artifacts/viper-initramfs.cpio.gz)")
+	cmd.Flags().StringVar(&runtimeDir, "runtime-dir", envOrDefault("OVERHYPED_RUNTIME_DIR", "~/.overhyped/run"), "Runtime directory for VM sockets")
+	cmd.Flags().StringVar(&logDir, "log-dir", envOrDefault("OVERHYPED_LOG_DIR", "~/.overhyped/logs"), "Log directory for VM logs")
+	cmd.Flags().StringVar(&serviceFile, "service-file", "/etc/systemd/system/hyped.service", "Path to write systemd service unit (empty to skip)")
+	cmd.Flags().StringVar(&kernelPath, "kernel", envOrDefault("OVERHYPED_KERNEL", ""), "Path to kernel image for service (default: build/artifacts/vmlinux-x86_64)")
+	cmd.Flags().StringVar(&initramfsPath, "initramfs", envOrDefault("OVERHYPED_INITRAMFS", ""), "Path to initramfs image for service (default: build/artifacts/overhyped-initramfs.cpio.gz)")
 
 	return cmd
 }

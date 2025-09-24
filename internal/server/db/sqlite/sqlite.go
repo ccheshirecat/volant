@@ -14,7 +14,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/ccheshirecat/viper/internal/server/db"
+	"github.com/ccheshirecat/overhyped/internal/server/db"
 )
 
 //go:embed migrations/*.sql

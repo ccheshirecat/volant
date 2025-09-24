@@ -28,7 +28,7 @@ import (
 const (
 	DefaultRemoteAddr         = "0.0.0.0"
 	DefaultRemotePort         = 9222
-	defaultUserDataDirName    = "viper-agent-data"
+	defaultUserDataDirName    = "hype-agent-data"
 	DefaultActionTimeout      = 60 * time.Second
 	devtoolsStartupTimeout    = 10 * time.Second
 	devtoolsProbeRetryBackoff = 250 * time.Millisecond
