@@ -5,7 +5,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/viperhq/viper/internal/server/eventbus"
+	"github.com/ccheshirecat/viper/internal/server/eventbus"
 )
 
 // Bus is an in-memory event bus suitable for single-node development testing.

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viperhq/viper/internal/server/db"
+	"github.com/ccheshirecat/viper/internal/server/db"
 )
 
 func TestVMRepositoryCRUD(t *testing.T) {

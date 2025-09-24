@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/viperhq/viper/internal/cli/standard"
-	"github.com/viperhq/viper/internal/cli/tui"
+	"github.com/ccheshirecat/viper/internal/cli/standard"
+	"github.com/ccheshirecat/viper/internal/cli/tui"
 )
 
 func main() {

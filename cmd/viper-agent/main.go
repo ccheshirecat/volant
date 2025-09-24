@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/viperhq/viper/internal/agent/app"
+	"github.com/ccheshirecat/viper/internal/agent/app"
 )
 
 func main() {

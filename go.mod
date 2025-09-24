@@ -1,4 +1,4 @@
-module github.com/viperhq/viper
+module github.com/ccheshirecat/viper
 
 go 1.24
 

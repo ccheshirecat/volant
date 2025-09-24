@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/viperhq/viper/internal/setup"
+	"github.com/ccheshirecat/viper/internal/setup"
 )
 
 func newSetupCmd() *cobra.Command {

@@ -21,11 +21,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"github.com/viperhq/viper/internal/protocol/agui"
-	"github.com/viperhq/viper/internal/server/db"
-	"github.com/viperhq/viper/internal/server/eventbus"
-	"github.com/viperhq/viper/internal/server/orchestrator"
-	orchestratorevents "github.com/viperhq/viper/internal/server/orchestrator/events"
+	"github.com/ccheshirecat/viper/internal/protocol/agui"
+	"github.com/ccheshirecat/viper/internal/server/db"
+	"github.com/ccheshirecat/viper/internal/server/eventbus"
+	"github.com/ccheshirecat/viper/internal/server/orchestrator"
+	orchestratorevents "github.com/ccheshirecat/viper/internal/server/orchestrator/events"
 )
 
 const (

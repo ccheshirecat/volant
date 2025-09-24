@@ -3,3 +3,4 @@ AGENTS.md
 build/artifacts
 .kilocode
 .DS_STORE
+bin

@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/viperhq/viper/internal/server/config"
-	"github.com/viperhq/viper/internal/server/db"
-	"github.com/viperhq/viper/internal/server/eventbus"
-	"github.com/viperhq/viper/internal/server/orchestrator"
+	"github.com/ccheshirecat/viper/internal/server/config"
+	"github.com/ccheshirecat/viper/internal/server/db"
+	"github.com/ccheshirecat/viper/internal/server/eventbus"
+	"github.com/ccheshirecat/viper/internal/server/orchestrator"
 )
 
 // App wires the config, persistence, orchestrator, and HTTP transport.
