@@ -96,13 +96,14 @@ type devToolsInternal struct {
 // Browser orchestrates a chromedp-controlled headless browser instance and
 // provides higher-level automation helpers.
 type Browser struct {
-    cfg                BrowserConfig
-    chrome             *exec.Cmd
-    ctx                context.Context
-    cancel             context.CancelFunc
-    port               int
-    userDataDir        string
-    cleanupUserDataDir bool
+	cfg                BrowserConfig
+	chrome             *exec.Cmd
+	ctx                context.Context
+	cancel             context.CancelFunc
+	port               int
+	userDataDir        string
+	cleanupUserDataDir bool
+
 
     mu       sync.Mutex
     log      *logEmitter
@@ -116,10 +117,6 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 	}
 
 	cfg.RemoteDebuggingAddr = strings.TrimSpace(cfg.RemoteDebuggingAddr)
-	if cfg.RemoteDebuggingAddr == "" {
-		cfg.RemoteDebuggingAddr = DefaultRemoteAddr
-	}
-
 	if cfg.RemoteDebuggingPort == 0 {
 		availablePort, err := allocateFreePort()
 		if err != nil {
@@ -163,7 +160,7 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 		"--no-default-browser-check",
 		"--no-first-run",
 		"--no-sandbox",
-		fmt.Sprintf("--remote-debugging-address=127.0.0.1"),
+		"--remote-debugging-address=127.0.0.1",
 		fmt.Sprintf("--remote-debugging-port=%d", cfg.RemoteDebuggingPort),
 		fmt.Sprintf("--user-data-dir=%s", cfg.UserDataDir),
 	)
@@ -186,7 +183,8 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 		}
 	}()
 
-	remoteAllocatorCtx, cancelAllocator := chromedp.NewRemoteAllocator(ctx, fmt.Sprintf("ws://127.0.0.1:%d/devtools/browser", cfg.RemoteDebuggingPort))
+	remoteAllocatorCtx, cancelAllocator := chromedp.NewRemoteAllocator(ctx, fmt.Sprintf("http://127.0.0.1:%d/json", cfg.RemoteDebuggingPort))
+
 	browserCtx, cancelCtx := chromedp.NewContext(remoteAllocatorCtx)
 
 	if err := chromedp.Run(browserCtx, network.Enable()); err != nil {
