@@ -30,8 +30,9 @@ const (
 	DefaultRemotePort         = 9222
 	defaultUserDataDirName    = "viper-agent-data"
 	DefaultActionTimeout      = 60 * time.Second
+	devtoolsStartupTimeout    = 10 * time.Second
 	devtoolsProbeRetryBackoff = 250 * time.Millisecond
-	devtoolsProbeAttempts     = 20
+	devtoolsProbeAttempts     = 40
 )
 
 var defaultExecCandidates = []string{
@@ -124,6 +125,11 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 		cfg.RemoteDebuggingPort = availablePort
 	}
 
+	if strings.TrimSpace(cfg.RemoteDebuggingAddr) == "" {
+		cfg.RemoteDebuggingAddr = DefaultRemoteAddr
+	}
+	connectHost := devtoolsConnectHost(cfg.RemoteDebuggingAddr)
+
 	cleanupUserDataDir := false
 	if strings.TrimSpace(cfg.UserDataDir) == "" {
 		tmpDir, err := os.MkdirTemp("", defaultUserDataDirName+"-")
@@ -159,7 +165,7 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 		"--no-default-browser-check",
 		"--no-first-run",
 		"--no-sandbox",
-		"--remote-debugging-address=127.0.0.1",
+		fmt.Sprintf("--remote-debugging-address=%s", cfg.RemoteDebuggingAddr),
 		fmt.Sprintf("--remote-debugging-port=%d", cfg.RemoteDebuggingPort),
 		fmt.Sprintf("--user-data-dir=%s", cfg.UserDataDir),
 	)
@@ -170,6 +176,9 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("browser: start chrome: %w", err)
 	}
+
+	startupCtx, cancelStartup := context.WithTimeout(ctx, devtoolsStartupTimeout)
+	defer cancelStartup()
 
 	// Observe unexpected exits.
 	go func() {
@@ -182,7 +191,13 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 		}
 	}()
 
-	remoteAllocatorCtx, cancelAllocator := chromedp.NewRemoteAllocator(ctx, fmt.Sprintf("http://127.0.0.1:%d/json", cfg.RemoteDebuggingPort))
+	devtools, err := waitForDevTools(startupCtx, logEmitter, connectHost, cfg.RemoteDebuggingPort)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		return nil, fmt.Errorf("browser: devtools startup: %w", err)
+	}
+
+	remoteAllocatorCtx, cancelAllocator := chromedp.NewRemoteAllocator(ctx, fmt.Sprintf("http://%s/json", net.JoinHostPort(connectHost, strconv.Itoa(cfg.RemoteDebuggingPort))))
 
 	browserCtx, cancelCtx := chromedp.NewContext(remoteAllocatorCtx)
 
@@ -191,14 +206,6 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 		cancelAllocator()
 		_ = cmd.Process.Kill()
 		return nil, fmt.Errorf("browser: enable network: %w", err)
-	}
-
-	devtools, err := probeDevTools(cfg.RemoteDebuggingPort)
-	if err != nil {
-		cancelCtx()
-		cancelAllocator()
-		_ = cmd.Process.Kill()
-		return nil, fmt.Errorf("browser: probe devtools: %w", err)
 	}
 
 	combinedCancel := func() {
@@ -744,54 +751,103 @@ func (b *Browser) publish(stream, line string) {
 	})
 }
 
-func probeDevTools(port int) (devToolsInternal, error) {
-	client := &http.Client{Timeout: 2 * time.Second}
-	urlStr := fmt.Sprintf("http://127.0.0.1:%d/json/version", port)
+func devtoolsConnectHost(addr string) string {
+	addr = strings.TrimSpace(addr)
+	switch addr {
+	case "", "0.0.0.0", "::", "[::]":
+		return "127.0.0.1"
+	default:
+		return addr
+	}
+}
 
-	type response struct {
+func waitForDevTools(ctx context.Context, emitter *logEmitter, host string, port int) (devToolsInternal, error) {
+	publish := func(line string) {
+		if emitter == nil || strings.TrimSpace(line) == "" {
+			return
+		}
+		emitter.Publish(LogEvent{
+			Stream:    "agent",
+			Line:      line,
+			Timestamp: time.Now().UTC(),
+		})
+	}
+
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	publish(fmt.Sprintf("waiting for browser devtools endpoint on %s", addr))
+
+	var lastErr error
+	for attempt := 0; attempt < devtoolsProbeAttempts; attempt++ {
+		devtools, err := fetchDevToolsMetadata(ctx, host, port)
+		if err == nil {
+			publish(fmt.Sprintf("browser devtools endpoint ready after %d attempt(s)", attempt+1))
+			return devtools, nil
+		}
+		lastErr = err
+
+		if attempt == devtoolsProbeAttempts-1 {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return devToolsInternal{}, fmt.Errorf("browser: devtools startup timeout: %w", ctx.Err())
+		case <-time.After(devtoolsProbeRetryBackoff):
+		}
+	}
+
+	if ctx.Err() != nil {
+		return devToolsInternal{}, fmt.Errorf("browser: devtools startup timeout: %w", ctx.Err())
+	}
+
+	if lastErr == nil {
+		lastErr = errors.New("devtools metadata unavailable")
+	}
+	return devToolsInternal{}, fmt.Errorf("browser: devtools endpoint unavailable on %s after %d attempts: %w", addr, devtoolsProbeAttempts, lastErr)
+}
+
+func fetchDevToolsMetadata(ctx context.Context, host string, port int) (devToolsInternal, error) {
+	client := &http.Client{Timeout: 2 * time.Second}
+	urlStr := fmt.Sprintf("http://%s/json/version", net.JoinHostPort(host, strconv.Itoa(port)))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
+	if err != nil {
+		return devToolsInternal{}, fmt.Errorf("browser: build devtools request: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return devToolsInternal{}, fmt.Errorf("browser: probe devtools endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return devToolsInternal{}, fmt.Errorf("browser: probe devtools endpoint: unexpected status %s", resp.Status)
+	}
+
+	var payload struct {
 		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
 		Browser              string `json:"Browser"`
 		UserAgent            string `json:"User-Agent"`
 	}
-
-	for i := 0; i < devtoolsProbeAttempts; i++ {
-		resp, err := client.Get(urlStr)
-		if err != nil {
-			time.Sleep(devtoolsProbeRetryBackoff)
-			continue
-		}
-		func() {
-			defer resp.Body.Close()
-		}()
-
-		if resp.StatusCode != http.StatusOK {
-			time.Sleep(devtoolsProbeRetryBackoff)
-			continue
-		}
-
-		var payload response
-		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-			time.Sleep(devtoolsProbeRetryBackoff)
-			continue
-		}
-		if payload.WebSocketDebuggerURL == "" {
-			time.Sleep(devtoolsProbeRetryBackoff)
-			continue
-		}
-
-		parsed, err := url.Parse(payload.WebSocketDebuggerURL)
-		if err != nil {
-			return devToolsInternal{}, fmt.Errorf("browser: parse devtools url: %w", err)
-		}
-
-		return devToolsInternal{
-			WebSocketURL:   payload.WebSocketDebuggerURL,
-			WebSocketPath:  parsed.RequestURI(),
-			BrowserVersion: payload.Browser,
-			UserAgent:      payload.UserAgent,
-		}, nil
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return devToolsInternal{}, fmt.Errorf("browser: decode devtools payload: %w", err)
 	}
-	return devToolsInternal{}, fmt.Errorf("browser: unable to discover devtools endpoint on port %d", port)
+	if payload.WebSocketDebuggerURL == "" {
+		return devToolsInternal{}, errors.New("browser: devtools websocket URL missing")
+	}
+
+	parsed, err := url.Parse(payload.WebSocketDebuggerURL)
+	if err != nil {
+		return devToolsInternal{}, fmt.Errorf("browser: parse devtools url: %w", err)
+	}
+
+	return devToolsInternal{
+		WebSocketURL:   payload.WebSocketDebuggerURL,
+		WebSocketPath:  parsed.RequestURI(),
+		BrowserVersion: payload.Browser,
+		UserAgent:      payload.UserAgent,
+	}, nil
 }
 
 func jsString(value string) string {
