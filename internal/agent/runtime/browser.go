@@ -115,7 +115,6 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 		return nil, errors.New("browser: context is required")
 	}
 
-	cfg.RemoteDebuggingAddr = strings.TrimSpace(cfg.RemoteDebuggingAddr)
 	if cfg.RemoteDebuggingPort == 0 {
 		availablePort, err := allocateFreePort()
 		if err != nil {
@@ -182,7 +181,13 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 		}
 	}()
 
-	remoteAllocatorCtx, cancelAllocator := chromedp.NewRemoteAllocator(ctx, fmt.Sprintf("http://127.0.0.1:%d/json", cfg.RemoteDebuggingPort))
+	devtools, err := probeDevTools(cfg.RemoteDebuggingPort)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		return nil, err
+	}
+
+	remoteAllocatorCtx, cancelAllocator := chromedp.NewRemoteAllocator(ctx, devtools.WebSocketURL)
 	browserCtx, cancelCtx := chromedp.NewContext(remoteAllocatorCtx)
 
 	if err := chromedp.Run(browserCtx, network.Enable()); err != nil {
@@ -190,14 +195,6 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 		cancelAllocator()
 		_ = cmd.Process.Kill()
 		return nil, fmt.Errorf("browser: enable network: %w", err)
-	}
-
-	devtools, err := probeDevTools(cfg.RemoteDebuggingPort)
-	if err != nil {
-		cancelCtx()
-		cancelAllocator()
-		_ = cmd.Process.Kill()
-		return nil, err
 	}
 
 	combinedCancel := func() {
