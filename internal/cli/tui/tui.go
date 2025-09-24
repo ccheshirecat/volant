@@ -106,6 +106,13 @@ const (
 	focusInput
 )
 
+type layoutMode int
+
+const (
+	layoutHorizontal layoutMode = iota
+	layoutVertical
+)
+
 type commandAction func(context.Context, *client.Client) ([]string, error)
 
 type commandPlan struct {
@@ -139,29 +146,19 @@ type model struct {
 	spinner spinner.Model
 
 	focused paneFocus
+	layout  layoutMode
 	width   int
 	height  int
 
 	// Command execution
-	executing      bool
-	commandHistory []string
-	historyIndex   int
-	statusMessage  string
-	statusLevel    statusLevel
-	statusStarted  time.Time
-	pendingClear   bool
-}
-
-func (m *model) setStatus(level statusLevel, message string) tea.Cmd {
-	if message == "" {
-		return nil
-	}
-	if m.executing {
-		return nil
-	}
-	m.statusMessage = message
-	m.statusLevel = level
-	return m.ensureStatusClear()
+	executing        bool
+	commandHistory   []string
+	historyIndex     int
+	statusMessage    string
+	statusLevel      statusLevel
+	statusStarted    time.Time
+	pendingClear     bool
+	statusPersistent bool
 }
 
 func (m *model) ensureStatusClear() tea.Cmd {
@@ -175,9 +172,67 @@ func (m *model) ensureStatusClear() tea.Cmd {
 func (m *model) clearStatus() {
 	m.statusMessage = ""
 	m.pendingClear = false
+	m.statusPersistent = false
+}
+
+func (m *model) setFocus(target paneFocus) {
+	if target == m.focused {
+		if target == focusInput {
+			m.input.Focus()
+		} else {
+			m.input.Blur()
+		}
+		return
+	}
+	if target == focusInput {
+		m.input.Focus()
+	} else {
+		m.input.Blur()
+	}
+	m.focused = target
+}
+
+func (m *model) advanceFocus() {
+	switch m.focused {
+	case focusVMList:
+		m.setFocus(focusLogs)
+	case focusLogs:
+		m.setFocus(focusInput)
+	case focusInput:
+		m.setFocus(focusVMList)
+	default:
+		m.setFocus(focusVMList)
+	}
+}
+
+func (m *model) updateStatus(level statusLevel, message string, persistent bool) tea.Cmd {
+	if message == "" {
+		return nil
+	}
+	if m.executing && !persistent {
+		return nil
+	}
+	m.statusMessage = message
+	m.statusLevel = level
+	m.statusPersistent = persistent
+	if persistent {
+		m.pendingClear = false
+		return nil
+	}
+	return m.ensureStatusClear()
+}
+
+func (m *model) setStatus(level statusLevel, message string) tea.Cmd {
+	return m.updateStatus(level, message, false)
+}
+
+func (m *model) setPersistentStatus(level statusLevel, message string) {
+	m.updateStatus(level, message, true)
 }
 
 func newModel(ctx context.Context, cancel context.CancelFunc, api *client.Client) model {
+	sp := newSpinnerModel()
+
 	m := model{
 		ctx:        ctx,
 		cancel:     cancel,
@@ -186,8 +241,9 @@ func newModel(ctx context.Context, cancel context.CancelFunc, api *client.Client
 		vmList:     list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0),
 		logView:    viewport.New(0, 0),
 		input:      textinput.New(),
-		spinner:    newSpinnerModel(),
+		spinner:    sp,
 		focused:    focusVMList,
+		layout:     layoutHorizontal,
 		logs:       []string{},
 		selectedVM: "",
 	}
@@ -208,6 +264,8 @@ func newModel(ctx context.Context, cancel context.CancelFunc, api *client.Client
 	m.logView.YPosition = 1
 	m.logView.MouseWheelEnabled = true
 	m.logView.SetContent("Select a VM to begin streaming logs.")
+
+	m.setFocus(focusVMList)
 
 	return m
 }
@@ -231,20 +289,59 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		listWidth := msg.Width / 2
-		if listWidth < 40 {
-			listWidth = msg.Width - 4
+		usableWidth := msg.Width - 8
+		var paneWidth int
+		var paneHeight int
+		var inputWidth int
+		if usableWidth >= 80 {
+			m.layout = layoutHorizontal
+			paneWidth = usableWidth / 2
+			if paneWidth < 32 {
+				paneWidth = 32
+			}
+			paneContentWidth := paneWidth - 4
+			if paneContentWidth < 20 {
+				paneContentWidth = paneWidth - 2
+			}
+			paneHeight = m.height - 8
+			if paneHeight < 12 {
+				paneHeight = m.height - 4
+			}
+			m.vmList.SetWidth(paneContentWidth)
+			m.vmList.SetHeight(paneHeight)
+			m.logView.Width = paneContentWidth
+			m.logView.Height = paneHeight
+			inputWidth = msg.Width - 6
+			if inputWidth < 30 {
+				inputWidth = msg.Width - 4
+			}
+		} else {
+			m.layout = layoutVertical
+			paneWidth = usableWidth
+			if paneWidth < 32 {
+				paneWidth = usableWidth
+			}
+			paneContentWidth := paneWidth - 4
+			if paneContentWidth < 20 {
+				paneContentWidth = paneWidth - 2
+			}
+			paneHeight = (msg.Height - 12) / 2
+			if paneHeight < 10 {
+				paneHeight = 10
+			}
+			m.vmList.SetWidth(paneContentWidth)
+			m.vmList.SetHeight(paneHeight)
+			m.logView.Width = paneContentWidth
+			m.logView.Height = paneHeight
+			inputWidth = msg.Width - 6
+			if inputWidth < 30 {
+				inputWidth = msg.Width - 4
+			}
 		}
-		listHeight := msg.Height / 2
-		if listHeight < 10 {
-			listHeight = msg.Height - 6
+		if inputWidth < 10 {
+			inputWidth = 10
 		}
-
-		m.vmList.SetWidth(listWidth)
-		m.vmList.SetHeight(listHeight)
-		m.logView.Width = listWidth
-		m.logView.Height = listHeight
-		m.input.Width = msg.Width
+		m.input.Width = inputWidth
 
 	case tea.KeyMsg:
 		switch m.focused {
@@ -252,7 +349,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			prevSelection := selectedVMName(m.vmList)
 
 			if key.Matches(msg, tabKey) {
-				m.focused = focusLogs
+				m.advanceFocus()
 				break
 			}
 
@@ -264,7 +361,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			if key.Matches(msg, enterKey) {
-				m.focused = focusInput
+				m.setFocus(focusInput)
 			}
 
 			currentSelection := selectedVMName(m.vmList)
@@ -276,7 +373,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case focusLogs:
 			if key.Matches(msg, tabKey) {
-				m.focused = focusInput
+				m.advanceFocus()
 				break
 			}
 
@@ -301,7 +398,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if cmd := m.setStatus(statusLevelInfo, "No autocomplete suggestions"); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
-					m.focused = focusVMList
+					m.advanceFocus()
 				}
 			case msg.String() == "ctrl+w":
 				m.input.SetValue("")
@@ -323,7 +420,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.input.Reset()
 				m.historyIndex = len(m.commandHistory)
-				m.focused = focusVMList
+				m.setFocus(focusVMList)
 				inputUpdated = true
 			default:
 				var cmd tea.Cmd
@@ -410,18 +507,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner = newSpinnerModel()
 
 		if msg.err != nil {
-			m.statusMessage = fmt.Sprintf("%s failed: %v", msg.label, msg.err)
-			m.statusLevel = statusLevelError
+			if cmd := m.setStatus(statusLevelError, fmt.Sprintf("%s failed: %v", msg.label, msg.err)); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		} else {
-			m.statusMessage = fmt.Sprintf("%s succeeded in %s", msg.label, msg.duration.Round(10*time.Millisecond))
-			m.statusLevel = statusLevelSuccess
+			if msg.label == "help" {
+				m.setPersistentStatus(statusLevelInfo, "Help displayed below. Scroll the log pane to read.")
+			} else {
+				if cmd := m.setStatus(statusLevelSuccess, fmt.Sprintf("%s succeeded in %s", msg.label, msg.duration.Round(10*time.Millisecond))); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
 		}
 
 		for _, line := range msg.lines {
 			m.appendLogLine(time.Now().UTC(), "cli", line)
 		}
 
-		if msg.err == nil {
+		if msg.err == nil && msg.label != "help" {
 			if cmd := m.ensureStatusClear(); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
@@ -437,6 +540,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case eventsClosedMsg:
 		m.streamEOF = true
+		m.setPersistentStatus(statusLevelError, "Event stream closed. Reconnecting...")
+		if cmd := m.restartEventStream(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case tickMsg:
 		cmds = append(cmds,
@@ -486,6 +593,41 @@ func (m model) View() string {
 		return "Initializing..."
 	}
 
+	usableWidth := m.width - 8
+	var paneWidth int
+	var paneHeight int
+	inputWidth := usableWidth
+	if m.layout == layoutHorizontal {
+		paneWidth = usableWidth / 2
+		if paneWidth < 32 {
+			paneWidth = 32
+		}
+		paneHeight = m.height - 8
+		if paneHeight < 12 {
+			paneHeight = 12
+		}
+		inputWidth = m.width - 6
+		if inputWidth < 30 {
+			inputWidth = m.width - 4
+		}
+	} else {
+		paneWidth = usableWidth
+		if paneWidth < 32 {
+			paneWidth = usableWidth
+		}
+		paneHeight = (m.height - 12) / 2
+		if paneHeight < 10 {
+			paneHeight = 10
+		}
+		inputWidth = m.width - 6
+		if inputWidth < 30 {
+			inputWidth = m.width - 4
+		}
+	}
+	if inputWidth < 10 {
+		inputWidth = 10
+	}
+
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	headerStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("252")).
@@ -514,7 +656,13 @@ func (m model) View() string {
 	}
 	statusView := statusStyle.Render(statusLine)
 
-	vmListView := vmListStyle.Width(m.width / 2).Height(m.height / 2).Render(m.vmList.View())
+	vmListWidth := paneWidth
+	if m.layout == layoutHorizontal {
+		vmListWidth = paneWidth
+	} else {
+		vmListWidth = paneWidth
+	}
+	vmListView := vmListStyle.Width(vmListWidth).Height(paneHeight).Render(m.vmList.View())
 
 	logTitle := "Logs"
 	if m.selectedVM != "" {
@@ -525,17 +673,30 @@ func (m model) View() string {
 		lipgloss.NewStyle().Bold(true).Render(logTitle),
 		m.logView.View(),
 	)
-	logView := logViewportStyle.Width(m.width / 2).Height(m.height / 2).Render(logContent)
+	logViewWidth := paneWidth
+	if m.layout == layoutHorizontal {
+		logViewWidth = paneWidth
+	} else {
+		logViewWidth = paneWidth
+	}
+	logView := logViewportStyle.Width(logViewWidth).Height(paneHeight).Render(logContent)
 
-	inputView := inputStyle.Width(m.width).Render(m.input.View())
+	inputView := inputStyle.Width(inputWidth).Render(m.input.View())
 
 	help := helpStyle.Render("(tab: switch/autocomplete) (ctrl+w: clear input) (↑/↓: history) (q: quit)")
+
+	var panes string
+	if m.layout == layoutHorizontal {
+		panes = lipgloss.JoinHorizontal(lipgloss.Top, vmListView, logView)
+	} else {
+		panes = lipgloss.JoinVertical(lipgloss.Left, vmListView, logView)
+	}
 
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
 		header,
 		statusView,
-		lipgloss.JoinHorizontal(lipgloss.Left, vmListView, logView),
+		panes,
 		inputView,
 		help,
 	)
@@ -560,8 +721,9 @@ func (m *model) queueCommand(input string) tea.Cmd {
 		return nil
 	}
 	if m.executing {
-		m.statusMessage = "Another command is already running."
-		m.statusLevel = statusLevelError
+		if cmd := m.setStatus(statusLevelError, "Another command is already running."); cmd != nil {
+			return cmd
+		}
 		return nil
 	}
 
@@ -581,10 +743,23 @@ func (m *model) queueCommand(input string) tea.Cmd {
 	m.statusStarted = time.Now()
 	m.pendingClear = false
 	m.spinner = newSpinnerModel()
+	m.input.Blur()
 
 	return tea.Batch(
 		executeCommand(m.ctx, m.api, plan),
 		m.spinner.Tick,
+	)
+}
+
+func (m *model) restartEventStream() tea.Cmd {
+	if m.ctx.Err() != nil {
+		return nil
+	}
+	m.eventCh = make(chan client.VMEvent, 64)
+	m.streamEOF = false
+	return tea.Batch(
+		watchEventsCmd(m.api, m.ctx, m.eventCh),
+		waitEventCmd(m.eventCh),
 	)
 }
 
@@ -776,6 +951,7 @@ func (m *model) appendToHistory(cmd string) {
 	}
 	m.historyIndex = len(m.commandHistory)
 	m.pendingClear = false
+	m.statusPersistent = false
 }
 
 func (m *model) navigateHistory(delta int) bool {
