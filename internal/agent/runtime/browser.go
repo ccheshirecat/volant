@@ -769,8 +769,8 @@ func devtoolsConnectHost(addr string) string {
 	}
 }
 
-func probeDevTools(host string, port int) (devToolsInternal, error) {
-	return waitForDevTools(context.Background(), nil, host, port)
+func probeDevTools(port int) (devToolsInternal, error) {
+	return waitForDevTools(context.Background(), nil, "127.0.0.1", port)
 }
 
 func waitForDevTools(ctx context.Context, emitter *logEmitter, host string, port int) (devToolsInternal, error) {

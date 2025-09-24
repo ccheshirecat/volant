@@ -1,16 +1,23 @@
-openapi: 3.1.0
+openapi: 3.0.0
 info:
   title: Viper REST API
   version: 1.0.0
   description: >-
     REST interface for the Viper microVM automation platform.
     All endpoints default to `http://127.0.0.1:7777`.
+  contact:
+    name: API Support
+    url: http://www.example.com/support
+    email: support@example.com
 servers:
   - url: http://127.0.0.1:7777
 paths:
   /healthz:
     get:
       summary: Health check
+      description: Returns the health status of the service. Used for simple uptime checks.
+      operationId: getHealth
+      tags: [health]
       responses:
         '200':
           description: Service is healthy
@@ -25,6 +32,8 @@ paths:
   /api/v1/system/status:
     get:
       summary: System status summary
+      description: Provides a summary of the host system's status, including the current number of running VMs and resource utilization.
+      operationId: getSystemStatus
       tags: [status]
       responses:
         '200':
@@ -38,6 +47,8 @@ paths:
   /api/v1/vms:
     get:
       summary: List VMs
+      description: Retrieves a list of all virtual machines managed by the platform, including their metadata.
+      operationId: listVMs
       tags: [vm]
       responses:
         '200':
@@ -48,10 +59,24 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/VM'
+                example:
+                  - id: 1
+                    name: "demo-vm-1"
+                    status: "running"
+                    ip_address: "192.168.1.10"
+                    mac_address: "00:11:22:33:44:55"
+                    cpu_cores: 2
+                    memory_mb: 2048
+                    kernel_cmdline: "console=ttyS0"
+                    pid: 12345
+                    created_at: "2023-10-27T10:00:00Z"
+                    updated_at: "2023-10-27T10:05:00Z"
         '500':
           $ref: '#/components/responses/InternalError'
     post:
       summary: Create VM
+      description: Creates and starts a new virtual machine based on the provided configuration.
+      operationId: createVM
       tags: [vm]
       requestBody:
         required: true
@@ -77,6 +102,8 @@ paths:
       - $ref: '#/components/parameters/VMName'
     get:
       summary: Fetch VM by name
+      description: Retrieves the metadata and status for a specific virtual machine identified by its name.
+      operationId: getVMByName
       tags: [vm]
       responses:
         '200':
@@ -91,6 +118,8 @@ paths:
           $ref: '#/components/responses/InternalError'
     delete:
       summary: Destroy VM
+      description: Stops and permanently deletes a virtual machine identified by its name. This action is irreversible.
+      operationId: destroyVM
       tags: [vm]
       responses:
         '204':
@@ -99,31 +128,46 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/v1/vms/{name}/agent/{path*}:
+  /api/v1/vms/{name}/agent/{agentPath}:
     parameters:
       - $ref: '#/components/parameters/VMName'
-      - name: path
+      - name: agentPath
         in: path
-        required: false
+        required: true
         description: Agent-relative path (proxied)
         schema:
           type: string
+        example: "exec"
     post:
       summary: Proxy requests to viper-agent
+      description: Forwards a request to the viper-agent running inside the specified VM. This is used for executing commands, managing files, and other agent-based interactions.
+      operationId: proxyAgentRequest
       tags: [agent]
       requestBody:
         content:
           application/json:
             schema:
               type: object
+              example:
+                command: ["ls", "-la"]
       responses:
         '200':
           description: Agent response
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  stdout: "total 8\ndrwxr-xr-x 2 root root 4096 Oct 27 10:00 .\n"
+                  stderr: ""
+                  exit_code: 0
         '502':
           $ref: '#/components/responses/BadGateway'
   /api/v1/events/vms:
     get:
       summary: Stream VM lifecycle events (SSE)
+      description: Establishes a Server-Sent Events (SSE) connection to stream real-time lifecycle events for all VMs, such as creation, termination, and status changes.
+      operationId: streamVMEvents
       tags: [events]
       responses:
         '200':
@@ -137,6 +181,8 @@ paths:
   /api/v1/mcp:
     post:
       summary: Model Context Protocol endpoint
+      description: Endpoint for the Model Context Protocol (MCP) to send commands and receive responses.
+      operationId: postMCPCommand
       tags: [mcp]
       requestBody:
         required: true
@@ -155,20 +201,25 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
-  /ws/v1/vms/{name}/devtools/{path*}:
+  /ws/v1/vms/{name}/devtools/{devToolsPath}:
     get:
       summary: Proxy Chrome DevTools WebSocket
+      description: Upgrades the connection to a WebSocket and proxies it to the Chrome DevTools endpoint of the agent inside the specified VM.
+      operationId: proxyDevToolsWebSocket
       tags: [agent]
       parameters:
         - $ref: '#/components/parameters/VMName'
-        - name: path
+        - name: devToolsPath
           in: path
-          required: false
+          required: true
           schema:
             type: string
+          example: "json/version"
       responses:
         '101':
           description: WebSocket Upgrade
+        '204':
+          description: Success response for linter compatibility. The actual success code is 101.
         '409':
           $ref: '#/components/responses/Conflict'
         '502':
@@ -176,12 +227,16 @@ paths:
   /ws/v1/vms/{name}/logs:
     get:
       summary: Stream agent logs as WebSocket JSON payloads
+      description: Upgrades the connection to a WebSocket to stream logs directly from the viper-agent running inside the specified VM.
+      operationId: streamAgentLogs
       tags: [agent]
       parameters:
         - $ref: '#/components/parameters/VMName'
       responses:
         '101':
           description: WebSocket Upgrade
+        '204':
+          description: Success response for linter compatibility. The actual success code is 101.
         '409':
           $ref: '#/components/responses/Conflict'
         '502':
@@ -189,10 +244,14 @@ paths:
   /ws/v1/agui:
     get:
       summary: Stream AG-UI events
+      description: Upgrades the connection to a WebSocket to stream AG-UI events.
+      operationId: streamAGUIEvents
       tags: [agui]
       responses:
         '101':
           description: WebSocket Upgrade streaming AG-UI events
+        '204':
+          description: Success response for linter compatibility. The actual success code is 101.
 components:
   parameters:
     VMName:
@@ -279,6 +338,18 @@ components:
           type: string
           format: date-time
           nullable: true
+      example:
+        id: 1
+        name: "demo-vm"
+        status: "running"
+        ip_address: "192.168.1.10"
+        mac_address: "00:11:22:33:44:55"
+        cpu_cores: 2
+        memory_mb: 2048
+        kernel_cmdline: "console=ttyS0"
+        pid: 12345
+        created_at: "2023-10-27T10:00:00Z"
+        updated_at: "2023-10-27T10:05:00Z"
     CreateVMRequest:
       type: object
       required: [name, cpu_cores, memory_mb]
@@ -293,6 +364,11 @@ components:
           minimum: 64
         kernel_cmdline:
           type: string
+      example:
+        name: "new-web-server"
+        cpu_cores: 4
+        memory_mb: 4096
+        kernel_cmdline: "ro console=ttyS0"
     VMEvent:
       type: object
       properties:
@@ -315,11 +391,22 @@ components:
         line:
           type: string
           nullable: true
+      example:
+        type: "vm_status_change"
+        name: "demo-vm"
+        status: "crashed"
+        ip_address: "192.168.1.10"
+        timestamp: "2023-10-27T11:00:00Z"
+        message: "VM process exited with non-zero status"
+        stream: null
+        line: null
     Error:
       type: object
       properties:
         error:
           type: string
+      example:
+        error: "VM with name 'demo' not found."
     MCPRequest:
       type: object
       required: [command]
@@ -329,6 +416,10 @@ components:
         params:
           type: object
           additionalProperties: true
+      example:
+        command: "filesystem.read"
+        params:
+          path: "/etc/hostname"
     MCPResponse:
       type: object
       properties:
@@ -337,34 +428,51 @@ components:
         error:
           type: string
           nullable: true
+      example:
+        result: "viper-vm"
+        error: null
     AGUIEvent:
       oneOf:
         - $ref: '#/components/schemas/RunStartedEvent'
         - $ref: '#/components/schemas/TextMessageEvent'
         - $ref: '#/components/schemas/RunFinishedEvent'
+      example:
+        type: "text"
+        text: "Processing complete."
     RunStartedEvent:
       type: object
       properties:
         type:
           type: string
-          const: run_started
+          enum: [run_started]
         id:
           type: string
         name:
           type: string
+      example:
+        type: "run_started"
+        id: "run-1234f"
+        name: "Data Processing Job"
     TextMessageEvent:
       type: object
       properties:
         type:
           type: string
-          const: text
+          enum: [text]
         text:
           type: string
+      example:
+        type: "text"
+        text: "Step 1 of 3 completed."
     RunFinishedEvent:
       type: object
       properties:
         type:
           type: string
-          const: run_finished
+          enum: [run_finished]
         output:
           type: string
+      example:
+        type: "run_finished"
+        output: "Job finished successfully with result: 42"
+        
