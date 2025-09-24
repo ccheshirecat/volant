@@ -44,21 +44,17 @@ clean:
 build-images: build-agent ## Build initramfs, fetch kernel, verify artifacts, and generate checksums
 	mkdir -p $(ARTIFACTS_DIR)
 	./build/images/build-initramfs.sh $(BIN_DIR)/viper-agent
-	if [ -f "build/images/viper-initramfs.cpio.gz" ]; then \
-		mv build/images/viper-initramfs.cpio.gz $(ARTIFACTS_DIR)/; \
-	else \
+	if [ ! -f "$(ARTIFACTS_DIR)/viper-initramfs.cpio.gz" ]; then \
 		echo "Error: initramfs not built"; exit 1; \
 	fi
-	if [ -f "build/images/vmlinuz-x86_64" ]; then \
-		mv build/images/vmlinuz-x86_64 $(ARTIFACTS_DIR)/; \
-	else \
+	if [ ! -f "$(ARTIFACTS_DIR)/vmlinux-x86_64" ]; then \
 		echo "Error: kernel not fetched"; exit 1; \
 	fi
-	(cd $(ARTIFACTS_DIR) && sha256sum viper-initramfs.cpio.gz vmlinuz-x86_64 > checksums.txt)
-	@if [ ! -f "$(ARTIFACTS_DIR)/viper-initramfs.cpio.gz" ] || [ ! -f "$(ARTIFACTS_DIR)/vmlinuz-x86_64" ]; then \
+	(cd $(ARTIFACTS_DIR) && sha256sum viper-initramfs.cpio.gz vmlinux-x86_64 > checksums.txt)
+	@if [ ! -f "$(ARTIFACTS_DIR)/viper-initramfs.cpio.gz" ] || [ ! -f "$(ARTIFACTS_DIR)/vmlinux-x86_64" ]; then \
 		echo "Error: Artifacts verification failed"; exit 1; \
 	fi
-	@echo "Build images complete: $(ARTIFACTS_DIR)/{viper-initramfs.cpio.gz, vmlinuz-x86_64, checksums.txt}"
+	@echo "Build images complete: $(ARTIFACTS_DIR)/{viper-initramfs.cpio.gz, vmlinux-x86_64, checksums.txt}"
 
 .PHONY: setup
 setup: build-cli ## Run viper setup (dry run)
