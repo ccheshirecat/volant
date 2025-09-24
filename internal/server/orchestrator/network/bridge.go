@@ -17,9 +17,24 @@ func NewBridgeManager(bridge string) *BridgeManager {
 	return &BridgeManager{BridgeName: bridge}
 }
 
+// ensureBridge ensures the bridge device exists and is up.
+func (b *BridgeManager) ensureBridge(ctx context.Context) error {
+	if err := run(ctx, "ip", "link", "show", b.BridgeName); err != nil {
+		return fmt.Errorf("bridge %s not present: %w", b.BridgeName, err)
+	}
+	if err := run(ctx, "ip", "link", "set", b.BridgeName, "up"); err != nil {
+		return fmt.Errorf("bring bridge up: %w", err)
+	}
+	return nil
+}
+
 // PrepareTap creates a tap device, attaches it to the bridge, and brings it up.
 func (b *BridgeManager) PrepareTap(ctx context.Context, vmName, mac string) (string, error) {
 	tap := tapNameFrom(vmName)
+
+	if err := b.ensureBridge(ctx); err != nil {
+		return "", err
+	}
 
 	// ip tuntap add dev <tap> mode tap
 	if err := run(ctx, "ip", "tuntap", "add", "dev", tap, "mode", "tap"); err != nil {
