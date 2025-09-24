@@ -3,8 +3,7 @@ BIN_DIR ?= bin
 ARTIFACTS_DIR ?= build/artifacts
 
 .PHONY: build
-build: ## Build all Viper binaries
-	build-server build-agent build-cli
+build: build-server build-agent build-cli ## Build all Viper binaries
 
 .PHONY: build-server
 build-server: ## Build the viper-server binary
