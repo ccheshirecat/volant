@@ -11,12 +11,12 @@ description: API access control and security
 - Establish patterns that can evolve into mTLS, OIDC, or token-based auth without reworking handlers.
 
 ## Current Mechanisms
-1. **CIDR Filtering (`VIPER_API_ALLOW_CIDR`)**
+1. **CIDR Filtering (`OVERHYPED_API_ALLOW_CIDR`)**
    - Comma-separated list of CIDR blocks evaluated against the client IP.
    - Default: empty (accept all).
    - IPv4 only at present; extend to IPv6 by parsing `IP.To16()`.
-2. **API Key (`VIPER_API_KEY`)**
-   - Shared secret provided via `X-Viper-API-Key` header or `api_key` query parameter.
+2. **API Key (`OVERHYPED_API_KEY`)**
+   - Shared secret provided via `X-Overhyped-API-Key` header or `api_key` query parameter.
    - Keys are stored in environment variables for now; future work should integrate secret management.
 
 ## Gaps & Next Steps

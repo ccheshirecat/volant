@@ -11,22 +11,22 @@ help: ## Show available make targets
 build: build-server build-agent build-cli install-binaries ## Build and install core binaries
 
 .PHONY: build-server
-build-server: ## Build the viper-server binary
-	$(GO) build -o $(BIN_DIR)/viper-server ./cmd/viper-server
+build-server: ## Build the hyped binary
+	$(GO) build -o $(BIN_DIR)/hyped ./cmd/hyped
 
 .PHONY: build-agent
 build-agent:
-	$(GO) build -o $(BIN_DIR)/viper-agent ./cmd/viper-agent
+	$(GO) build -o $(BIN_DIR)/hype-agent ./cmd/hype-agent
 
 .PHONY: build-cli
 build-cli:
-	$(GO) build -o $(BIN_DIR)/viper ./cmd/viper
+	$(GO) build -o $(BIN_DIR)/overhyped ./cmd/hype
 
 .PHONY: install-binaries
-install-binaries: build-server build-cli ## Install viper-server and viper to INSTALL_DIR
+install-binaries: build-server build-cli ## Install hyped and overhyped to INSTALL_DIR
 	mkdir -p $(INSTALL_DIR)
-	install -m 0755 $(BIN_DIR)/viper-server $(INSTALL_DIR)/viper-server
-	install -m 0755 $(BIN_DIR)/viper $(INSTALL_DIR)/viper
+	install -m 0755 $(BIN_DIR)/hyped $(INSTALL_DIR)/hyped
+	install -m 0755 $(BIN_DIR)/overhyped $(INSTALL_DIR)/overhyped
 
 .PHONY: test
 test:
@@ -54,19 +54,19 @@ clean:
 .PHONY: build-images
 build-images: build-agent ## Build initramfs, fetch kernel, verify artifacts, and generate checksums
 	mkdir -p $(ARTIFACTS_DIR)
-	./build/images/build-initramfs.sh $(BIN_DIR)/viper-agent
-	if [ ! -f "$(ARTIFACTS_DIR)/viper-initramfs.cpio.gz" ]; then \
+	./build/images/build-initramfs.sh $(BIN_DIR)/hype-agent
+	if [ ! -f "$(ARTIFACTS_DIR)/overhyped-initramfs.cpio.gz" ]; then \
 		echo "Error: initramfs not built"; exit 1; \
 	fi
 	if [ ! -f "$(ARTIFACTS_DIR)/vmlinux-x86_64" ]; then \
 		echo "Error: kernel not fetched"; exit 1; \
 	fi
-	(cd $(ARTIFACTS_DIR) && sha256sum viper-initramfs.cpio.gz vmlinux-x86_64 > checksums.txt)
-	@if [ ! -f "$(ARTIFACTS_DIR)/viper-initramfs.cpio.gz" ] || [ ! -f "$(ARTIFACTS_DIR)/vmlinux-x86_64" ]; then \
+	(cd $(ARTIFACTS_DIR) && sha256sum overhyped-initramfs.cpio.gz vmlinux-x86_64 > checksums.txt)
+	@if [ ! -f "$(ARTIFACTS_DIR)/overhyped-initramfs.cpio.gz" ] || [ ! -f "$(ARTIFACTS_DIR)/vmlinux-x86_64" ]; then \
 		echo "Error: Artifacts verification failed"; exit 1; \
 	fi
-	@echo "Build images complete: $(ARTIFACTS_DIR)/{viper-initramfs.cpio.gz, vmlinux-x86_64, checksums.txt}"
+	@echo "Build images complete: $(ARTIFACTS_DIR)/{overhyped-initramfs.cpio.gz, vmlinux-x86_64, checksums.txt}"
 
 .PHONY: setup
-setup: build-cli ## Run viper setup (dry run)
-	./bin/viper setup --dry-run
+setup: build-cli ## Run hype setup (dry run)
+	./bin/hype setup --dry-run

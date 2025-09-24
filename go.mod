@@ -1,4 +1,4 @@
-module github.com/ccheshirecat/viper
+module github.com/ccheshirecat/overhyped
 
 go 1.24
 

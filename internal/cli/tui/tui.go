@@ -19,7 +19,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/ccheshirecat/viper/internal/cli/client"
+	"github.com/ccheshirecat/overhyped/internal/cli/client"
 )
 
 var (
@@ -27,7 +27,7 @@ var (
 )
 
 func init() {
-	if path := os.Getenv("VIPER_TUI_DEBUG"); path != "" {
+	if path := os.Getenv("OVERHYPED_TUI_DEBUG"); path != "" {
 		if abs, err := filepath.Abs(path); err == nil {
 			_ = os.MkdirAll(filepath.Dir(abs), 0o755)
 			f, err := os.OpenFile(abs, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
@@ -682,7 +682,7 @@ func (m model) View() string {
 	statusStyle := lipgloss.NewStyle().Padding(0, 1)
 	inputStyle := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1)
 
-	header := headerStyle.Render(headerTitleStyle.Render("VIPER v2.0 | God Mode Dashboard"))
+	header := headerStyle.Render(headerTitleStyle.Render("HYPE CLI v2.0 | THE OVER-HYPED DASHBOARD"))
 
 	statusLine := ""
 	if m.statusMessage != "" {
@@ -1403,7 +1403,7 @@ func maxInt(a, b int) int {
 
 // Run launches the Bubble Tea TUI.
 func Run() error {
-	base := os.Getenv("VIPER_API_BASE")
+	base := os.Getenv("OVERHYPED_API_BASE")
 	api, err := client.New(base)
 	if err != nil {
 		return err

@@ -9,9 +9,9 @@ fi
 REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 CONTEXT="$REPO_ROOT/build/images"
 OUTPUT_DIR="$REPO_ROOT/build/artifacts"
-AGENT_BIN=${1:-$REPO_ROOT/bin/viper-agent}
-IMAGE_TAG=${IMAGE_TAG:-viper-initramfs:latest}
-INITRAMFS_NAME=${INITRAMFS_NAME:-viper-initramfs.cpio.gz}
+AGENT_BIN=${1:-$REPO_ROOT/bin/hype-agent}
+IMAGE_TAG=${IMAGE_TAG:-overhyped-initramfs:latest}
+INITRAMFS_NAME=${INITRAMFS_NAME:-overhyped-initramfs.cpio.gz}
 KERNEL_URL=${KERNEL_URL:-https://github.com/cloud-hypervisor/linux/releases/download/ch-release-v6.12.8-20250613/vmlinux-x86_64}
 
 mkdir -p "$OUTPUT_DIR"
@@ -21,7 +21,7 @@ if [ ! -f "$AGENT_BIN" ]; then
   exit 1
 fi
 
-STAGED_AGENT="$CONTEXT/viper-agent.bin"
+STAGED_AGENT="$CONTEXT/hype-agent.bin"
 TMPDIR=""
 CID=""
 
@@ -39,7 +39,7 @@ trap cleanup_all EXIT
 cp "$AGENT_BIN" "$STAGED_AGENT"
 
 printf 'Building image... ' >&2
-if ! docker build --build-arg VIPER_AGENT_BINARY="$(basename "$STAGED_AGENT")" -t "$IMAGE_TAG" "$CONTEXT" >/dev/null; then
+if ! docker build --build-arg overhyped_AGENT_BINARY="$(basename "$STAGED_AGENT")" -t "$IMAGE_TAG" "$CONTEXT" >/dev/null; then
   echo 'failed' >&2
   exit 1
 fi

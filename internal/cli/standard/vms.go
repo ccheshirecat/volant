@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ccheshirecat/viper/internal/cli/client"
+	"github.com/ccheshirecat/overhyped/internal/cli/client"
 )
 
 func newVMsCmd() *cobra.Command {
@@ -177,7 +177,7 @@ func newVMsWatchCmd() *cobra.Command {
 func clientFromCmd(cmd *cobra.Command) (*client.Client, error) {
 	base, err := cmd.Root().PersistentFlags().GetString("api")
 	if err != nil {
-		base = envOrDefault("VIPER_API_BASE", "http://127.0.0.1:7777")
+		base = envOrDefault("OVERHYPED_API_BASE", "http://127.0.0.1:7777")
 	}
 	return client.New(base)
 }

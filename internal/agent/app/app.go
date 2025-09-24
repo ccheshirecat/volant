@@ -18,17 +18,17 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	agentruntime "github.com/ccheshirecat/viper/internal/agent/runtime"
+	agentruntime "github.com/ccheshirecat/overhyped/internal/agent/runtime"
 )
 
 const (
 	defaultListenAddr     = ":8080"
-	defaultTimeoutEnvKey  = "VIPER_AGENT_DEFAULT_TIMEOUT"
-	defaultListenEnvKey   = "VIPER_AGENT_LISTEN_ADDR"
-	defaultRemoteAddrKey  = "VIPER_AGENT_REMOTE_DEBUGGING_ADDR"
-	defaultRemotePortKey  = "VIPER_AGENT_REMOTE_DEBUGGING_PORT"
-	defaultUserDataDirKey = "VIPER_AGENT_USER_DATA_DIR"
-	defaultExecPathKey    = "VIPER_AGENT_EXEC_PATH"
+	defaultTimeoutEnvKey  = "overhyped_AGENT_DEFAULT_TIMEOUT"
+	defaultListenEnvKey   = "overhyped_AGENT_LISTEN_ADDR"
+	defaultRemoteAddrKey  = "overhyped_AGENT_REMOTE_DEBUGGING_ADDR"
+	defaultRemotePortKey  = "overhyped_AGENT_REMOTE_DEBUGGING_PORT"
+	defaultUserDataDirKey = "overhyped_AGENT_USER_DATA_DIR"
+	defaultExecPathKey    = "overhyped_AGENT_EXEC_PATH"
 )
 
 type Config struct {
@@ -51,7 +51,7 @@ type App struct {
 
 func Run(ctx context.Context) error {
 	cfg := loadConfig()
-	logger := log.New(os.Stdout, "viper-agent: ", log.LstdFlags|log.LUTC)
+	logger := log.New(os.Stdout, "hype-agent: ", log.LstdFlags|log.LUTC)
 
 	browser, err := agentruntime.NewBrowser(ctx, agentruntime.BrowserConfig{
 		RemoteDebuggingAddr: cfg.RemoteDebuggingAddr,

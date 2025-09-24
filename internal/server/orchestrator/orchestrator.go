@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ccheshirecat/viper/internal/server/db"
-	"github.com/ccheshirecat/viper/internal/server/eventbus"
-	orchestratorevents "github.com/ccheshirecat/viper/internal/server/orchestrator/events"
-	"github.com/ccheshirecat/viper/internal/server/orchestrator/network"
-	"github.com/ccheshirecat/viper/internal/server/orchestrator/runtime"
+	"github.com/ccheshirecat/overhyped/internal/server/db"
+	"github.com/ccheshirecat/overhyped/internal/server/eventbus"
+	orchestratorevents "github.com/ccheshirecat/overhyped/internal/server/orchestrator/events"
+	"github.com/ccheshirecat/overhyped/internal/server/orchestrator/network"
+	"github.com/ccheshirecat/overhyped/internal/server/orchestrator/runtime"
 )
 
 // Engine represents the VM orchestration core.
@@ -83,7 +83,7 @@ func New(params Params) (Engine, error) {
 
 	runtimeDir := params.Runtime
 	if runtimeDir == "" {
-		runtimeDir = filepath.Join(".viper", "run")
+		runtimeDir = filepath.Join(".overhyped", "run")
 	}
 
 	return &engine{
@@ -257,7 +257,9 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		Netmask:       netmask,
 	}
 
-	instance, err := e.launcher.Launch(ctx, spec)
+	launchCtx := e.launchContext()
+
+	instance, err := e.launcher.Launch(launchCtx, spec)
 	if err != nil {
 		_ = e.network.CleanupTap(ctx, tapName)
 		e.rollbackCreate(ctx, vmRecord)
@@ -554,4 +556,13 @@ func formatNetmask(mask net.IPMask) string {
 		parts[i] = fmt.Sprintf("%d", int(b))
 	}
 	return strings.Join(parts, ".")
+}
+
+func (e *engine) launchContext() context.Context {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.procCtx != nil {
+		return e.procCtx
+	}
+	return context.Background()
 }

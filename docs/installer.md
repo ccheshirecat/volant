@@ -1,11 +1,11 @@
 ---
 title: "Installation"
-description: "Install Viper using the curl|bash bootstrapper and viper setup."
+description: "Install Overhyped using the curl|bash bootstrapper and hype setup."
 ---
 
 # Installation Guide
 
-Viper ships a "zero-configuration" installer that bootstraps the host and launches the control plane in minutes.
+Overhyped ships a "zero-configuration" installer that bootstraps the host and launches the control plane in minutes.
 
 ## Prerequisites
 
@@ -17,18 +17,18 @@ Viper ships a "zero-configuration" installer that bootstraps the host and launch
 ## Quick Install
 
 ```bash
-curl -sSL https://github.com/ccheshirecat/viper/releases/latest/download/install.sh | bash
+curl -sSL https://github.com/ccheshirecat/overhyped/releases/latest/download/install.sh | bash
 ```
 
 What the installer does:
 1. Detects OS + architecture.
 2. Installs prerequisites via the native package manager (prompted unless `--yes`).
-3. Downloads the latest Viper CLI/server/agent binaries from GitHub releases.
+3. Downloads the latest hype CLI/server/agent binaries from GitHub releases.
 4. Verifies SHA-256 checksums.
 5. Installs binaries to `/usr/local/bin/`.
-6. Optionally runs `sudo viper setup`.
+6. Optionally runs `sudo hype setup`.
 
-> Use `VIPER_VERSION=v1.2.3` to pin a release, or download `install.sh` manually for review.
+> Use `OVERHYPED_VERSION=v1.2.3` to pin a release, or download `install.sh` manually for review.
 
 ### Flags
 
@@ -37,60 +37,60 @@ install.sh [--version v1.2.3] [--force] [--skip-setup] [--yes]
 ```
 
 - `--version` — install a specific tag instead of `latest`.
-- `--force` — reinstall even if Viper is already present.
-- `--skip-setup` — skip invoking `viper setup` at the end.
+- `--force` — reinstall even if overhyped is already present.
+- `--skip-setup` — skip invoking `hype setup` at the end.
 - `--yes/-y` — non-interactive mode (auto-confirm dependency installs).
 
 ### Verify Installation
 
 ```bash
-viper --version
-viper-server --help
-viper-agent --help
+hype --version
+hyped --help
+hype-agent --help
 ```
 
-## Post-Install: `viper setup`
+## Post-Install: `hype setup`
 
-`viper setup` provisions networking, installs the systemd service, and configures env vars:
+`hype setup` provisions networking, installs the systemd service, and configures env vars:
 
 ```
-sudo viper setup \
-  --kernel /usr/local/share/viper/vmlinux-x86_64 \
-  --initramfs /usr/local/share/viper/viper-initramfs.cpio.gz
+sudo hype setup \
+  --kernel /usr/local/share/overhyped/vmlinux-x86_64 \
+  --initramfs /usr/local/share/overhyped/overhyped-initramfs.cpio.gz
 ```
 
 Key responsibilities:
 
-1. Create Linux bridge `viperbr0` (`ip link add` + `ip addr replace` + `ip link set up`).
+1. Create Linux bridge `hypebr0` (`ip link add` + `ip addr replace` + `ip link set up`).
 2. Enable IP forwarding (`/proc/sys/net/ipv4/ip_forward`).
 3. Configure idempotent NAT rules (`iptables -t nat POSTROUTING MASQUERADE`).
-4. Ensure `~/.viper/run` and `~/.viper/logs` directories exist.
-5. Write `/etc/systemd/system/viper-server.service` with:
-   - `ExecStart=/usr/local/bin/viper-server`
+4. Ensure `~/.overhyped/run` and `~/.overhyped/logs` directories exist.
+5. Write `/etc/systemd/system/hyped.service` with:
+   - `ExecStart=/usr/local/bin/hyped`
    - `Environment` variables for kernel/initramfs/bridge/runtime dirs.
-   - Log redirection to `/var/log/viper/server.log`.
-6. (Optional) `systemctl daemon-reload && systemctl enable --now viper-server`.
+   - Log redirection to `/var/log/overhyped/server.log`.
+6. (Optional) `systemctl daemon-reload && systemctl enable --now hyped`.
 
-> Generate artifacts with `make build-images` if you prefer local kernel/initramfs; pass their paths via `--kernel` / `--initramfs` or environment variables (`VIPER_KERNEL`, `VIPER_INITRAMFS`).
+> Generate artifacts with `make build-images` if you prefer local kernel/initramfs; pass their paths via `--kernel` / `--initramfs` or environment variables (`OVERHYPED_KERNEL`, `OVERHYPED_INITRAMFS`).
 
 ## Manual Uninstall
 
 ```bash
-sudo systemctl disable --now viper-server
-sudo rm -f /etc/systemd/system/viper-server.service
-sudo ip link delete viperbr0
-sudo iptables -t nat -D POSTROUTING -s 192.168.127.0/24 ! -o viperbr0 -j MASQUERADE
-rm -rf ~/.viper
-sudo rm -f /usr/local/bin/viper /usr/local/bin/viper-server /usr/local/bin/viper-agent
+sudo systemctl disable --now hyped
+sudo rm -f /etc/systemd/system/hyped.service
+sudo ip link delete hypebr0
+sudo iptables -t nat -D POSTROUTING -s 192.168.127.0/24 ! -o hypebr0 -j MASQUERADE
+rm -rf ~/.overhyped
+sudo rm -f /usr/local/bin/hype /usr/local/bin/hyped /usr/local/bin/hype-agent
 ```
 
 Adjust the iptables/bridge commands if you changed defaults.
 
 ## Troubleshooting
 
-- **`/dev/tty` errors in systemd**: Ensure the unit’s `ExecStart` points to `viper-server`, not the CLI.
-- **Missing kernel/initramfs**: Verify `make build-images` output; supply correct paths to `viper setup`.
-- **Networking issues**: Check `ip addr show viperbr0`, `ip route`, and `iptables -t nat -L -n` to confirm bridge and MASQUERADE rules.
-- **Logs**: `/var/log/viper/server.log`, `journalctl -u viper-server`, and event stream (`viper events tail`).
+- **`/dev/tty` errors in systemd**: Ensure the unit’s `ExecStart` points to `hyped`, not the CLI.
+- **Missing kernel/initramfs**: Verify `make build-images` output; supply correct paths to `hype setup`.
+- **Networking issues**: Check `ip addr show hypebr0`, `ip route`, and `iptables -t nat -L -n` to confirm bridge and MASQUERADE rules.
+- **Logs**: `/var/log/overhyped/server.log`, `journalctl -u hyped`, and event stream (`hype events tail`).
 
 Need help? Open an issue on GitHub.

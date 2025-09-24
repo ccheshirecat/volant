@@ -7,27 +7,27 @@ description: System architecture and component overview
 
 ## Core Systems
 
-### viper-server
+### hyped
 - Embedded orchestrator written in Go.
 - Owns lifecycle of Cloud Hypervisor microVMs (create, monitor, destroy).
-- Maintains authoritative state in SQLite (`~/.viper/state.db`).
+- Maintains authoritative state in SQLite (`~/.overhyped/state.db`).
 - Exposes REST, MCP (`POST /api/mcp`), and AG-UI (`GET /ws/v1/agui`) surfaces.
 - Houses the DevTools proxy (`/api/v1/vms/{name}/agent`) so clients never hit guest IPs directly.
 
-### viper-agent
-- Runs inside each microVM as PID 1 after `/bin/viper-init` hands off.
+### hype-agent
+- Runs inside each microVM as PID 1 after `/init` hands off.
 - Launches headless Chrome with a per-instance user-data dir and devtools port.
 - Presents REST endpoints that mirror browser automation primitives.
 - Streams logs/artifacts back via the control plane proxy.
 - Observability: structured logs, exit watchdog, metrics hooks (roadmap).
 
 ### Image Pipeline
-- `build/images/build-initramfs.sh` builds a Docker image with chrome + agent + `viper-init`.
-- Exports `vmlinux` and `viper-initramfs.cpio.gz` for the orchestrator.
+- `build/images/build-initramfs.sh` builds a Docker image with chrome + agent + `overhyped-init`.
+- Exports `vmlinux` and `overhyped-initramfs.cpio.gz` for the orchestrator.
 - Make target `build-images` fixes checksums and ensures artifacts exist.
 
 ### Client Surfaces
-- CLI (`cmd/viper`): Cobra commands for automation and `cobra` friendly UX.
+- CLI (`cmd/hype`): Cobra commands for automation and `cobra` friendly UX.
 - TUI: Bubble Tea app connecting through REST/SSE for real-time status.
 - Programmatic: REST, MCP, AG-UI, and DevTools proxy over HTTP/WebSockets.
 
@@ -40,8 +40,8 @@ description: System architecture and component overview
 4. Event bus emits `VM_CREATED` → SSE/TUI/AG-UI listeners update immediately.
 
 ### 2. Boot & Agent Initialization
-1. Kernel boots with `init=/init` (`viper-init`).
-2. `viper-init` mounts pseudo filesystems, configures networking, and supervises `viper-agent`.
+1. Kernel boots with `init=/init` (`overhyped-init`).
+2. `overhyped-init` mounts pseudo filesystems, configures networking, and supervises `hype-agent`.
 3. Agent spawns Chrome (per-instance port/profile) and announces readiness via the control plane.
 
 ### 3. Task Execution
@@ -65,7 +65,7 @@ description: System architecture and component overview
 - **Event Log:** In-memory publish/subscribe now; durable storage on the roadmap.
 
 ## Networking Model
-- `viper setup` creates bridge `viperbr0` (`192.168.127.1/24`) and configures NAT (iptables `MASQUERADE`).
+- `hype setup` creates bridge `hypebr0` (`192.168.127.1/24`) and configures NAT (iptables `MASQUERADE`).
 - MicroVMs receive static IP via kernel cmdline (`ip=a.b.c.d::gateway:netmask:hostname:eth0:off`).
 - MAC addresses derived from SHA-1 of `name|ip` to keep them deterministic.
 - `BridgeManager` provisions tap interfaces, attaches them to bridge, cleans them up on teardown.
@@ -75,7 +75,7 @@ description: System architecture and component overview
 - **REST:** `/api/v1/...` for VM lifecycle, status, logs, and agent proxy.
 - **Agent REST (proxied):** Browser navigation, DOM operations, profiles, screenshots.
 - **Events:** SSE (`/api/v1/events/vms`) + WebSocket for AG-UI.
-- **MCP:** `POST /api/mcp` maps commands (e.g., `viper.vms.create`) to orchestrator actions.
+- **MCP:** `POST /api/mcp` maps commands (e.g., `overhyped.vms.create`) to orchestrator actions.
 - **AG-UI:** `GET /ws/v1/agui` streams run events for AI/UI clients.
 
 See the dedicated API reference section for the full OpenAPI spec and protocol schemas.
@@ -91,4 +91,4 @@ See the dedicated API reference section for the full OpenAPI spec and protocol s
 - MCP/AG-UI command adapters open protocol integration with AI systems.
 - Planned plugin system (stored in `plugins` table) for workload automation modules.
 
-Keep this page current as implementation evolves; treat it as the canonical blueprint for Viper operators and contributors.
+Keep this page current as implementation evolves; treat it as the canonical blueprint for overhyped operators and contributors.

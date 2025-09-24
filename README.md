@@ -1,6 +1,6 @@
-# Project Viper
+# OVERHYPED
 
-Project Viper is a production-grade, single-node microVM browser automation platform. It fuses a native orchestrator, an opinionated VM image pipeline, and human/AI-first control surfaces into a cohesive "private browser cloud" experience.
+Overhyped is a production-grade, single-node microVM browser automation platform. It fuses a native orchestrator, an opinionated VM image pipeline, and human/AI-first control surfaces into a cohesive "private browser cloud" experience.
 
 ## Current Status
 - **Phase:** Foundations (repository bootstrapping, persistence layer online).
@@ -32,14 +32,14 @@ scripts/            # Operational helpers and automation
 
 ## Getting Started (Development)
 1. Ensure Go 1.22+ is installed locally.
-2. Export the required environment variables before running `viper-server`:
-   - `VIPER_KERNEL` – absolute path to the microVM kernel image.
-   - `VIPER_INITRAMFS` – absolute path to the initramfs bundle.
-   - `VIPER_HOST_IP` – host-side IP inside the managed subnet (defaults to `192.168.127.1`).
-   - `VIPER_RUNTIME_DIR` / `VIPER_LOG_DIR` – directories for Cloud Hypervisor sockets & logs (default `~/.viper/run`, `~/.viper/logs`).
-   - `VIPER_API_BASE` – CLI base URL for the control plane (default `http://127.0.0.1:7777`).
+2. Export the required environment variables before running `hyped`:
+   - `OVERHYPED_KERNEL` – absolute path to the microVM kernel image.
+   - `OVERHYPED_INITRAMFS` – absolute path to the initramfs bundle.
+   - `OVERHYPED_HOST_IP` – host-side IP inside the managed subnet (defaults to `192.168.127.1`).
+   - `OVERHYPED_RUNTIME_DIR` / `OVERHYPED_LOG_DIR` – directories for Cloud Hypervisor sockets & logs (default `~/.overhyped/run`, `~/.overhyped/logs`).
+   - `overhyped_API_BASE` – CLI base URL for the control plane (default `http://127.0.0.1:7777`).
 3. Build binaries via `make build-server`, `make build-agent`, or `make build-cli`.
-4. Run `viper setup --dry-run` to preview host configuration, then `sudo viper setup` to create the bridge/NAT rules and systemd unit.
+4. Run `hype setup --dry-run` to preview host configuration, then `sudo hype setup` to create the bridge/NAT rules and systemd unit.
 5. Build initramfs + kernel with `./build/images/build-initramfs.sh` (see `docs/image-pipeline.md`).
 
 > **CGO:** The SQLite driver (`github.com/mattn/go-sqlite3`) requires CGO. Ensure Xcode command-line tools or an equivalent GCC toolchain is installed before building.
@@ -49,11 +49,11 @@ scripts/            # Operational helpers and automation
 ## Next Implementation Targets
 - Expose `/api/v1` lifecycle endpoints via authenticated gateways (middleware, auth, rate limiting).
 - Harden tap/bridge management with diagnostics and host preflight checks.
-- Deliver the Docker → initramfs pipeline with `viper-init` and agent integration.
+- Deliver the Docker → initramfs pipeline with `overhyped-init` and agent integration.
 - Wire the REST API into the CLI/TUI clients and begin MCP/AG-UI protocol adapters.
 
 ## Contributing
-Project Viper is developed with a production-first mindset. Contributions should include:
+Project OVERHYPED is developed with a production-first mindset. Contributions should include:
 - Comprehensive tests for new behavior.
 - Documentation updates for user-facing or architectural changes.
 - Operational considerations (observability, failure handling, resiliency).
@@ -66,11 +66,11 @@ Please consult the roadmap and development tracker before embarking on significa
 - `DELETE /api/v1/vms/:name` – destroy a microVM.
 - `GET /api/v1/events/vms` – Server-Sent Events stream of lifecycle updates (`VM_CREATED`, `VM_RUNNING`, `VM_STOPPED`, `VM_CRASHED`, `VM_DELETED`).
 
-Authentication & authorization are not yet implemented; endpoints are for local development only. `VIPER_API_ALLOW_CIDR` and `VIPER_API_KEY` enable lightweight network/key filtering (see `docs/auth.md`).
+Authentication & authorization are not yet implemented; endpoints are for local development only. `OVERHYPED_API_ALLOW_CIDR` and `OVERHYPED_API_KEY` enable lightweight network/key filtering (see `docs/auth.md`).
 
 ## CLI (Preview)
-- `viper vms list` – list known microVMs (uses `VIPER_API_BASE`).
-- `viper vms create my-vm --cpu 2 --memory 2048` – create a new microVM.
-- `viper vms get my-vm` – inspect VM status.
-- `viper vms delete my-vm` – destroy a VM.
-- `viper vms watch` – stream lifecycle events in real-time.
+- `hype vms list` – list known microVMs (uses `OVERHYPED_API_BASE`).
+- `hype vms create my-vm --cpu 2 --memory 2048` – create a new microVM.
+- `hype vms get my-vm` – inspect VM status.
+- `hype vms delete my-vm` – destroy a VM.
+- `hype vms watch` – stream lifecycle events in real-time.

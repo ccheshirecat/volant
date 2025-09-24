@@ -14,10 +14,10 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	orchestratorevents "github.com/ccheshirecat/viper/internal/server/orchestrator/events"
+	orchestratorevents "github.com/ccheshirecat/overhyped/internal/server/orchestrator/events"
 )
 
-// Client wraps REST access to the viper-server API.
+// Client wraps REST access to the hyped API.
 type Client struct {
 	baseURL    *url.URL
 	httpClient *http.Client

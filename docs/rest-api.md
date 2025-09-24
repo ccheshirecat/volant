@@ -5,7 +5,7 @@ description: Complete REST API reference
 
 # REST API Reference (Preview)
 
-Base URL defaults to `http://127.0.0.1:7777` (configurable via `VIPER_API_BASE`). Authentication/authorization are development-grade; see `docs/auth.md`.
+Base URL defaults to `http://127.0.0.1:7777` (configurable via `OVERHYPED_API_BASE`). Authentication/authorization are development-grade; see `docs/auth.md`.
 
 ## Health
 
