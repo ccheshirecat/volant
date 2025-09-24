@@ -4,3 +4,5 @@ build/artifacts
 .kilocode
 .DS_STORE
 bin
+development-tracker.md
+roadmap.md

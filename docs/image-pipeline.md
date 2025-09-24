@@ -1,3 +1,8 @@
+---
+title: Image Pipeline
+description: Docker to initramfs image processing
+---
+
 # Image Pipeline
 
 The image build flow produces two artifacts consumed by the orchestrator:
