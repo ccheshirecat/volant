@@ -754,25 +754,6 @@ func probeDevTools(port int) (devToolsInternal, error) {
 	return devToolsInternal{}, fmt.Errorf("browser: unable to discover devtools endpoint on port %d", port)
 }
 
-func resolveExecPath(requested string) (string, error) {
-	candidates := make([]string, 0, len(defaultExecCandidates)+1)
-	if path := strings.TrimSpace(requested); path != "" {
-		candidates = append(candidates, path)
-	}
-	candidates = append(candidates, defaultExecCandidates...)
-
-	for _, candidate := range candidates {
-		if candidate == "" {
-			continue
-		}
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate, nil
-		}
-	}
-
-	return "", fmt.Errorf("browser: could not find a headless Chrome binary; tried %s", strings.Join(candidates, ", "))
-}
-
 func jsString(value string) string {
 	return strconv.Quote(value)
 }
