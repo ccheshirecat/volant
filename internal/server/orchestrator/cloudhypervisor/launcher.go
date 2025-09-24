@@ -3,6 +3,7 @@ package cloudhypervisor
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,9 +57,21 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	apiSocket := filepath.Join(l.RuntimeDir, fmt.Sprintf("%s.sock", spec.Name))
 	_ = os.Remove(apiSocket)
 
+	kernelCopy := filepath.Join(l.RuntimeDir, fmt.Sprintf("%s.vmlinux", spec.Name))
+	initramfsCopy := filepath.Join(l.RuntimeDir, fmt.Sprintf("%s.initramfs", spec.Name))
+	if err := copyFile(l.KernelPath, kernelCopy); err != nil {
+		return nil, fmt.Errorf("cloudhypervisor: stage kernel: %w", err)
+	}
+	if err := copyFile(l.InitramfsPath, initramfsCopy); err != nil {
+		_ = os.Remove(kernelCopy)
+		return nil, fmt.Errorf("cloudhypervisor: stage initramfs: %w", err)
+	}
+
 	logPath := filepath.Join(l.LogDir, fmt.Sprintf("%s.log", spec.Name))
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
+		_ = os.Remove(kernelCopy)
+		_ = os.Remove(initramfsCopy)
 		return nil, fmt.Errorf("cloudhypervisor: open log file: %w", err)
 	}
 
@@ -66,8 +79,8 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		"--api-socket", fmt.Sprintf("path=%s", apiSocket),
 		"--cpus", fmt.Sprintf("boot=%d", spec.CPUCores),
 		"--memory", fmt.Sprintf("size=%dM", spec.MemoryMB),
-		"--kernel", l.KernelPath,
-		"--initramfs", l.InitramfsPath,
+		"--kernel", kernelCopy,
+		"--initramfs", initramfsCopy,
 		"--cmdline", spec.KernelCmdline,
 		"--net", fmt.Sprintf("tap=%s,mac=%s", spec.TapDevice, spec.MACAddress),
 		"--serial", "tty",
@@ -80,6 +93,8 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
+		_ = os.Remove(kernelCopy)
+		_ = os.Remove(initramfsCopy)
 		return nil, fmt.Errorf("cloudhypervisor: start: %w", err)
 	}
 
@@ -91,20 +106,24 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	}()
 
 	return &instance{
-		name:      spec.Name,
-		cmd:       cmd,
-		apiSocket: apiSocket,
-		logFile:   logFile,
-		done:      done,
+		name:          spec.Name,
+		cmd:           cmd,
+		apiSocket:     apiSocket,
+		logFile:       logFile,
+		done:          done,
+		kernelPath:    kernelCopy,
+		initramfsPath: initramfsCopy,
 	}, nil
 }
 
 type instance struct {
-	name      string
-	cmd       *exec.Cmd
-	apiSocket string
-	logFile   *os.File
-	done      <-chan error
+	name          string
+	cmd           *exec.Cmd
+	apiSocket     string
+	logFile       *os.File
+	done          <-chan error
+	kernelPath    string
+	initramfsPath string
 }
 
 func (i *instance) Name() string          { return i.name }
@@ -140,6 +159,35 @@ func (i *instance) Stop(ctx context.Context) error {
 	}
 
 	_ = os.Remove(i.apiSocket)
+	i.cleanupArtifacts()
+	return nil
+}
+
+func (i *instance) cleanupArtifacts() {
+	if i.kernelPath != "" {
+		_ = os.Remove(i.kernelPath)
+	}
+	if i.initramfsPath != "" {
+		_ = os.Remove(i.initramfsPath)
+	}
+}
+
+func copyFile(src, dst string) error {
+	source, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+
+	dest, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	defer dest.Close()
+
+	if _, err := io.Copy(dest, source); err != nil {
+		return err
+	}
 	return nil
 }
 
