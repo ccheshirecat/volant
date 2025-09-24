@@ -1,9 +1,14 @@
 GO ?= go
+INSTALL_DIR ?= /usr/local/bin
 BIN_DIR ?= bin
 ARTIFACTS_DIR ?= build/artifacts
 
+.PHONY: help
+help: ## Show available make targets
+	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*##"} {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
 .PHONY: build
-build: build-server build-agent build-cli ## Build all Viper binaries
+build: build-server build-agent build-cli install-binaries ## Build and install core binaries
 
 .PHONY: build-server
 build-server: ## Build the viper-server binary
@@ -16,6 +21,12 @@ build-agent:
 .PHONY: build-cli
 build-cli:
 	$(GO) build -o $(BIN_DIR)/viper ./cmd/viper
+
+.PHONY: install-binaries
+install-binaries: build-server build-cli ## Install viper-server and viper to INSTALL_DIR
+	mkdir -p $(INSTALL_DIR)
+	install -m 0755 $(BIN_DIR)/viper-server $(INSTALL_DIR)/viper-server
+	install -m 0755 $(BIN_DIR)/viper $(INSTALL_DIR)/viper
 
 .PHONY: test
 test:
