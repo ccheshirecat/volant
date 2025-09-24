@@ -9,15 +9,15 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/viperhq/viper/internal/cli/client"
+	"github.com/ccheshirecat/viper/internal/cli/client"
 )
 
 const (
@@ -45,9 +45,16 @@ var (
 		key.WithKeys("down"),
 	)
 
-	rootCommands = []string{"vms", "status", "help"}
+	rootCommands   = []string{"vms", "status", "help"}
 	vmsSubcommands = []string{"create", "delete", "list", "get"}
 )
+
+func newSpinnerModel() spinner.Model {
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	return sp
+}
 
 type vmListMsg struct {
 	vms []client.VM
@@ -145,22 +152,43 @@ type model struct {
 	pendingClear   bool
 }
 
-func newModel(ctx context.Context, cancel context.CancelFunc, api *client.Client) model {
-	sp := spinner.New()
-	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+func (m *model) setStatus(level statusLevel, message string) tea.Cmd {
+	if message == "" {
+		return nil
+	}
+	if m.executing {
+		return nil
+	}
+	m.statusMessage = message
+	m.statusLevel = level
+	return m.ensureStatusClear()
+}
 
+func (m *model) ensureStatusClear() tea.Cmd {
+	if m.pendingClear {
+		return nil
+	}
+	m.pendingClear = true
+	return clearStatusLater()
+}
+
+func (m *model) clearStatus() {
+	m.statusMessage = ""
+	m.pendingClear = false
+}
+
+func newModel(ctx context.Context, cancel context.CancelFunc, api *client.Client) model {
 	m := model{
-		ctx:       ctx,
-		cancel:    cancel,
-		api:       api,
-		eventCh:   make(chan client.VMEvent, 64),
-		vmList:    list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0),
-		logView:   viewport.New(0, 0),
-		input:     textinput.New(),
-		spinner:   sp,
-		focused:   focusVMList,
-		logs:      []string{},
+		ctx:        ctx,
+		cancel:     cancel,
+		api:        api,
+		eventCh:    make(chan client.VMEvent, 64),
+		vmList:     list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0),
+		logView:    viewport.New(0, 0),
+		input:      textinput.New(),
+		spinner:    newSpinnerModel(),
+		focused:    focusVMList,
+		logs:       []string{},
 		selectedVM: "",
 	}
 
@@ -270,6 +298,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch {
 			case key.Matches(msg, tabKey):
 				if !m.applyAutocomplete() {
+					if cmd := m.setStatus(statusLevelInfo, "No autocomplete suggestions"); cmd != nil {
+						cmds = append(cmds, cmd)
+					}
 					m.focused = focusVMList
 				}
 			case msg.String() == "ctrl+w":
@@ -277,10 +308,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case msg.String() == "up":
 				if m.navigateHistory(-1) {
 					inputUpdated = true
+				} else if cmd := m.setStatus(statusLevelInfo, "Start of history"); cmd != nil {
+					cmds = append(cmds, cmd)
 				}
 			case msg.String() == "down":
 				if m.navigateHistory(1) {
 					inputUpdated = true
+				} else if cmd := m.setStatus(statusLevelInfo, "End of history"); cmd != nil {
+					cmds = append(cmds, cmd)
 				}
 			case key.Matches(msg, enterKey):
 				if execCmd := m.queueCommand(m.input.Value()); execCmd != nil {
@@ -372,6 +407,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case commandResultMsg:
 		m.executing = false
 		m.pendingClear = false
+		m.spinner = newSpinnerModel()
 
 		if msg.err != nil {
 			m.statusMessage = fmt.Sprintf("%s failed: %v", msg.label, msg.err)
@@ -386,13 +422,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if msg.err == nil {
-			cmds = append(cmds, clearStatusLater())
+			if cmd := m.ensureStatusClear(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 
 	case clearStatusMsg:
 		if !m.executing {
-			m.statusMessage = ""
-			m.pendingClear = false
+			m.clearStatus()
 		}
 
 	case errMsg:
@@ -410,9 +447,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	var spinCmd tea.Cmd
-	m.spinner, spinCmd = m.spinner.Update(msg)
-	if spinCmd != nil && m.executing {
-		cmds = append(cmds, spinCmd)
+	if m.executing {
+		m.spinner, spinCmd = m.spinner.Update(msg)
+		if spinCmd != nil {
+			cmds = append(cmds, spinCmd)
+		}
 	}
 
 	if !vmListUpdated {
@@ -541,6 +580,7 @@ func (m *model) queueCommand(input string) tea.Cmd {
 	m.statusLevel = statusLevelRunning
 	m.statusStarted = time.Now()
 	m.pendingClear = false
+	m.spinner = newSpinnerModel()
 
 	return tea.Batch(
 		executeCommand(m.ctx, m.api, plan),
@@ -735,6 +775,7 @@ func (m *model) appendToHistory(cmd string) {
 		m.commandHistory = append(m.commandHistory, cmd)
 	}
 	m.historyIndex = len(m.commandHistory)
+	m.pendingClear = false
 }
 
 func (m *model) navigateHistory(delta int) bool {

@@ -9,9 +9,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/viperhq/viper/internal/server/db/sqlite"
-	"github.com/viperhq/viper/internal/server/orchestrator/network"
-	"github.com/viperhq/viper/internal/server/orchestrator/runtime"
+	"github.com/ccheshirecat/viper/internal/server/db/sqlite"
+	"github.com/ccheshirecat/viper/internal/server/orchestrator/network"
+	"github.com/ccheshirecat/viper/internal/server/orchestrator/runtime"
 )
 
 func TestEngineCreateAndDestroyVM(t *testing.T) {
