@@ -104,9 +104,10 @@ type Browser struct {
 	userDataDir        string
 	cleanupUserDataDir bool
 
-	mu       sync.Mutex
-	log      *logEmitter
-	devtools devToolsInternal
+
+    mu       sync.Mutex
+    log      *logEmitter
+    devtools devToolsInternal
 }
 
 // NewBrowser launches a headless Chrome instance reachable through chromedp.
@@ -183,6 +184,7 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 	}()
 
 	remoteAllocatorCtx, cancelAllocator := chromedp.NewRemoteAllocator(ctx, fmt.Sprintf("http://127.0.0.1:%d/json", cfg.RemoteDebuggingPort))
+
 	browserCtx, cancelCtx := chromedp.NewContext(remoteAllocatorCtx)
 
 	if err := chromedp.Run(browserCtx, network.Enable()); err != nil {
