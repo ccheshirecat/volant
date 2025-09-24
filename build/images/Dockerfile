@@ -7,7 +7,7 @@ RUN gcc -static -Os -s -o viper-init init.c
 FROM chromedp/headless-shell:stable
 ARG VIPER_AGENT_BINARY
 COPY ${VIPER_AGENT_BINARY} /usr/local/bin/viper-agent
-COPY --from=builder /src/viper-init /sbin/viper-init
-RUN chmod +x /sbin/viper-init /usr/local/bin/viper-agent
+COPY --from=builder /src/viper-init /init
+RUN chmod +x /init /usr/local/bin/viper-agent
 
-ENTRYPOINT ["/sbin/viper-init"]
+ENTRYPOINT ["/init"]

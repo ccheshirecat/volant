@@ -1,0 +1,370 @@
+openapi: 3.1.0
+info:
+  title: Viper REST API
+  version: 1.0.0
+  description: >-
+    REST interface for the Viper microVM automation platform.
+    All endpoints default to `http://127.0.0.1:7777`.
+servers:
+  - url: http://127.0.0.1:7777
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /api/v1/system/status:
+    get:
+      summary: System status summary
+      tags: [status]
+      responses:
+        '200':
+          description: Current VM count and resource usage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatus'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/vms:
+    get:
+      summary: List VMs
+      tags: [vm]
+      responses:
+        '200':
+          description: Array of VM metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VM'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      summary: Create VM
+      tags: [vm]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVMRequest'
+      responses:
+        '201':
+          description: VM created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VM'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/vms/{name}:
+    parameters:
+      - $ref: '#/components/parameters/VMName'
+    get:
+      summary: Fetch VM by name
+      tags: [vm]
+      responses:
+        '200':
+          description: VM metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VM'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      summary: Destroy VM
+      tags: [vm]
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/vms/{name}/agent/{path*}:
+    parameters:
+      - $ref: '#/components/parameters/VMName'
+      - name: path
+        in: path
+        required: false
+        description: Agent-relative path (proxied)
+        schema:
+          type: string
+    post:
+      summary: Proxy requests to viper-agent
+      tags: [agent]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Agent response
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /api/v1/events/vms:
+    get:
+      summary: Stream VM lifecycle events (SSE)
+      tags: [events]
+      responses:
+        '200':
+          description: Server-Sent Events stream of VM events
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/VMEvent'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/mcp:
+    post:
+      summary: Model Context Protocol endpoint
+      tags: [mcp]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MCPRequest'
+      responses:
+        '200':
+          description: MCP command response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /ws/v1/vms/{name}/devtools/{path*}:
+    get:
+      summary: Proxy Chrome DevTools WebSocket
+      tags: [agent]
+      parameters:
+        - $ref: '#/components/parameters/VMName'
+        - name: path
+          in: path
+          required: false
+          schema:
+            type: string
+      responses:
+        '101':
+          description: WebSocket Upgrade
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /ws/v1/vms/{name}/logs:
+    get:
+      summary: Stream agent logs as WebSocket JSON payloads
+      tags: [agent]
+      parameters:
+        - $ref: '#/components/parameters/VMName'
+      responses:
+        '101':
+          description: WebSocket Upgrade
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /ws/v1/agui:
+    get:
+      summary: Stream AG-UI events
+      tags: [agui]
+      responses:
+        '101':
+          description: WebSocket Upgrade streaming AG-UI events
+components:
+  parameters:
+    VMName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+      example: demo
+  responses:
+    BadRequest:
+      description: Invalid request payload or parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Resource conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    BadGateway:
+      description: Upstream agent error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    SystemStatus:
+      type: object
+      properties:
+        vm_count:
+          type: integer
+          example: 3
+        cpu_percent:
+          type: number
+          format: float
+          example: 42.5
+        mem_percent:
+          type: number
+          format: float
+          example: 58.1
+    VM:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, stopped, crashed]
+        ip_address:
+          type: string
+        mac_address:
+          type: string
+        cpu_cores:
+          type: integer
+        memory_mb:
+          type: integer
+        kernel_cmdline:
+          type: string
+        pid:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+    CreateVMRequest:
+      type: object
+      required: [name, cpu_cores, memory_mb]
+      properties:
+        name:
+          type: string
+        cpu_cores:
+          type: integer
+          minimum: 1
+        memory_mb:
+          type: integer
+          minimum: 64
+        kernel_cmdline:
+          type: string
+    VMEvent:
+      type: object
+      properties:
+        type:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        ip_address:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        message:
+          type: string
+        stream:
+          type: string
+          nullable: true
+        line:
+          type: string
+          nullable: true
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    MCPRequest:
+      type: object
+      required: [command]
+      properties:
+        command:
+          type: string
+        params:
+          type: object
+          additionalProperties: true
+    MCPResponse:
+      type: object
+      properties:
+        result:
+          nullable: true
+        error:
+          type: string
+          nullable: true
+    AGUIEvent:
+      oneOf:
+        - $ref: '#/components/schemas/RunStartedEvent'
+        - $ref: '#/components/schemas/TextMessageEvent'
+        - $ref: '#/components/schemas/RunFinishedEvent'
+    RunStartedEvent:
+      type: object
+      properties:
+        type:
+          type: string
+          const: run_started
+        id:
+          type: string
+        name:
+          type: string
+    TextMessageEvent:
+      type: object
+      properties:
+        type:
+          type: string
+          const: text
+        text:
+          type: string
+    RunFinishedEvent:
+      type: object
+      properties:
+        type:
+          type: string
+          const: run_finished
+        output:
+          type: string

@@ -28,7 +28,7 @@ const (
 	DefaultRemoteAddr         = "0.0.0.0"
 	DefaultRemotePort         = 9222
 	defaultUserDataDirName    = "viper-agent-data"
-	defaultExecPath           = "/usr/bin/headless-shell"
+	defaultExecPath           = "/headless-shell/headless-shell"
 	DefaultActionTimeout      = 60 * time.Second
 	devtoolsProbeRetryBackoff = 250 * time.Millisecond
 	devtoolsProbeAttempts     = 20
