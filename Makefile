@@ -26,7 +26,7 @@ build-cli:
 install-binaries: build-server build-cli ## Install hyped and overhyped to INSTALL_DIR
 	mkdir -p $(INSTALL_DIR)
 	install -m 0755 $(BIN_DIR)/hyped $(INSTALL_DIR)/hyped
-	install -m 0755 $(BIN_DIR)/hype $(INSTALL_DIR)/overhyped
+	install -m 0755 $(BIN_DIR)/hype $(INSTALL_DIR)/hype
 
 .PHONY: test
 test:
