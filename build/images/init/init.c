@@ -169,16 +169,46 @@ int main(void) {
     _exit(1);
   }
 
-  // 6. Launch the main viper-agent as PID 1 (replace this process)
+  // 6. Launch the main viper-agent
   printf("[INIT] Launching viper-agent...\n");
-  const char *agent_path = "/usr/local/bin/viper-agent";
-  char *const agent_argv[] = {(char *)agent_path, NULL};
-  char *const agent_envp[] = {"PATH=/usr/local/bin:/usr/bin:/bin:/sbin", NULL};
-  execve(agent_path, agent_argv, agent_envp);
+  pid_t agent_pid = fork();
+  if (agent_pid == 0) {
+    const char *agent_path = "/usr/local/bin/viper-agent";
+    char *const agent_argv[] = {(char *)agent_path, NULL};
+    char *const agent_envp[] = {"PATH=/usr/local/bin:/usr/bin:/bin:/sbin",
+                                NULL};
+    execve(agent_path, agent_argv, agent_envp);
+    // This part is only reached if execve fails
+    print_error("execve viper-agent");
+    _exit(1);
+  }
 
-  // If we reach this point, execve failed. Attempt to surface the error and
-  // halt.
-  print_error("execve viper-agent");
-  sleep(5);
-  _exit(127);
+  // 7. Supervisor Loop: Act as the ultimate parent process.
+  printf("[INIT] Init complete. Supervising child processes.\n");
+  while (1) {
+    int status;
+    pid_t pid = wait(&status);
+    if (pid > 0) {
+      if (pid == agent_pid) {
+        printf("[INIT] CRITICAL: viper-agent (PID %d) has exited with status "
+               "%d. Restarting...\n",
+               pid, status);
+        sleep(2); // Prevent rapid crash loops
+        agent_pid = fork();
+        if (agent_pid == 0) {
+          const char *agent_path = "/usr/local/bin/viper-agent";
+          char *const agent_argv[] = {(char *)agent_path, NULL};
+          char *const agent_envp[] = {"PATH=/usr/local/bin:/usr/bin:/bin:/sbin",
+                                      NULL};
+          execve(agent_path, agent_argv, agent_envp);
+          _exit(1);
+        }
+      } else {
+        printf("[INIT] Supervised process %d exited with status %d.\n", pid,
+               status);
+      }
+    }
+  }
+
+  return 0; // Unreachable
 }
