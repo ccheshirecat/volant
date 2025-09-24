@@ -21,18 +21,34 @@ if [ ! -f "$AGENT_BIN" ]; then
   exit 1
 fi
 
+STAGED_AGENT="$CONTEXT/viper-agent.bin"
+TMPDIR=""
+CID=""
+
+cleanup_all() {
+  rm -f "$STAGED_AGENT" 2>/dev/null || true
+  if [ -n "$CID" ]; then
+    docker rm -f "$CID" >/dev/null 2>&1 || true
+  fi
+  if [ -n "$TMPDIR" ] && [ -d "$TMPDIR" ]; then
+    rm -rf "$TMPDIR"
+  fi
+}
+trap cleanup_all EXIT
+
+cp "$AGENT_BIN" "$STAGED_AGENT"
+
 printf 'Building image... ' >&2
-docker build --build-arg VIPER_AGENT_BINARY=$(realpath "$AGENT_BIN") -t "$IMAGE_TAG" "$CONTEXT" >/dev/null
+if ! docker build --build-arg VIPER_AGENT_BINARY="$(basename "$STAGED_AGENT")" -t "$IMAGE_TAG" "$CONTEXT" >/dev/null; then
+  echo 'failed' >&2
+  exit 1
+fi
+rm -f "$STAGED_AGENT"
 echo 'done' >&2
 
 TMPDIR=$(mktemp -d)
-cleanup() {
-  rm -rf "$TMPDIR"
-}
-trap cleanup EXIT
 
 CID=$(docker create "$IMAGE_TAG")
-trap "docker rm -f $CID >/dev/null || true; cleanup" EXIT
 
 docker export "$CID" | tar -C "$TMPDIR" -xf -
 
@@ -41,6 +57,7 @@ find . | cpio -o -H newc | gzip -9 > "$OUTPUT_DIR/$INITRAMFS_NAME"
 popd >/dev/null
 
 docker rm -f "$CID" >/dev/null
+CID=""
 
 KERNEL_DEST="$OUTPUT_DIR/vmlinux-x86_64"
 if [ ! -f "$KERNEL_DEST" ]; then

@@ -1,6 +1,6 @@
 GO ?= go
-BIN_DIR ?= ./bin
-ARTIFACTS_DIR ?= ./build/artifacts
+BIN_DIR ?= bin
+ARTIFACTS_DIR ?= build/artifacts
 
 .PHONY: build
 build: build-server build-agent build-cli ## Build all Viper binaries
