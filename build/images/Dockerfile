@@ -4,7 +4,7 @@ WORKDIR /src
 COPY init/init.c .
 RUN gcc -static -Os -s -o viper-init init.c
 
-FROM ghcr.io/chromedp/headless-shell:latest
+FROM chromedp/headless-shell:stable
 ARG VIPER_AGENT_BINARY
 COPY ${VIPER_AGENT_BINARY} /usr/local/bin/viper-agent
 COPY --from=builder /src/viper-init /sbin/viper-init
