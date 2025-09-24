@@ -20,13 +20,13 @@ build-agent:
 
 .PHONY: build-cli
 build-cli:
-	$(GO) build -o $(BIN_DIR)/overhyped ./cmd/hype
+	$(GO) build -o $(BIN_DIR)/hype ./cmd/hype
 
 .PHONY: install-binaries
 install-binaries: build-server build-cli ## Install hyped and overhyped to INSTALL_DIR
 	mkdir -p $(INSTALL_DIR)
 	install -m 0755 $(BIN_DIR)/hyped $(INSTALL_DIR)/hyped
-	install -m 0755 $(BIN_DIR)/overhyped $(INSTALL_DIR)/overhyped
+	install -m 0755 $(BIN_DIR)/hype $(INSTALL_DIR)/overhyped
 
 .PHONY: test
 test:
