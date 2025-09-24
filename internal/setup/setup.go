@@ -234,6 +234,7 @@ func writeServiceFile(binaryPath, kernelPath, initramfsPath string, opts Options
 		return fmt.Errorf("initramfs path invalid: %w", err)
 	}
 
+	logFile := filepath.Join(logDir, "viper-server.log")
 	service := fmt.Sprintf(`[Unit]
 Description=Viper Control Plane
 After=network.target
@@ -249,8 +250,8 @@ Environment=VIPER_LOG_DIR=%s
 ExecStart=%s
 Restart=always
 RestartSec=5
-StandardOutput=append:/var/log/viper/server.log
-StandardError=append:/var/log/viper/server.log
+StandardOutput=append:%s
+StandardError=append:%s
 
 [Install]
 WantedBy=multi-user.target
@@ -262,6 +263,8 @@ WantedBy=multi-user.target
 		runtimeDir,
 		logDir,
 		binaryPath,
+		logFile,
+		logFile,
 	)
 
 	res.Commands = append(res.Commands, fmt.Sprintf("write service file %s", opts.ServicePath))

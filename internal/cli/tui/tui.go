@@ -3,7 +3,9 @@ package tui
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +21,29 @@ import (
 
 	"github.com/ccheshirecat/viper/internal/cli/client"
 )
+
+var (
+	debugWriter io.Writer
+)
+
+func init() {
+	if path := os.Getenv("VIPER_TUI_DEBUG"); path != "" {
+		if abs, err := filepath.Abs(path); err == nil {
+			_ = os.MkdirAll(filepath.Dir(abs), 0o755)
+			f, err := os.OpenFile(abs, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+			if err == nil {
+				debugWriter = f
+			}
+		}
+	}
+}
+
+func debugLog(format string, args ...interface{}) {
+	if debugWriter == nil {
+		return
+	}
+	fmt.Fprintf(debugWriter, "%s "+format+"\n", append([]interface{}{time.Now().Format(time.RFC3339Nano)}, args...)...)
+}
 
 const (
 	refreshInterval       = 5 * time.Second
@@ -266,6 +291,7 @@ func newModel(ctx context.Context, cancel context.CancelFunc, api *client.Client
 	m.logView.SetContent("Select a VM to begin streaming logs.")
 
 	m.setFocus(focusVMList)
+	debugLog("model initialized")
 
 	return m
 }
@@ -349,6 +375,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			prevSelection := selectedVMName(m.vmList)
 
 			if key.Matches(msg, tabKey) {
+				debugLog("focus cycle VM -> next")
 				m.advanceFocus()
 				break
 			}
@@ -373,6 +400,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case focusLogs:
 			if key.Matches(msg, tabKey) {
+				debugLog("focus cycle Logs -> next")
 				m.advanceFocus()
 				break
 			}
@@ -394,12 +422,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case focusInput:
 			switch {
 			case key.Matches(msg, tabKey):
-				if !m.applyAutocomplete() {
-					if cmd := m.setStatus(statusLevelInfo, "No autocomplete suggestions"); cmd != nil {
-						cmds = append(cmds, cmd)
+				value := m.input.Value()
+				trimmed := strings.TrimSpace(value)
+				trailingSpace := strings.HasSuffix(value, " ")
+				if trimmed != "" && !trailingSpace {
+					if m.applyAutocomplete() {
+						debugLog("autocomplete applied: %q", m.input.Value())
+						break
 					}
-					m.advanceFocus()
 				}
+				debugLog("focus cycle Input -> next")
+				m.advanceFocus()
 			case msg.String() == "ctrl+w":
 				m.input.SetValue("")
 			case msg.String() == "up":
@@ -628,6 +661,8 @@ func (m model) View() string {
 		inputWidth = 10
 	}
 
+	paneStyle := lipgloss.NewStyle().Width(paneWidth).Height(paneHeight)
+
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	headerStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("252")).
@@ -637,8 +672,6 @@ func (m model) View() string {
 		Foreground(lipgloss.Color("252")).
 		Bold(true)
 	statusStyle := lipgloss.NewStyle().Padding(0, 1)
-	vmListStyle := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1)
-	logViewportStyle := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1)
 	inputStyle := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1)
 
 	header := headerStyle.Render(headerTitleStyle.Render("VIPER v2.0 | God Mode Dashboard"))
@@ -656,13 +689,7 @@ func (m model) View() string {
 	}
 	statusView := statusStyle.Render(statusLine)
 
-	vmListWidth := paneWidth
-	if m.layout == layoutHorizontal {
-		vmListWidth = paneWidth
-	} else {
-		vmListWidth = paneWidth
-	}
-	vmListView := vmListStyle.Width(vmListWidth).Height(paneHeight).Render(m.vmList.View())
+	vmListView := paneStyle.Render(m.vmList.View())
 
 	logTitle := "Logs"
 	if m.selectedVM != "" {
@@ -673,13 +700,7 @@ func (m model) View() string {
 		lipgloss.NewStyle().Bold(true).Render(logTitle),
 		m.logView.View(),
 	)
-	logViewWidth := paneWidth
-	if m.layout == layoutHorizontal {
-		logViewWidth = paneWidth
-	} else {
-		logViewWidth = paneWidth
-	}
-	logView := logViewportStyle.Width(logViewWidth).Height(paneHeight).Render(logContent)
+	logView := paneStyle.Render(logContent)
 
 	inputView := inputStyle.Width(inputWidth).Render(m.input.View())
 
@@ -722,12 +743,14 @@ func (m *model) queueCommand(input string) tea.Cmd {
 	}
 	if m.executing {
 		if cmd := m.setStatus(statusLevelError, "Another command is already running."); cmd != nil {
+			debugLog("command ignored while executing: %s", raw)
 			return cmd
 		}
 		return nil
 	}
 
 	m.appendToHistory(raw)
+	debugLog("queue command: %s", raw)
 
 	parts := tokenize(raw)
 	plan, err := m.planCommand(parts)
@@ -952,6 +975,7 @@ func (m *model) appendToHistory(cmd string) {
 	m.historyIndex = len(m.commandHistory)
 	m.pendingClear = false
 	m.statusPersistent = false
+	debugLog("history appended: %s", cmd)
 }
 
 func (m *model) navigateHistory(delta int) bool {
