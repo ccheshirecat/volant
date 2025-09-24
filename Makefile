@@ -4,7 +4,7 @@ ARTIFACTS_DIR ?= build/artifacts
 
 .PHONY: build
 build: ## Build all Viper binaries
-	$(GO) build ./...
+	build-server build-agent build-cli
 
 .PHONY: build-server
 build-server: ## Build the viper-server binary
