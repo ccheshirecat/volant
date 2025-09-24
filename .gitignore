@@ -6,3 +6,15 @@ build/artifacts
 bin
 development-tracker.md
 roadmap.md
+
+rm -rf /root/.viper/run/test4.sock && \
+cloud-hypervisor \
+ --api-socket path=/root/.viper/run/test4.sock \
+ --cpus boot=2 \
+ --memory size=2048M \
+ --kernel /root/viper/build/artifacts/vmlinux-x86_64 \
+ --initramfs /root/viper/build/artifacts/viper-initramfs.cpio.gz \
+ --cmdline "console=ttyS0,9600n8 console=tty0 rw ip=192.168.127.102::192.168.127.1:255.255.255.0:test4:eth0:off" \
+ --net tap=vipertap-test4,mac=02:18:3b:a6:49:7c \
+ --serial tty \
+ --console off
