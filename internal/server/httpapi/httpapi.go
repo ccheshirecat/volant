@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,8 +11,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -24,7 +28,10 @@ import (
 	orchestratorevents "github.com/viperhq/viper/internal/server/orchestrator/events"
 )
 
-const agentDefaultPort = 8080
+const (
+	agentDefaultPort         = 8080
+	agentDevToolsDefaultPort = 9222
+)
 
 var hopHeaders = map[string]struct{}{
 	"connection":          {},
@@ -86,6 +93,7 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus) http
 		}
 	}
 
+	r.GET("/ws/v1/vms/:name/devtools/*path", api.vmDevToolsWebSocket)
 	r.GET("/ws/v1/vms/:name/logs", api.vmLogsWebSocket)
 	r.GET("/ws/v1/agui", api.aguiWebSocket)
 
@@ -514,6 +522,15 @@ func (api *apiServer) aguiWebSocket(c *gin.Context) {
 	}
 }
 
+type devToolsInfo struct {
+	WebSocketURL   string `json:"websocket_url"`
+	WebSocketPath  string `json:"websocket_path"`
+	BrowserVersion string `json:"browser_version"`
+	UserAgent      string `json:"user_agent"`
+	Address        string `json:"address"`
+	Port           int    `json:"port"`
+}
+
 type agentLogEvent struct {
 	Stream    string    `json:"stream"`
 	Line      string    `json:"line"`
@@ -610,6 +627,187 @@ func (api *apiServer) proxyAgent(c *gin.Context) {
 		api.logger.Debug("proxy agent copy", "vm", vm.Name, "error", err)
 	}
 	c.Abort()
+}
+
+func (api *apiServer) fetchDevToolsInfo(ctx context.Context, vm *db.VM) (*devToolsInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, api.agentURL(vm, "/v1/devtools"), nil)
+	if err != nil {
+		return nil, fmt.Errorf("devtools request: %w", err)
+	}
+	resp, err := api.agentClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("devtools request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("devtools response status %d", resp.StatusCode)
+	}
+
+	var info devToolsInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return nil, fmt.Errorf("decode devtools response: %w", err)
+	}
+
+	if info.Port == 0 {
+		if parsed, err := url.Parse(info.WebSocketURL); err == nil && parsed.Port() != "" {
+			if p, convErr := strconv.Atoi(parsed.Port()); convErr == nil {
+				info.Port = p
+			}
+		}
+		if info.Port == 0 {
+			info.Port = agentDevToolsDefaultPort
+		}
+	}
+
+	if info.WebSocketPath == "" {
+		if parsed, err := url.Parse(info.WebSocketURL); err == nil && parsed.Path != "" {
+			info.WebSocketPath = parsed.Path
+		}
+	}
+
+	return &info, nil
+}
+
+func (api *apiServer) vmDevToolsWebSocket(c *gin.Context) {
+	if api.agentClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "agent proxy unavailable"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	name := c.Param("name")
+
+	vm, err := api.engine.GetVM(ctx, name)
+	if err != nil {
+		api.logger.Error("devtools ws get vm", "vm", name, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve vm"})
+		return
+	}
+	if vm == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "vm not found"})
+		return
+	}
+	if vm.Status != db.VMStatusRunning || vm.IPAddress == "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "vm not ready"})
+		return
+	}
+
+	info, err := api.fetchDevToolsInfo(ctx, vm)
+	if err != nil {
+		api.logger.Error("devtools info", "vm", vm.Name, "error", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "devtools metadata unavailable"})
+		return
+	}
+
+	wsPath := c.Param("path")
+	if wsPath == "" || wsPath == "/" {
+		wsPath = info.WebSocketPath
+	}
+	if wsPath == "" {
+		wsPath = "/devtools/browser"
+	}
+	if !strings.HasPrefix(wsPath, "/") {
+		wsPath = "/" + wsPath
+	}
+
+	targetURL, err := url.Parse(info.WebSocketURL)
+	if err != nil || targetURL.Host == "" {
+		targetURL = &url.URL{
+			Scheme: "ws",
+			Host:   net.JoinHostPort(vm.IPAddress, strconv.Itoa(info.Port)),
+		}
+	}
+	if targetURL.Scheme == "" {
+		targetURL.Scheme = "ws"
+	}
+	switch targetURL.Scheme {
+	case "http":
+		targetURL.Scheme = "ws"
+	case "https":
+		targetURL.Scheme = "wss"
+	}
+
+	targetURL.Path = wsPath
+	targetURL.RawQuery = c.Request.URL.RawQuery
+
+	dialer := websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 30 * time.Second,
+	}
+	agentConn, resp, err := dialer.DialContext(ctx, targetURL.String(), nil)
+	if resp != nil {
+		resp.Body.Close()
+	}
+	if err != nil {
+		api.logger.Error("devtools ws dial", "vm", vm.Name, "target", targetURL.String(), "error", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to connect devtools", "target": targetURL.String()})
+		return
+	}
+	defer agentConn.Close()
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	clientConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		api.logger.Error("devtools ws upgrade", "vm", vm.Name, "error", err)
+		return
+	}
+	defer clientConn.Close()
+
+	errCh := make(chan error, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go pumpWebSocket(ctx, api.logger, "agent->client", agentConn, clientConn, &wg, errCh)
+	go pumpWebSocket(ctx, api.logger, "client->agent", clientConn, agentConn, &wg, errCh)
+
+	var proxyErr error
+	select {
+	case <-ctx.Done():
+		proxyErr = ctx.Err()
+	case proxyErr = <-errCh:
+	}
+
+	_ = agentConn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+	_ = clientConn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+
+	wg.Wait()
+
+	if proxyErr != nil && !errors.Is(proxyErr, context.Canceled) && !errors.Is(proxyErr, net.ErrClosed) && !errors.Is(proxyErr, io.EOF) && !websocket.IsCloseError(proxyErr, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+		api.logger.Debug("devtools proxy closed", "vm", vm.Name, "error", proxyErr)
+	}
+}
+
+func pumpWebSocket(ctx context.Context, logger *slog.Logger, direction string, src, dst *websocket.Conn, wg *sync.WaitGroup, errCh chan<- error) {
+	defer wg.Done()
+	for {
+		msgType, payload, err := src.ReadMessage()
+		if err != nil {
+			errCh <- fmt.Errorf("%s read: %w", direction, err)
+			return
+		}
+		if writeErr := dst.WriteMessage(msgType, payload); writeErr != nil {
+			errCh <- fmt.Errorf("%s write: %w", direction, writeErr)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+	}
+}
+
+func proxyWebSocket(src, dst *websocket.Conn) error {
+	for {
+		messageType, payload, err := src.ReadMessage()
+		if err != nil {
+			return err
+		}
+		if err := dst.WriteMessage(messageType, payload); err != nil {
+			return err
+		}
+	}
 }
 
 func (api *apiServer) vmLogsWebSocket(c *gin.Context) {

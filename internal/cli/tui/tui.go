@@ -541,7 +541,6 @@ func (m *model) queueCommand(input string) tea.Cmd {
 	m.statusLevel = statusLevelRunning
 	m.statusStarted = time.Now()
 	m.pendingClear = false
-	m.spinner.Reset()
 
 	return tea.Batch(
 		executeCommand(m.ctx, m.api, plan),
@@ -846,7 +845,6 @@ func (m *model) autocomplete(value string) (string, bool) {
 			return "", false
 		}
 	default:
-		first := tokens[0]
 		second := tokens[1]
 		partial := tokens[len(tokens)-1]
 		if !hasTrailingSpace && (second == "delete" || second == "destroy" || second == "get") {

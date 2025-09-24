@@ -13,11 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/network"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/viperhq/viper/internal/agent/runtime"
+	agentruntime "github.com/viperhq/viper/internal/agent/runtime"
 )
 
 const (
@@ -41,7 +42,7 @@ type Config struct {
 
 type App struct {
 	cfg     Config
-	browser *runtime.Browser
+	browser *agentruntime.Browser
 	server  *http.Server
 	timeout time.Duration
 	log     *log.Logger
@@ -52,7 +53,7 @@ func Run(ctx context.Context) error {
 	cfg := loadConfig()
 	logger := log.New(os.Stdout, "viper-agent: ", log.LstdFlags|log.LUTC)
 
-	browser, err := runtime.NewBrowser(ctx, runtime.BrowserConfig{
+	browser, err := agentruntime.NewBrowser(ctx, agentruntime.BrowserConfig{
 		RemoteDebuggingAddr: cfg.RemoteDebuggingAddr,
 		RemoteDebuggingPort: cfg.RemoteDebuggingPort,
 		UserDataDir:         cfg.UserDataDir,
@@ -140,12 +141,12 @@ func (a *App) run(ctx context.Context) error {
 
 func loadConfig() Config {
 	listen := envOrDefault(defaultListenEnvKey, defaultListenAddr)
-	remoteAddr := envOrDefault(defaultRemoteAddrKey, runtime.DefaultRemoteAddr)
-	remotePort := envIntOrDefault(defaultRemotePortKey, runtime.DefaultRemotePort)
+	remoteAddr := envOrDefault(defaultRemoteAddrKey, agentruntime.DefaultRemoteAddr)
+	remotePort := envIntOrDefault(defaultRemotePortKey, agentruntime.DefaultRemotePort)
 	userDataDir := os.Getenv(defaultUserDataDirKey)
 	execPath := os.Getenv(defaultExecPathKey)
 
-	defaultTimeout := parseDurationEnv(defaultTimeoutEnvKey, runtime.DefaultActionTimeout)
+	defaultTimeout := parseDurationEnv(defaultTimeoutEnvKey, agentruntime.DefaultActionTimeout)
 
 	return Config{
 		ListenAddr:          listen,
@@ -556,7 +557,7 @@ func (a *App) handleProfileAttach(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	payload := runtime.StoragePayload{
+	payload := agentruntime.StoragePayload{
 		Local:   req.Local,
 		Session: req.Session,
 	}
@@ -600,13 +601,13 @@ func convertCookieParam(req cookieParamRequest) (*network.CookieParam, error) {
 		Value: req.Value,
 	}
 	if req.Domain != "" {
-		cookie.Domain = network.String(req.Domain)
+		cookie.Domain = req.Domain
 	}
 	if req.Path != "" {
-		cookie.Path = network.String(req.Path)
+		cookie.Path = req.Path
 	}
-	cookie.HTTPOnly = network.Bool(req.HTTPOnly)
-	cookie.Secure = network.Bool(req.Secure)
+	cookie.HTTPOnly = req.HTTPOnly
+	cookie.Secure = req.Secure
 
 	switch strings.ToLower(req.SameSite) {
 	case "", "lax":
@@ -620,8 +621,9 @@ func convertCookieParam(req cookieParamRequest) (*network.CookieParam, error) {
 	}
 
 	if req.Expires != nil {
-		expires := network.TimeSinceEpoch(*req.Expires)
-		cookie.Expires = &expires
+		expires := time.Unix(int64(*req.Expires), 0).UTC()
+		cdpEpoch := cdp.TimeSinceEpoch(expires)
+		cookie.Expires = &cdpEpoch
 	}
 
 	return cookie, nil
