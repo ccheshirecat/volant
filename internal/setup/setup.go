@@ -13,14 +13,16 @@ import (
 
 // Options controls the behaviour of the setup routine.
 type Options struct {
-	BridgeName  string
-	SubnetCIDR  string
-	HostCIDR    string
-	DryRun      bool
-	RuntimeDir  string
-	LogDir      string
-	ServicePath string
-	BinaryPath  string
+	BridgeName    string
+	SubnetCIDR    string
+	HostCIDR      string
+	DryRun        bool
+	RuntimeDir    string
+	LogDir        string
+	ServicePath   string
+	BinaryPath    string
+	KernelPath    string
+	InitramfsPath string
 }
 
 // Result collects output and executed commands.
@@ -55,14 +57,27 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	expand := func(path string) (string, error) {
+		if path == "" {
+			return "", nil
+		}
 		if strings.HasPrefix(path, "~") {
 			home, err := os.UserHomeDir()
-			if err != nil {
-				return "", err
+			if err != nil || home == "" {
+				home = os.Getenv("HOME")
 			}
-			return filepath.Join(home, strings.TrimPrefix(path, "~")), nil
+			if home == "" && os.Geteuid() == 0 {
+				home = "/root"
+			}
+			if home == "" {
+				return "", fmt.Errorf("resolve home directory: %w", err)
+			}
+			path = filepath.Join(home, strings.TrimPrefix(path, "~"))
 		}
-		return path, nil
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return "", err
+		}
+		return abs, nil
 	}
 
 	runtimeDir, err := expand(opts.RuntimeDir)
@@ -72,6 +87,18 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	logDir, err := expand(opts.LogDir)
 	if err != nil {
 		return nil, fmt.Errorf("expand log dir: %w", err)
+	}
+	kernelPath, err := expand(opts.KernelPath)
+	if err != nil {
+		return nil, fmt.Errorf("expand kernel path: %w", err)
+	}
+	initramfsPath, err := expand(opts.InitramfsPath)
+	if err != nil {
+		return nil, fmt.Errorf("expand initramfs path: %w", err)
+	}
+	binaryPath, err := expand(opts.BinaryPath)
+	if err != nil {
+		return nil, fmt.Errorf("expand binary path: %w", err)
 	}
 
 	// Ensure directories exist.
@@ -125,7 +152,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	if opts.ServicePath != "" {
-		if err := writeServiceFile(opts, runtimeDir, logDir, opts.DryRun, res); err != nil {
+		if err := writeServiceFile(binaryPath, kernelPath, initramfsPath, opts, runtimeDir, logDir, opts.DryRun, res); err != nil {
 			return nil, err
 		}
 	}
@@ -141,6 +168,9 @@ func ensureBinary(name string) error {
 }
 
 func ensureDir(path string, dryRun bool, res *Result) error {
+	if path == "" {
+		return errors.New("directory path cannot be empty")
+	}
 	if dryRun {
 		res.Commands = append(res.Commands, fmt.Sprintf("mkdir -p %s", path))
 		return nil
@@ -190,10 +220,20 @@ func writeFile(path, data string, dryRun bool, res *Result) error {
 	return os.WriteFile(path, []byte(data), 0o644)
 }
 
-func writeServiceFile(opts Options, runtimeDir, logDir string, dryRun bool, res *Result) error {
-	if opts.BinaryPath == "" {
-		return errors.New("binary path required when writing service file")
+func writeServiceFile(binaryPath, kernelPath, initramfsPath string, opts Options, runtimeDir, logDir string, dryRun bool, res *Result) error {
+	if binaryPath == "" {
+		return errors.New("server binary path required when writing service file")
 	}
+	if kernelPath == "" || initramfsPath == "" {
+		return errors.New("kernel and initramfs paths are required when writing service file")
+	}
+	if err := ensureFile(kernelPath); err != nil {
+		return fmt.Errorf("kernel path invalid: %w", err)
+	}
+	if err := ensureFile(initramfsPath); err != nil {
+		return fmt.Errorf("initramfs path invalid: %w", err)
+	}
+
 	service := fmt.Sprintf(`[Unit]
 Description=Viper Control Plane
 After=network.target
@@ -208,22 +248,28 @@ Environment=VIPER_RUNTIME_DIR=%s
 Environment=VIPER_LOG_DIR=%s
 ExecStart=%s
 Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/viper/server.log
+StandardError=append:/var/log/viper/server.log
 
 [Install]
 WantedBy=multi-user.target
 `,
-		os.Getenv("VIPER_KERNEL"),
-		os.Getenv("VIPER_INITRAMFS"),
+		kernelPath,
+		initramfsPath,
 		opts.BridgeName,
 		opts.SubnetCIDR,
 		runtimeDir,
 		logDir,
-		opts.BinaryPath,
+		binaryPath,
 	)
 
 	res.Commands = append(res.Commands, fmt.Sprintf("write service file %s", opts.ServicePath))
 	if dryRun {
 		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(opts.ServicePath), 0o755); err != nil {
+		return fmt.Errorf("prepare service directory: %w", err)
 	}
 	f, err := os.Create(opts.ServicePath)
 	if err != nil {
@@ -240,7 +286,18 @@ WantedBy=multi-user.target
 	return nil
 }
 
+func ensureFile(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("path %s is a directory", path)
+	}
+	return nil
+}
+
 // Err definitions for Setup.
 var (
-    ErrBinaryMissing = errors.New("required binary missing")
+	ErrBinaryMissing = errors.New("required binary missing")
 )

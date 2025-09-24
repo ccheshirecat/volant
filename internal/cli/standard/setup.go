@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -20,6 +21,8 @@ func newSetupCmd() *cobra.Command {
 	var runtimeDir string
 	var logDir string
 	var serviceFile string
+	var kernelPath string
+	var initramfsPath string
 
 	cmd := &cobra.Command{
 		Use:   "setup",
@@ -44,16 +47,26 @@ func newSetupCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("resolve executable: %w", err)
 			}
+			serverBinary := filepath.Join(filepath.Dir(exe), "viper-server")
+
+			if kernelPath == "" {
+				kernelPath = "build/artifacts/vmlinux-x86_64"
+			}
+			if initramfsPath == "" {
+				initramfsPath = "build/artifacts/viper-initramfs.cpio.gz"
+			}
 
 			opts := setup.Options{
-				BridgeName:  bridge,
-				SubnetCIDR:  subnet,
-				HostCIDR:    hostCIDR,
-				DryRun:      dryRun,
-				RuntimeDir:  runtimeDir,
-				LogDir:      logDir,
-				ServicePath: serviceFile,
-				BinaryPath:  exe,
+				BridgeName:    bridge,
+				SubnetCIDR:    subnet,
+				HostCIDR:      hostCIDR,
+				DryRun:        dryRun,
+				RuntimeDir:    runtimeDir,
+				LogDir:        logDir,
+				ServicePath:   serviceFile,
+				BinaryPath:    serverBinary,
+				KernelPath:    kernelPath,
+				InitramfsPath: initramfsPath,
 			}
 
 			res, err := setup.Run(ctx, opts)
@@ -83,6 +96,8 @@ func newSetupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeDir, "runtime-dir", envOrDefault("VIPER_RUNTIME_DIR", "~/.viper/run"), "Runtime directory for VM sockets")
 	cmd.Flags().StringVar(&logDir, "log-dir", envOrDefault("VIPER_LOG_DIR", "~/.viper/logs"), "Log directory for VM logs")
 	cmd.Flags().StringVar(&serviceFile, "service-file", "/etc/systemd/system/viper-server.service", "Path to write systemd service unit (empty to skip)")
+	cmd.Flags().StringVar(&kernelPath, "kernel", envOrDefault("VIPER_KERNEL", ""), "Path to kernel image for service (default: build/artifacts/vmlinux-x86_64)")
+	cmd.Flags().StringVar(&initramfsPath, "initramfs", envOrDefault("VIPER_INITRAMFS", ""), "Path to initramfs image for service (default: build/artifacts/viper-initramfs.cpio.gz)")
 
 	return cmd
 }
