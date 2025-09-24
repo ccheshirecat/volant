@@ -265,7 +265,7 @@ install_binaries() {
   tar -xzf "$archive" -C "$TMP_DIR"
 
   log_info "Installing overhyped binaries..."
-  sudo install -m 0755 "${TMP_DIR}/overhyped" /usr/local/bin/overhyped
+  sudo install -m 0755 "${TMP_DIR}/overhyped" /usr/local/bin/hype
   if [[ -f "${TMP_DIR}/hype-agent" ]]; then
     sudo install -m 0755 "${TMP_DIR}/hype-agent" /usr/local/bin/hype-agent
   fi
