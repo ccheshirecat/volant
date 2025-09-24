@@ -59,15 +59,27 @@ func (b *BridgeManager) CleanupTap(ctx context.Context, tap string) error {
 	return nil
 }
 
+const (
+	maxInterfaceNameLen = 15 // Linux IFNAMSIZ (16) minus null terminator
+	tapPrefix           = "vpt-"
+)
+
 func tapNameFrom(vmName string) string {
 	sanitized := sanitize(vmName)
-	if len(sanitized) > 8 {
-		sanitized = sanitized[:8]
-	}
 	if sanitized == "" {
 		sanitized = "vm"
 	}
-	return fmt.Sprintf("vipertap-%s", sanitized)
+
+	// Ensure we don't exceed the kernel's interface name limit.
+	maxSuffixLen := maxInterfaceNameLen - len(tapPrefix)
+	if maxSuffixLen < 1 {
+		maxSuffixLen = 1
+	}
+	if len(sanitized) > maxSuffixLen {
+		sanitized = sanitized[:maxSuffixLen]
+	}
+
+	return tapPrefix + sanitized
 }
 
 func sanitize(input string) string {
