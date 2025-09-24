@@ -39,7 +39,7 @@ trap cleanup_all EXIT
 cp "$AGENT_BIN" "$STAGED_AGENT"
 
 printf 'Building image... ' >&2
-if ! docker build --build-arg overhyped_AGENT_BINARY="$(basename "$STAGED_AGENT")" -t "$IMAGE_TAG" "$CONTEXT" >/dev/null; then
+if ! docker build --build-arg OVERHYPED_AGENT_BINARY="$(basename "$STAGED_AGENT")" -t "$IMAGE_TAG" "$CONTEXT" >/dev/null; then
   echo 'failed' >&2
   exit 1
 fi
