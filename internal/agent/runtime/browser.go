@@ -116,7 +116,6 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 		return nil, errors.New("browser: context is required")
 	}
 
-	cfg.RemoteDebuggingAddr = strings.TrimSpace(cfg.RemoteDebuggingAddr)
 	if cfg.RemoteDebuggingPort == 0 {
 		availablePort, err := allocateFreePort()
 		if err != nil {
@@ -192,14 +191,6 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 		cancelAllocator()
 		_ = cmd.Process.Kill()
 		return nil, fmt.Errorf("browser: enable network: %w", err)
-	}
-
-	devtools, err := probeDevTools(cfg.RemoteDebuggingPort)
-	if err != nil {
-		cancelCtx()
-		cancelAllocator()
-		_ = cmd.Process.Kill()
-		return nil, err
 	}
 
 	combinedCancel := func() {
