@@ -111,8 +111,10 @@ type engine struct {
 	network    network.Manager
 	bus        eventbus.Bus
 
-	mu        sync.Mutex
-	instances map[string]processHandle
+	mu         sync.Mutex
+	instances  map[string]processHandle
+	procCtx    context.Context
+	procCancel context.CancelFunc
 }
 
 type processHandle struct {
@@ -128,9 +130,27 @@ var (
 )
 
 func (e *engine) Start(ctx context.Context) error {
-	return e.store.WithTx(ctx, func(q db.Queries) error {
+	if err := e.store.WithTx(ctx, func(q db.Queries) error {
 		return q.IPAllocations().EnsurePool(ctx, e.ipPool)
-	})
+	}); err != nil {
+		return err
+	}
+
+	parent := context.Background()
+	if ctx != nil {
+		parent = ctx
+	}
+	procCtx, cancel := context.WithCancel(parent)
+
+	e.mu.Lock()
+	if e.procCancel != nil {
+		e.procCancel()
+	}
+	e.procCtx = procCtx
+	e.procCancel = cancel
+	e.mu.Unlock()
+
+	return nil
 }
 
 func (e *engine) Stop(ctx context.Context) error {
@@ -146,6 +166,12 @@ func (e *engine) Stop(ctx context.Context) error {
 			errs = append(errs, fmt.Errorf("cleanup tap %s: %w", handle.tapName, err))
 		}
 		delete(e.instances, name)
+	}
+
+	if e.procCancel != nil {
+		e.procCancel()
+		e.procCancel = nil
+		e.procCtx = nil
 	}
 
 	if len(errs) > 0 {
@@ -210,8 +236,6 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 	if err != nil {
 		return nil, err
 	}
-
-	e.publishEvent(ctx, orchestratorevents.TypeVMCreated, orchestratorevents.VMStatusStarting, vmRecord, "vm record created")
 
 	e.publishEvent(ctx, orchestratorevents.TypeVMCreated, orchestratorevents.VMStatusStarting, vmRecord, "vm record created")
 

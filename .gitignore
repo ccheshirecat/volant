@@ -6,3 +6,4 @@ build/artifacts
 bin
 development-tracker.md
 roadmap.md
+.cursor/

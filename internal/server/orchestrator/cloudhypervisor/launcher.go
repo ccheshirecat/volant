@@ -87,6 +87,15 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		"--console", "off",
 	}
 
+	select {
+	case <-ctx.Done():
+		logFile.Close()
+		_ = os.Remove(kernelCopy)
+		_ = os.Remove(initramfsCopy)
+		return nil, fmt.Errorf("cloudhypervisor: launch cancelled: %w", ctx.Err())
+	default:
+	}
+
 	cmd := exec.CommandContext(ctx, l.Binary, args...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile

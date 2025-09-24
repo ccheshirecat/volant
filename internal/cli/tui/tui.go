@@ -46,11 +46,22 @@ func debugLog(format string, args ...interface{}) {
 }
 
 const (
-	refreshInterval       = 5 * time.Second
-	logBufferCapacity     = 200
-	statusClearAfter      = 4 * time.Second
-	defaultCreateCPUCores = 2
-	defaultCreateMemoryMB = 2048
+	refreshInterval          = 5 * time.Second
+	logBufferCapacity        = 200
+	statusClearAfter         = 4 * time.Second
+	defaultCreateCPUCores    = 2
+	defaultCreateMemoryMB    = 2048
+	layoutMinHorizontalWidth = 110
+	layoutOuterMargin        = 2
+	layoutPaneGap            = 2
+	layoutMinPaneWidth       = 34
+	layoutMinPaneHeight      = 12
+	layoutPaneChromeWidth    = 4
+	layoutPaneChromeHeight   = 2
+	headerReservedHeight     = 1
+	statusReservedHeight     = 1
+	helpReservedHeight       = 1
+	inputReservedHeight      = 3
 )
 
 var (
@@ -255,6 +266,56 @@ func (m *model) setPersistentStatus(level statusLevel, message string) {
 	m.updateStatus(level, message, true)
 }
 
+func (m *model) applyResponsiveLayout(width, height int) {
+	if width <= 0 || height <= 0 {
+		return
+	}
+
+	usableWidth := maxInt(width-(layoutOuterMargin*2), layoutMinPaneWidth)
+	topSections := headerReservedHeight + statusReservedHeight
+	bottomSections := helpReservedHeight + inputReservedHeight
+	usableHeight := maxInt(height-(topSections+bottomSections), layoutMinPaneHeight)
+
+	if usableWidth >= layoutMinHorizontalWidth {
+		m.layout = layoutHorizontal
+	} else {
+		m.layout = layoutVertical
+	}
+
+	var paneWidth, paneHeight int
+	switch m.layout {
+	case layoutHorizontal:
+		paneWidth = (usableWidth - layoutPaneGap) / 2
+		if paneWidth < layoutMinPaneWidth {
+			paneWidth = layoutMinPaneWidth
+		}
+		paneHeight = usableHeight - layoutPaneChromeHeight
+	default:
+		paneWidth = usableWidth
+		paneHeight = (usableHeight - layoutPaneGap) / 2
+	}
+
+	if paneHeight < layoutMinPaneHeight {
+		paneHeight = layoutMinPaneHeight
+	}
+
+	paneContentWidth := paneWidth - layoutPaneChromeWidth
+	if paneContentWidth < layoutMinPaneWidth {
+		paneContentWidth = layoutMinPaneWidth
+	}
+
+	m.vmList.SetWidth(paneContentWidth)
+	m.vmList.SetHeight(paneHeight)
+	m.logView.Width = paneContentWidth
+	m.logView.Height = paneHeight
+
+	inputWidth := usableWidth
+	if inputWidth < layoutMinPaneWidth {
+		inputWidth = layoutMinPaneWidth
+	}
+	m.input.Width = inputWidth
+}
+
 func newModel(ctx context.Context, cancel context.CancelFunc, api *client.Client) model {
 	sp := newSpinnerModel()
 
@@ -267,30 +328,29 @@ func newModel(ctx context.Context, cancel context.CancelFunc, api *client.Client
 		logView:    viewport.New(0, 0),
 		input:      textinput.New(),
 		spinner:    sp,
-		focused:    focusVMList,
+		focused:    focusInput,
 		layout:     layoutHorizontal,
 		logs:       []string{},
 		selectedVM: "",
 	}
 
-	m.vmList.Title = "VMs"
-	m.vmList.SetShowHelp(false)
-	m.vmList.SetShowStatusBar(false)
-	m.vmList.SetShowPagination(false)
-	m.vmList.SetShowFilter(false)
-
 	m.input.Placeholder = "Enter command (e.g., vms create my-vm)..."
 	m.input.CharLimit = 512
-	m.input.Width = 50
+	m.input.Width = layoutMinPaneWidth
 	m.input.Prompt = "» "
 
-	m.logView.Width = 50
-	m.logView.Height = 12
+	m.logView.Width = layoutMinPaneWidth
+	m.logView.Height = layoutMinPaneHeight
 	m.logView.YPosition = 1
 	m.logView.MouseWheelEnabled = true
 	m.logView.SetContent("Select a VM to begin streaming logs.")
 
-	m.setFocus(focusVMList)
+	m.input.Focus()
+	m.vmList.SetHeight(layoutMinPaneHeight)
+	m.logView.Height = layoutMinPaneHeight
+	m.logView.Width = layoutMinPaneWidth
+	m.input.Width = layoutMinPaneWidth
+
 	debugLog("model initialized")
 
 	return m
@@ -315,59 +375,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		usableWidth := msg.Width - 8
-		var paneWidth int
-		var paneHeight int
-		var inputWidth int
-		if usableWidth >= 80 {
-			m.layout = layoutHorizontal
-			paneWidth = usableWidth / 2
-			if paneWidth < 32 {
-				paneWidth = 32
-			}
-			paneContentWidth := paneWidth - 4
-			if paneContentWidth < 20 {
-				paneContentWidth = paneWidth - 2
-			}
-			paneHeight = m.height - 8
-			if paneHeight < 12 {
-				paneHeight = m.height - 4
-			}
-			m.vmList.SetWidth(paneContentWidth)
-			m.vmList.SetHeight(paneHeight)
-			m.logView.Width = paneContentWidth
-			m.logView.Height = paneHeight
-			inputWidth = msg.Width - 6
-			if inputWidth < 30 {
-				inputWidth = msg.Width - 4
-			}
-		} else {
-			m.layout = layoutVertical
-			paneWidth = usableWidth
-			if paneWidth < 32 {
-				paneWidth = usableWidth
-			}
-			paneContentWidth := paneWidth - 4
-			if paneContentWidth < 20 {
-				paneContentWidth = paneWidth - 2
-			}
-			paneHeight = (msg.Height - 12) / 2
-			if paneHeight < 10 {
-				paneHeight = 10
-			}
-			m.vmList.SetWidth(paneContentWidth)
-			m.vmList.SetHeight(paneHeight)
-			m.logView.Width = paneContentWidth
-			m.logView.Height = paneHeight
-			inputWidth = msg.Width - 6
-			if inputWidth < 30 {
-				inputWidth = msg.Width - 4
-			}
-		}
-		if inputWidth < 10 {
-			inputWidth = 10
-		}
-		m.input.Width = inputWidth
+		m.applyResponsiveLayout(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
 		switch m.focused {
@@ -1384,6 +1392,13 @@ func valueOrFallback(primary, fallback string) string {
 		return primary
 	}
 	return fallback
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // Run launches the Bubble Tea TUI.
