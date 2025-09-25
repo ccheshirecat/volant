@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -907,6 +909,35 @@ func (m *model) planCommand(parts []string) (commandPlan, error) {
 				}
 				line := fmt.Sprintf("System status | VMs: %d | CPU: %.2f%% | MEM: %.2f%%", status.VMCount, status.CPU, status.MEM)
 				return []string{line}, nil
+			},
+		}, nil
+
+	case "mcp":
+		if len(parts) < 2 {
+			return commandPlan{}, fmt.Errorf("mcp command requires a method (e.g., mcp volar.vms.list)")
+		}
+		commandName := parts[1]
+		var params map[string]any
+		if len(parts) > 2 {
+			joined := strings.Join(parts[2:], " ")
+			if err := json.Unmarshal([]byte(joined), &params); err != nil {
+				return commandPlan{}, fmt.Errorf("invalid MCP params JSON: %w", err)
+			}
+		}
+
+		return commandPlan{
+			label: fmt.Sprintf("mcp %s", commandName),
+			action: func(ctx context.Context, api *client.Client) ([]string, error) {
+				req := client.MCPRequest{Command: commandName, Params: params}
+				resp, err := api.MCP(ctx, req)
+				if err != nil {
+					return nil, err
+				}
+				payload, marshalErr := json.MarshalIndent(resp, "", "  ")
+				if marshalErr != nil {
+					return nil, marshalErr
+				}
+				return []string{string(payload)}, nil
 			},
 		}, nil
 
