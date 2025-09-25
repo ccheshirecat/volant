@@ -108,6 +108,7 @@ type Browser struct {
 
     mu       sync.Mutex
     log      *logEmitter
+    devtools devToolsInternal
 }
 
 // NewBrowser launches a headless Chrome instance reachable through chromedp.
