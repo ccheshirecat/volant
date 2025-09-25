@@ -1,0 +1,1 @@
+ALTER TABLE vms ADD COLUMN runtime TEXT NOT NULL DEFAULT 'browser';

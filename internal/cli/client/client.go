@@ -45,6 +45,7 @@ type VM struct {
 	ID            int64  `json:"id"`
 	Name          string `json:"name"`
 	Status        string `json:"status"`
+	Runtime       string `json:"runtime"`
 	PID           *int64 `json:"pid,omitempty"`
 	IPAddress     string `json:"ip_address"`
 	MACAddress    string `json:"mac_address"`
@@ -56,6 +57,7 @@ type VM struct {
 // CreateVMRequest contains creation parameters.
 type CreateVMRequest struct {
 	Name          string `json:"name"`
+	Runtime       string `json:"runtime,omitempty"`
 	CPUCores      int    `json:"cpu_cores"`
 	MemoryMB      int    `json:"memory_mb"`
 	KernelCmdline string `json:"kernel_cmdline,omitempty"`
@@ -108,11 +110,11 @@ type ScreenshotActionRequest struct {
 }
 
 type ScreenshotActionResponse struct {
-	Data        string `json:"data"`
-	Format      string `json:"format"`
-	FullPage    bool   `json:"full_page"`
-	ByteLength  int    `json:"byte_length"`
-	CapturedAt  string `json:"captured_at"`
+	Data       string `json:"data"`
+	Format     string `json:"format"`
+	FullPage   bool   `json:"full_page"`
+	ByteLength int    `json:"byte_length"`
+	CapturedAt string `json:"captured_at"`
 }
 
 type ScrapeActionRequest struct {

@@ -26,6 +26,7 @@ import (
 	"github.com/ccheshirecat/volant/internal/server/eventbus"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator"
 	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
+	"github.com/ccheshirecat/volant/internal/server/plugins"
 )
 
 const (
@@ -45,7 +46,7 @@ var hopHeaders = map[string]struct{}{
 	"upgrade":             {},
 }
 
-func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus) http.Handler {
+func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plugins *plugins.Registry) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -66,6 +67,7 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus) http
 		bus:         bus,
 		agentPort:   agentDefaultPort,
 		agentClient: &http.Client{Timeout: 120 * time.Second},
+		plugins:     plugins,
 	}
 
 	r.GET("/healthz", func(c *gin.Context) {
@@ -177,6 +179,7 @@ type apiServer struct {
 	logger      *slog.Logger
 	engine      orchestrator.Engine
 	bus         eventbus.Bus
+	plugins     *plugins.Registry
 	agentPort   int
 	agentClient *http.Client
 }
@@ -213,6 +216,7 @@ type graphqlActionRequest struct {
 
 type createVMRequest struct {
 	Name          string `json:"name" binding:"required"`
+	Runtime       string `json:"runtime"`
 	CPUCores      int    `json:"cpu_cores" binding:"required,min=1"`
 	MemoryMB      int    `json:"memory_mb" binding:"required,min=64"`
 	KernelCmdline string `json:"kernel_cmdline"`
@@ -222,6 +226,7 @@ type vmResponse struct {
 	ID            int64      `json:"id"`
 	Name          string     `json:"name"`
 	Status        string     `json:"status"`
+	Runtime       string     `json:"runtime"`
 	PID           *int64     `json:"pid,omitempty"`
 	IPAddress     string     `json:"ip_address"`
 	MACAddress    string     `json:"mac_address"`
@@ -240,6 +245,7 @@ func vmToResponse(vm *db.VM) vmResponse {
 		ID:            vm.ID,
 		Name:          vm.Name,
 		Status:        string(vm.Status),
+		Runtime:       vm.Runtime,
 		PID:           vm.PID,
 		IPAddress:     vm.IPAddress,
 		MACAddress:    vm.MACAddress,
@@ -296,6 +302,7 @@ func (api *apiServer) createVM(c *gin.Context) {
 	}
 	vm, err := api.engine.CreateVM(c.Request.Context(), orchestrator.CreateVMRequest{
 		Name:              req.Name,
+		Runtime:           req.Runtime,
 		CPUCores:          req.CPUCores,
 		MemoryMB:          req.MemoryMB,
 		KernelCmdlineHint: req.KernelCmdline,
@@ -1094,118 +1101,116 @@ func statusFromError(err error) int {
 	}
 }
 
-
-
 func (api *apiServer) actionNavigate(c *gin.Context) {
-    var req navigateActionRequest
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
+	var req navigateActionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-    vm, ok := api.resolveVM(c)
-    if !ok {
-        return
-    }
+	vm, ok := api.resolveVM(c)
+	if !ok {
+		return
+	}
 
-    if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/navigate", req, nil); err != nil {
-        return
-    }
-    c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/navigate", req, nil); err != nil {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func (api *apiServer) actionScreenshot(c *gin.Context) {
-    var req screenshotActionRequest
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
+	var req screenshotActionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-    vm, ok := api.resolveVM(c)
-    if !ok {
-        return
-    }
+	vm, ok := api.resolveVM(c)
+	if !ok {
+		return
+	}
 
-    var resp map[string]interface{}
-    if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/screenshot", req, &resp); err != nil {
-        return
-    }
-    c.JSON(http.StatusOK, resp)
+	var resp map[string]interface{}
+	if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/screenshot", req, &resp); err != nil {
+		return
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (api *apiServer) actionEvaluate(c *gin.Context) {
-    var req evaluateActionRequest
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
+	var req evaluateActionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-    vm, ok := api.resolveVM(c)
-    if !ok {
-        return
-    }
+	vm, ok := api.resolveVM(c)
+	if !ok {
+		return
+	}
 
-    var resp map[string]interface{}
-    if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/evaluate", req, &resp); err != nil {
-        return
-    }
-    c.JSON(http.StatusOK, resp)
+	var resp map[string]interface{}
+	if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/evaluate", req, &resp); err != nil {
+		return
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (api *apiServer) handleNavigateAction(c *gin.Context) {
-    var req navigateActionRequest
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
+	var req navigateActionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-    vm, ok := api.resolveVM(c)
-    if !ok {
-        return
-    }
+	vm, ok := api.resolveVM(c)
+	if !ok {
+		return
+	}
 
-    if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/navigate", req, nil); err != nil {
-        return
-    }
-    c.Status(http.StatusAccepted)
+	if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/navigate", req, nil); err != nil {
+		return
+	}
+	c.Status(http.StatusAccepted)
 }
 
 func (api *apiServer) handleScreenshotAction(c *gin.Context) {
-    var req screenshotActionRequest
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
+	var req screenshotActionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-    vm, ok := api.resolveVM(c)
-    if !ok {
-        return
-    }
+	vm, ok := api.resolveVM(c)
+	if !ok {
+		return
+	}
 
-    var resp map[string]any
-    if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/screenshot", req, &resp); err != nil {
-        return
-    }
-    c.JSON(http.StatusOK, resp)
+	var resp map[string]any
+	if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/screenshot", req, &resp); err != nil {
+		return
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (api *apiServer) handleExecAction(c *gin.Context) {
-    var req execActionRequest
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
+	var req execActionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-    vm, ok := api.resolveVM(c)
-    if !ok {
-        return
-    }
+	vm, ok := api.resolveVM(c)
+	if !ok {
+		return
+	}
 
-    var resp map[string]any
-    if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/evaluate", req, &resp); err != nil {
-        return
-    }
-    c.JSON(http.StatusOK, resp)
+	var resp map[string]any
+	if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/evaluate", req, &resp); err != nil {
+		return
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (api *apiServer) actionScrape(c *gin.Context) {

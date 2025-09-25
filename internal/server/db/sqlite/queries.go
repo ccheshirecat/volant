@@ -52,10 +52,11 @@ func (r *vmRepository) Create(ctx context.Context, vm *db.VM) (int64, error) {
 
 	res, err := r.exec.ExecContext(
 		ctx,
-		`INSERT INTO vms (name, status, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+		`INSERT INTO vms (name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
 		vm.Name,
 		string(vm.Status),
+		vm.Runtime,
 		pidVal,
 		vm.IPAddress,
 		vm.MACAddress,
@@ -75,7 +76,7 @@ func (r *vmRepository) Create(ctx context.Context, vm *db.VM) (int64, error) {
 }
 
 func (r *vmRepository) GetByName(ctx context.Context, name string) (*db.VM, error) {
-	row := r.exec.QueryRowContext(ctx, `SELECT id, name, status, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, created_at, updated_at FROM vms WHERE name = ?;`, name)
+	row := r.exec.QueryRowContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, created_at, updated_at FROM vms WHERE name = ?;`, name)
 	vm, err := scanVM(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -87,7 +88,7 @@ func (r *vmRepository) GetByName(ctx context.Context, name string) (*db.VM, erro
 }
 
 func (r *vmRepository) List(ctx context.Context) ([]db.VM, error) {
-	rows, err := r.exec.QueryContext(ctx, `SELECT id, name, status, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, created_at, updated_at FROM vms ORDER BY created_at ASC;`)
+	rows, err := r.exec.QueryContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, created_at, updated_at FROM vms ORDER BY created_at ASC;`)
 	if err != nil {
 		return nil, fmt.Errorf("query vms: %w", err)
 	}
@@ -213,6 +214,7 @@ func scanVM(row rowScanner) (db.VM, error) {
 	var (
 		vm         db.VM
 		status     string
+		runtime    sql.NullString
 		pid        sql.NullInt64
 		cmdline    sql.NullString
 		createdRaw any
@@ -223,6 +225,7 @@ func scanVM(row rowScanner) (db.VM, error) {
 		&vm.ID,
 		&vm.Name,
 		&status,
+		&runtime,
 		&pid,
 		&vm.IPAddress,
 		&vm.MACAddress,
@@ -239,6 +242,9 @@ func scanVM(row rowScanner) (db.VM, error) {
 	}
 
 	vm.Status = db.VMStatus(status)
+	if runtime.Valid {
+		vm.Runtime = runtime.String
+	}
 	if pid.Valid {
 		value := pid.Int64
 		vm.PID = &value

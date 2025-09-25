@@ -21,7 +21,7 @@ func encodeAsJSON(out io.Writer, payload interface{}) error {
 	return enc.Encode(payload)
 }
 
-func decodeBase64(data string) ([]byte, error) {
+func DecodeBase64(data string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(data)
 }
 
@@ -110,6 +110,12 @@ func newVMsCreateCmd() *cobra.Command {
 		Short: "Create a microVM",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			runtimeName, err := cmd.Flags().GetString("runtime")
+			if err != nil {
+				return err
+			}
+			runtimeName = strings.TrimSpace(runtimeName)
+
 			cpu, err := cmd.Flags().GetInt("cpu")
 			if err != nil {
 				return err
@@ -132,6 +138,7 @@ func newVMsCreateCmd() *cobra.Command {
 
 			vm, err := api.CreateVM(ctx, client.CreateVMRequest{
 				Name:          args[0],
+				Runtime:       runtimeName,
 				CPUCores:      cpu,
 				MemoryMB:      mem,
 				KernelCmdline: kernelCmdline,
@@ -143,6 +150,7 @@ func newVMsCreateCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().String("runtime", "browser", "Runtime type to launch (browser, etc.)")
 	cmd.Flags().Int("cpu", 2, "Number of virtual CPU cores")
 	cmd.Flags().Int("memory", 2048, "Memory (MB)")
 	cmd.Flags().String("kernel-cmdline", "", "Additional kernel cmdline parameters")
@@ -260,7 +268,7 @@ func newVMsScreenshotCmd() *cobra.Command {
 				return err
 			}
 
-			data, decodeErr := decodeBase64(resp.Data)
+			data, decodeErr := DecodeBase64(resp.Data)
 			if decodeErr != nil {
 				return decodeErr
 			}

@@ -35,6 +35,7 @@ type Engine interface {
 // CreateVMRequest captures the inputs required to instantiate a VM lifecycle.
 type CreateVMRequest struct {
 	Name              string
+	Runtime           string
 	CPUCores          int
 	MemoryMB          int
 	KernelCmdlineHint string
@@ -185,6 +186,11 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		return nil, err
 	}
 
+	req.Runtime = strings.TrimSpace(req.Runtime)
+	if req.Runtime == "" {
+		req.Runtime = "browser"
+	}
+
 	netmask := formatNetmask(e.subnet.Mask)
 	hostname := sanitizeHostname(req.Name)
 
@@ -214,6 +220,7 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		vm := &db.VM{
 			Name:          req.Name,
 			Status:        db.VMStatusStarting,
+			Runtime:       req.Runtime,
 			IPAddress:     allocation.IPAddress,
 			MACAddress:    mac,
 			CPUCores:      req.CPUCores,

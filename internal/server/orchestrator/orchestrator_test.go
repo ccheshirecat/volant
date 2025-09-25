@@ -41,7 +41,7 @@ func TestEngineCreateAndDestroyVM(t *testing.T) {
 		t.Fatalf("engine start: %v", err)
 	}
 
-	vm, err := engine.CreateVM(ctx, CreateVMRequest{Name: "vm-test-1", CPUCores: 2, MemoryMB: 2048})
+	vm, err := engine.CreateVM(ctx, CreateVMRequest{Name: "vm-test-1", Runtime: "browser", CPUCores: 2, MemoryMB: 2048})
 	if err != nil {
 		t.Fatalf("create vm: %v", err)
 	}

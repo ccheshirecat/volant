@@ -11,22 +11,24 @@ import (
 	"github.com/ccheshirecat/volant/internal/server/db"
 	"github.com/ccheshirecat/volant/internal/server/eventbus"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator"
+	"github.com/ccheshirecat/volant/internal/server/plugins"
 )
 
 // App wires the config, persistence, orchestrator, and HTTP transport.
 type App struct {
-	cfg          config.ServerConfig
-	logger       *slog.Logger
-	store        db.Store
-	engine       orchestrator.Engine
-	events       eventbus.Bus
-	httpServer   *http.Server
-	shutdownWait time.Duration
+	cfg             config.ServerConfig
+	logger          *slog.Logger
+	store           db.Store
+	engine          orchestrator.Engine
+	events          eventbus.Bus
+	runtimeRegistry *plugins.Registry
+	httpServer      *http.Server
+	shutdownWait    time.Duration
 }
 
 // New constructs the daemon application. Dependencies that are not yet
 // implemented should be passed as nil until their concrete types land.
-func New(cfg config.ServerConfig, logger *slog.Logger, store db.Store, engine orchestrator.Engine, events eventbus.Bus, mux http.Handler) (*App, error) {
+func New(cfg config.ServerConfig, logger *slog.Logger, store db.Store, engine orchestrator.Engine, events eventbus.Bus, registry *plugins.Registry, mux http.Handler) (*App, error) {
 	if logger == nil {
 		return nil, fmt.Errorf("logger must not be nil")
 	}
@@ -43,13 +45,14 @@ func New(cfg config.ServerConfig, logger *slog.Logger, store db.Store, engine or
 	}
 
 	return &App{
-		cfg:          cfg,
-		logger:       logger,
-		store:        store,
-		engine:       engine,
-		events:       events,
-		httpServer:   httpServer,
-		shutdownWait: 15 * time.Second,
+		cfg:             cfg,
+		logger:          logger,
+		store:           store,
+		engine:          engine,
+		events:          events,
+		runtimeRegistry: registry,
+		httpServer:      httpServer,
+		shutdownWait:    15 * time.Second,
 	}, nil
 }
 

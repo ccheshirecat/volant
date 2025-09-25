@@ -24,6 +24,7 @@ func TestVMRepositoryCRUD(t *testing.T) {
 	vm := &db.VM{
 		Name:       "vm-1",
 		Status:     db.VMStatusPending,
+		Runtime:    "browser",
 		IPAddress:  "192.168.127.2",
 		MACAddress: "02:00:00:00:00:01",
 		CPUCores:   2,
@@ -112,6 +113,7 @@ func TestIPRepositoryLeaseAndAssign(t *testing.T) {
 		vm := &db.VM{
 			Name:       "vm-lease",
 			Status:     db.VMStatusPending,
+			Runtime:    "browser",
 			IPAddress:  allocation.IPAddress,
 			MACAddress: "02:00:00:00:00:aa",
 			CPUCores:   2,

@@ -22,6 +22,7 @@ type VM struct {
 	ID            int64
 	Name          string
 	Status        VMStatus
+	Runtime       string
 	PID           *int64
 	IPAddress     string
 	MACAddress    string
