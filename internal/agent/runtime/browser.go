@@ -208,14 +208,6 @@ func NewBrowser(ctx context.Context, cfg BrowserConfig) (*Browser, error) {
 		return nil, fmt.Errorf("browser: enable network: %w", err)
 	}
 
-	devtools, err := probeDevTools(cfg.RemoteDebuggingPort)
-	if err != nil {
-		cancelCtx()
-		cancelAllocator()
-		_ = cmd.Process.Kill()
-		return nil, fmt.Errorf("browser: probe devtools: %w", err)
-	}
-
 	combinedCancel := func() {
 		cancelCtx()
 		cancelAllocator()
