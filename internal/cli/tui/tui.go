@@ -302,55 +302,56 @@ func (m *model) setPersistentStatus(level statusLevel, message string) {
 }
 
 func (m *model) applyResponsiveLayout(width, height int) {
-	if width <= 0 || height <= 0 {
-		return
-	}
+    if width <= 0 || height <= 0 {
+        return
+    }
 
-	usableWidth := maxInt(width-(layoutOuterMargin*2), layoutMinPaneWidth)
-	topSections := headerReservedHeight + statusReservedHeight
-	bottomSections := helpReservedHeight + inputReservedHeight
-	usableHeight := maxInt(height-(topSections+bottomSections), layoutMinPaneHeight)
+    usableWidth := maxInt(width-(layoutOuterMargin*2), layoutMinPaneWidth)
+    topSections := headerReservedHeight + statusReservedHeight
+    bottomSections := helpReservedHeight + inputReservedHeight
+    usableHeight := maxInt(height-(topSections+bottomSections), layoutMinPaneHeight)
 
-	if usableWidth >= layoutMinHorizontalWidth {
-		m.layout = layoutHorizontal
-	} else {
-		m.layout = layoutVertical
-	}
+    // Choose layout orientation.
+    if usableWidth >= layoutMinHorizontalWidth {
+        m.layout = layoutHorizontal
+    } else {
+        m.layout = layoutVertical
+    }
 
-	var paneWidth, paneHeight int
-	switch m.layout {
-	case layoutHorizontal:
-		paneWidth = (usableWidth - layoutPaneGap) / 2
-		if paneWidth < layoutMinPaneWidth {
-			paneWidth = layoutMinPaneWidth
-		}
-		paneHeight = usableHeight - layoutPaneChromeHeight
-	default:
-		paneWidth = usableWidth
-		paneHeight = (usableHeight - layoutPaneGap) / 2
-	}
+    var paneWidth, paneHeight int
+    switch m.layout {
+    case layoutHorizontal:
+        paneWidth = (usableWidth - layoutPaneGap) / 2
+        if paneWidth < layoutMinPaneWidth {
+            paneWidth = layoutMinPaneWidth
+        }
+        paneHeight = usableHeight - layoutPaneChromeHeight
+    default:
+        paneWidth = usableWidth
+        paneHeight = (usableHeight - layoutPaneGap) / 2
+    }
 
-	if paneHeight < layoutMinPaneHeight {
-		paneHeight = layoutMinPaneHeight
-	}
+    if paneHeight < layoutMinPaneHeight {
+        paneHeight = layoutMinPaneHeight
+    }
 
-	paneContentWidth := paneWidth - layoutPaneChromeWidth
-	if paneContentWidth < layoutMinPaneWidth {
-		paneContentWidth = layoutMinPaneWidth
-	}
+    paneContentWidth := paneWidth - layoutPaneChromeWidth
+    if paneContentWidth < layoutMinPaneWidth {
+        paneContentWidth = layoutMinPaneWidth
+    }
 
-	m.vmList.SetWidth(paneContentWidth)
-	m.vmList.SetHeight(paneHeight)
-	m.logView.Width = paneContentWidth
-	m.logView.Height = paneHeight
-	m.aguiView.Width = paneContentWidth
-	m.aguiView.Height = paneHeight
+    m.vmList.SetWidth(paneContentWidth)
+    m.vmList.SetHeight(paneHeight)
+    m.logView.Width = paneContentWidth
+    m.logView.Height = paneHeight
+    m.aguiView.Width = paneContentWidth
+    m.aguiView.Height = paneHeight
 
-	inputWidth := usableWidth
-	if inputWidth < layoutMinPaneWidth {
-		inputWidth = layoutMinPaneWidth
-	}
-	m.input.Width = inputWidth
+    inputWidth := usableWidth
+    if inputWidth < layoutMinPaneWidth {
+        inputWidth = layoutMinPaneWidth
+    }
+    m.input.Width = inputWidth
 }
 
 func newModel(ctx context.Context, cancel context.CancelFunc, api *client.Client) model {
@@ -367,7 +368,7 @@ func newModel(ctx context.Context, cancel context.CancelFunc, api *client.Client
 		input:      textinput.New(),
 		spinner:    sp,
 		focused:    focusInput,
-		layout:     layoutHorizontal,
+		layout:     layoutVertical,
 		logs:       []string{},
 		selectedVM: "",
 		aguiBuffer: []string{},
@@ -514,7 +515,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.input.Reset()
 				m.historyIndex = len(m.commandHistory)
-				m.setFocus(focusVMList)
 				inputUpdated = true
 			default:
 				var cmd tea.Cmd
@@ -599,6 +599,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.executing = false
 		m.pendingClear = false
 		m.spinner = newSpinnerModel()
+		m.setFocus(focusInput)
 
 		if msg.err != nil {
 			if cmd := m.setStatus(statusLevelError, fmt.Sprintf("%s failed: %v", msg.label, msg.err)); cmd != nil {
@@ -855,7 +856,8 @@ func (m *model) queueCommand(input string) tea.Cmd {
 	m.statusStarted = time.Now()
 	m.pendingClear = false
 	m.spinner = newSpinnerModel()
-	m.input.Blur()
+
+	m.setFocus(focusInput)
 
 	return tea.Batch(
 		executeCommand(m.ctx, m.api, plan),
