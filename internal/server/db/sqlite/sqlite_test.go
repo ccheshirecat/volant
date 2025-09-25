@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ccheshirecat/overhyped/internal/server/db"
+	"github.com/ccheshirecat/volant/internal/server/db"
 )
 
 func TestVMRepositoryCRUD(t *testing.T) {

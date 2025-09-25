@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ccheshirecat/overhyped/internal/cli/standard"
-	"github.com/ccheshirecat/overhyped/internal/cli/tui"
+	"github.com/ccheshirecat/volant/internal/cli/standard"
+	"github.com/ccheshirecat/volant/internal/cli/tui"
 )
 
 func main() {

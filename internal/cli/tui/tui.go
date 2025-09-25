@@ -11,15 +11,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+    "github.com/charmbracelet/bubbles/key"
+    "github.com/charmbracelet/bubbles/list"
+    "github.com/charmbracelet/bubbles/spinner"
+    "github.com/charmbracelet/bubbles/textinput"
+    "github.com/charmbracelet/bubbles/viewport"
+    tea "github.com/charmbracelet/bubbletea"
+    "github.com/charmbracelet/lipgloss"
 
-	"github.com/ccheshirecat/overhyped/internal/cli/client"
+    "github.com/ccheshirecat/volant/internal/cli/client"
 )
 
 var (
@@ -27,7 +27,7 @@ var (
 )
 
 func init() {
-	if path := os.Getenv("OVERHYPED_TUI_DEBUG"); path != "" {
+	if path := os.Getenv("VOLANT_TUI_DEBUG"); path != "" {
 		if abs, err := filepath.Abs(path); err == nil {
 			_ = os.MkdirAll(filepath.Dir(abs), 0o755)
 			f, err := os.OpenFile(abs, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
@@ -48,6 +48,7 @@ func debugLog(format string, args ...interface{}) {
 const (
 	refreshInterval          = 5 * time.Second
 	logBufferCapacity        = 200
+	aguiBufferCapacity       = logBufferCapacity
 	statusClearAfter         = 4 * time.Second
 	defaultCreateCPUCores    = 2
 	defaultCreateMemoryMB    = 2048
@@ -80,10 +81,15 @@ var (
 	downKey = key.NewBinding(
 		key.WithKeys("down"),
 	)
+	aguiToggleKey = key.NewBinding(
+		key.WithKeys("ctrl+a"),
+	)
 
-	rootCommands   = []string{"vms", "status", "help"}
-	vmsSubcommands = []string{"create", "delete", "list", "get"}
+	rootCommands   = []string{"vms", "status", "help", "mcp"}
+	vmsSubcommands = []string{"list", "get", "create", "delete", "navigate", "screenshot", "scrape", "exec", "graphql"}
 )
+
+var defaultMCPSuggestions = []string{"volar.vms.list", "volar.vms.create", "volar.system.get_capabilities"}
 
 func newSpinnerModel() spinner.Model {
 	sp := spinner.New()
@@ -117,6 +123,19 @@ type tickMsg struct{}
 type systemStatusMsg struct {
 	status *client.SystemStatus
 }
+type aguiEventMsg struct {
+	payload string
+}
+type aguiClosedMsg struct{}
+type aguiErrorMsg struct {
+	err error
+}
+
+type aguiStreamEvent struct {
+	payload string
+	err     error
+	closed  bool
+}
 type commandResultMsg struct {
 	label    string
 	lines    []string
@@ -124,6 +143,11 @@ type commandResultMsg struct {
 	duration time.Duration
 }
 type clearStatusMsg struct{}
+
+type mcpRequest struct {
+	label string
+	body  client.MCPRequest
+}
 
 type statusLevel int
 
@@ -140,6 +164,7 @@ const (
 	focusVMList paneFocus = iota
 	focusLogs
 	focusInput
+	focusAGUI
 )
 
 type layoutMode int
@@ -171,6 +196,15 @@ type model struct {
 	logCh        chan client.VMLogEvent
 	logCancel    context.CancelFunc
 	logStreamEOF bool
+	aguiCh       chan aguiStreamEvent
+	aguiCancel   context.CancelFunc
+	aguiStreamEOF bool
+	aguiActive      bool
+	aguiBuffer      []string
+	aguiError       error
+	showAGUI        bool
+	aguiLogs        []string
+	aguiStreamCancel context.CancelFunc
 
 	logs       []string
 	selectedVM string
@@ -178,6 +212,7 @@ type model struct {
 	// UI components
 	vmList  list.Model
 	logView viewport.Model
+	aguiView viewport.Model
 	input   textinput.Model
 	spinner spinner.Model
 
@@ -195,6 +230,8 @@ type model struct {
 	statusStarted    time.Time
 	pendingClear     bool
 	statusPersistent bool
+	mcpSuggest       []string
+	pendingMCP       *mcpRequest
 }
 
 func (m *model) ensureStatusClear() tea.Cmd {
@@ -213,11 +250,6 @@ func (m *model) clearStatus() {
 
 func (m *model) setFocus(target paneFocus) {
 	if target == m.focused {
-		if target == focusInput {
-			m.input.Focus()
-		} else {
-			m.input.Blur()
-		}
 		return
 	}
 	if target == focusInput {
@@ -235,6 +267,8 @@ func (m *model) advanceFocus() {
 	case focusLogs:
 		m.setFocus(focusInput)
 	case focusInput:
+		m.setFocus(focusAGUI)
+	case focusAGUI:
 		m.setFocus(focusVMList)
 	default:
 		m.setFocus(focusVMList)
@@ -308,6 +342,8 @@ func (m *model) applyResponsiveLayout(width, height int) {
 	m.vmList.SetHeight(paneHeight)
 	m.logView.Width = paneContentWidth
 	m.logView.Height = paneHeight
+	m.aguiView.Width = paneContentWidth
+	m.aguiView.Height = paneHeight
 
 	inputWidth := usableWidth
 	if inputWidth < layoutMinPaneWidth {
@@ -326,13 +362,18 @@ func newModel(ctx context.Context, cancel context.CancelFunc, api *client.Client
 		eventCh:    make(chan client.VMEvent, 64),
 		vmList:     list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0),
 		logView:    viewport.New(0, 0),
+		aguiView:   viewport.New(0, 0),
 		input:      textinput.New(),
 		spinner:    sp,
 		focused:    focusInput,
 		layout:     layoutHorizontal,
 		logs:       []string{},
 		selectedVM: "",
+		aguiBuffer: []string{},
 	}
+
+	m.aguiView.MouseWheelEnabled = true
+	m.aguiView.SetContent("Activate AG-UI pane (Ctrl+A) to stream events.")
 
 	m.input.Placeholder = "Enter command (e.g., vms create my-vm)..."
 	m.input.CharLimit = 512
@@ -345,11 +386,15 @@ func newModel(ctx context.Context, cancel context.CancelFunc, api *client.Client
 	m.logView.MouseWheelEnabled = true
 	m.logView.SetContent("Select a VM to begin streaming logs.")
 
+	m.mcpSuggest = append([]string{}, defaultMCPSuggestions...)
+
 	m.input.Focus()
 	m.vmList.SetHeight(layoutMinPaneHeight)
 	m.logView.Height = layoutMinPaneHeight
 	m.logView.Width = layoutMinPaneWidth
 	m.input.Width = layoutMinPaneWidth
+	m.aguiView.Width = layoutMinPaneWidth
+	m.aguiView.Height = layoutMinPaneHeight
 
 	debugLog("model initialized")
 
@@ -378,6 +423,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyResponsiveLayout(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
+		if key.Matches(msg, aguiToggleKey) {
+			cmd := m.toggleAGUI()
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			break
+		}
 		switch m.focused {
 		case focusVMList:
 			prevSelection := selectedVMName(m.vmList)
@@ -429,7 +481,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case focusInput:
 			switch {
-			case key.Matches(msg, tabKey):
+		case key.Matches(msg, tabKey):
 				value := m.input.Value()
 				trimmed := strings.TrimSpace(value)
 				trailingSpace := strings.HasSuffix(value, " ")
@@ -592,6 +644,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			fetchVMsCmd(m.api, m.ctx),
 			fetchStatusCmd(m.api, m.ctx),
 		)
+
+	case aguiEventMsg:
+		m.appendAGUILine(msg.payload)
+		if m.aguiCh != nil {
+			cmds = append(cmds, waitAGUIEvent(m.aguiCh))
+		}
+
+	case aguiClosedMsg:
+		m.aguiStreamEOF = true
+		if m.aguiStreamCancel != nil {
+			m.aguiStreamCancel()
+			m.aguiStreamCancel = nil
+		}
+		m.aguiCh = nil
+		if cmd := m.setStatus(statusLevelInfo, "AG-UI stream closed"); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case aguiErrorMsg:
+		m.aguiError = msg.err
+		if cmd := m.setStatus(statusLevelError, fmt.Sprintf("AG-UI stream error: %v", msg.err)); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 
 	var spinCmd tea.Cmd
@@ -682,7 +757,7 @@ func (m model) View() string {
 	statusStyle := lipgloss.NewStyle().Padding(0, 1)
 	inputStyle := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1)
 
-	header := headerStyle.Render(headerTitleStyle.Render("HYPE CLI v2.0 | THE OVER-HYPED DASHBOARD"))
+	header := headerStyle.Render(headerTitleStyle.Render("VOLAR | CONTROL PLANE"))
 
 	statusLine := ""
 	if m.statusMessage != "" {
@@ -700,13 +775,18 @@ func (m model) View() string {
 	vmListView := paneStyle.Render(m.vmList.View())
 
 	logTitle := "Logs"
-	if m.selectedVM != "" {
+	logContentBody := m.logView.View()
+	if m.showAGUI {
+		logTitle = "AG-UI Events"
+		logContentBody = m.aguiView.View()
+	}
+	if m.selectedVM != "" && !m.showAGUI {
 		logTitle = fmt.Sprintf("Logs (%s)", m.selectedVM)
 	}
 	logContent := lipgloss.JoinVertical(
 		lipgloss.Left,
 		lipgloss.NewStyle().Bold(true).Render(logTitle),
-		m.logView.View(),
+		logContentBody,
 	)
 	logView := paneStyle.Render(logContent)
 
@@ -1342,6 +1422,76 @@ func waitLogCmd(ch <-chan client.VMLogEvent) tea.Cmd {
 	}
 }
 
+func toggleAGUIKeyBinding() key.Binding {
+	return aguiToggleKey
+}
+
+func (m *model) toggleAGUI() tea.Cmd {
+	m.showAGUI = !m.showAGUI
+	if m.showAGUI {
+		m.aguiStreamEOF = false
+		m.aguiError = nil
+		m.aguiLogs = []string{"Connecting to AG-UI event stream..."}
+		m.aguiView.SetContent(strings.Join(m.aguiLogs, "\n"))
+
+		ctx, cancel := context.WithCancel(m.ctx)
+		m.aguiStreamCancel = cancel
+		m.aguiCh = make(chan aguiStreamEvent, 64)
+
+		return tea.Batch(startAGUIStream(m.api, ctx, m.aguiCh), waitAGUIEvent(m.aguiCh))
+	}
+
+	if m.aguiStreamCancel != nil {
+		m.aguiStreamCancel()
+		m.aguiStreamCancel = nil
+	}
+	m.aguiCh = nil
+	m.aguiView.SetContent("AG-UI stream disconnected. Press Ctrl+A to reconnect.")
+	return nil
+}
+
+func startAGUIStream(api *client.Client, ctx context.Context, ch chan<- aguiStreamEvent) tea.Cmd {
+	return func() tea.Msg {
+		go func() {
+			err := api.WatchAGUI(ctx, func(payload string) {
+				select {
+				case ch <- aguiStreamEvent{payload: payload}:
+				case <-ctx.Done():
+				}
+			})
+			if err != nil && ctx.Err() == nil {
+				ch <- aguiStreamEvent{err: err}
+			}
+			close(ch)
+		}()
+		return nil
+	}
+}
+
+func waitAGUIEvent(ch <-chan aguiStreamEvent) tea.Cmd {
+	return func() tea.Msg {
+		ev, ok := <-ch
+		if !ok {
+			return aguiClosedMsg{}
+		}
+		if ev.err != nil {
+			return aguiErrorMsg{err: ev.err}
+		}
+		return aguiEventMsg{payload: ev.payload}
+	}
+}
+
+func (m *model) appendAGUILine(line string) {
+	if strings.TrimSpace(line) == "" {
+		return
+	}
+	m.aguiLogs = append(m.aguiLogs, line)
+	if len(m.aguiLogs) > aguiBufferCapacity {
+		m.aguiLogs = m.aguiLogs[len(m.aguiLogs)-aguiBufferCapacity:]
+	}
+	m.aguiView.SetContent(strings.Join(m.aguiLogs, "\n"))
+}
+
 func tickCmd() tea.Cmd {
 	return tea.Tick(refreshInterval, func(time.Time) tea.Msg { return tickMsg{} })
 }
@@ -1403,7 +1553,7 @@ func maxInt(a, b int) int {
 
 // Run launches the Bubble Tea TUI.
 func Run() error {
-	base := os.Getenv("OVERHYPED_API_BASE")
+	base := os.Getenv("VOLANT_API_BASE")
 	api, err := client.New(base)
 	if err != nil {
 		return err

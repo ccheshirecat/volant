@@ -13,15 +13,15 @@ func Execute() error {
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "hype",
-		Short: "hype command-line interface",
-		Long:  "hype CLI provides access to the orchestrator, browser agents, and tooling.",
+		Use:   "volar",
+		Short: "volar command-line interface",
+		Long:  "volar CLI provides access to the orchestrator, browser agents, and tooling.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
 	}
 
-	cmd.PersistentFlags().StringP("api", "a", envOrDefault("OVERHYPED_API_BASE", "http://127.0.0.1:7777"), "hyped base URL")
+	cmd.PersistentFlags().StringP("api", "a", envOrDefault("VOLANT_API_BASE", "http://127.0.0.1:7777"), "volantd base URL")
 
 	cmd.AddCommand(newVersionCmd())
 	cmd.AddCommand(newVMsCmd())
@@ -33,9 +33,9 @@ func newRootCmd() *cobra.Command {
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print the hype client version",
+		Short: "Print the volar client version",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Fprintf(cmd.OutOrStdout(), "hype CLI (prototype)\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "volar CLI (prototype)\n")
 		},
 	}
 }

@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ccheshirecat/overhyped/internal/server/db"
-	"github.com/ccheshirecat/overhyped/internal/server/eventbus"
-	orchestratorevents "github.com/ccheshirecat/overhyped/internal/server/orchestrator/events"
-	"github.com/ccheshirecat/overhyped/internal/server/orchestrator/network"
-	"github.com/ccheshirecat/overhyped/internal/server/orchestrator/runtime"
+	"github.com/ccheshirecat/volant/internal/server/db"
+	"github.com/ccheshirecat/volant/internal/server/eventbus"
+	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
+	"github.com/ccheshirecat/volant/internal/server/orchestrator/network"
+	"github.com/ccheshirecat/volant/internal/server/orchestrator/runtime"
 )
 
 // Engine represents the VM orchestration core.
@@ -83,7 +83,7 @@ func New(params Params) (Engine, error) {
 
 	runtimeDir := params.Runtime
 	if runtimeDir == "" {
-		runtimeDir = filepath.Join(".overhyped", "run")
+		runtimeDir = filepath.Join(".volant", "run")
 	}
 
 	return &engine{

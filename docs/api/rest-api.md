@@ -1,21 +1,21 @@
 ---
 title: "REST API"
-description: "Overview of the Overhyped REST interface and references to the OpenAPI document."
+description: "Overview of the Volant REST interface and references to the OpenAPI document."
 ---
 
 # REST API
 
-The Overhyped control plane exposes a JSON/HTTP API for VM lifecycle management, event streaming, and agent proxying.
+The Volant control plane exposes a JSON/HTTP API for VM lifecycle management, event streaming, and agent proxying.
 
 ## Base URL
 
 - Default: `http://127.0.0.1:7777`
-- Override: `OVERHYPED_API_BASE` environment variable / CLI `--api` flag
+- Override: `VOLANT_API_BASE` environment variable / CLI `--api` flag
 
 ## Authentication
 
-- Development builds: unauthenticated (subject to `OVERHYPED_API_ALLOW_CIDR` whitelist)
-- Production: configure `OVERHYPED_API_KEY` for API key headers (WIP)
+- Development builds: unauthenticated (subject to `VOLANT_API_ALLOW_CIDR` whitelist)
+- Production: configure `VOLANT_API_KEY` for API key headers (WIP)
 
 ## OpenAPI Specification
 
@@ -35,13 +35,14 @@ For full reference, embed `docs/api/openapi.yaml` in your docs site. Highlights:
 | `GET /ws/v1/vms/{name}/devtools/*` | CDP proxy |
 | `GET /ws/v1/vms/{name}/logs` | WebSocket JSON log stream |
 | `GET /ws/v1/agui` | AG-UI WebSocket events (run state) |
+| `POST /api/v1/vms/{name}/actions/*` | Shortcut action shims (navigate, screenshot, scrape, exec, graphql) |
 
 ## Environment Variables
 
-- `OVERHYPED_API_BASE`: Override server base URL (client only)
-- `OVERHYPED_API_KEY`: API token
-- `OVERHYPED_API_ALLOW_CIDR`: Comma-separated CIDR whitelist for REST access
-- `OVERHYPED_KERNEL`, `OVERHYPED_INITRAMFS`: Default kernel artifacts for service templates
+- `VOLANT_API_BASE`: Override server base URL (client only)
+- `VOLANT_API_KEY`: API token
+- `VOLANT_API_ALLOW_CIDR`: Comma-separated CIDR whitelist for REST access
+- `VOLANT_KERNEL`, `VOLANT_INITRAMFS`: Default kernel artifacts for service templates
 
 ## HTTP Status Codes
 

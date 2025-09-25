@@ -12,22 +12,22 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/ccheshirecat/overhyped/internal/server/app"
-	"github.com/ccheshirecat/overhyped/internal/server/config"
-	"github.com/ccheshirecat/overhyped/internal/server/db/sqlite"
-	"github.com/ccheshirecat/overhyped/internal/server/eventbus/memory"
-	"github.com/ccheshirecat/overhyped/internal/server/httpapi"
-	"github.com/ccheshirecat/overhyped/internal/server/orchestrator"
-	"github.com/ccheshirecat/overhyped/internal/server/orchestrator/cloudhypervisor"
-	"github.com/ccheshirecat/overhyped/internal/server/orchestrator/network"
-	"github.com/ccheshirecat/overhyped/internal/shared/logging"
+	"github.com/ccheshirecat/volant/internal/server/app"
+	"github.com/ccheshirecat/volant/internal/server/config"
+	"github.com/ccheshirecat/volant/internal/server/db/sqlite"
+	"github.com/ccheshirecat/volant/internal/server/eventbus/memory"
+	"github.com/ccheshirecat/volant/internal/server/httpapi"
+	"github.com/ccheshirecat/volant/internal/server/orchestrator"
+	"github.com/ccheshirecat/volant/internal/server/orchestrator/cloudhypervisor"
+	"github.com/ccheshirecat/volant/internal/server/orchestrator/network"
+	"github.com/ccheshirecat/volant/internal/shared/logging"
 )
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	logger := logging.New("hyped")
+	logger := logging.New("volantd")
 
 	cfg, err := config.FromEnv()
 	if err != nil {

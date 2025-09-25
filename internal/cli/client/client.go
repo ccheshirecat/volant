@@ -14,10 +14,10 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	orchestratorevents "github.com/ccheshirecat/overhyped/internal/server/orchestrator/events"
+	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
 )
 
-// Client wraps REST access to the hyped API.
+// Client wraps REST access to the volantd API.
 type Client struct {
 	baseURL    *url.URL
 	httpClient *http.Client
@@ -93,6 +93,66 @@ type DevToolsInfo struct {
 	UserAgent      string `json:"user_agent"`
 	Address        string `json:"address"`
 	Port           int    `json:"port"`
+}
+
+type NavigateActionRequest struct {
+	URL       string `json:"url"`
+	TimeoutMs int64  `json:"timeout_ms,omitempty"`
+}
+
+type ScreenshotActionRequest struct {
+	FullPage  bool   `json:"full_page"`
+	Format    string `json:"format,omitempty"`
+	Quality   int    `json:"quality,omitempty"`
+	TimeoutMs int64  `json:"timeout_ms,omitempty"`
+}
+
+type ScreenshotActionResponse struct {
+	Data        string `json:"data"`
+	Format      string `json:"format"`
+	FullPage    bool   `json:"full_page"`
+	ByteLength  int    `json:"byte_length"`
+	CapturedAt  string `json:"captured_at"`
+}
+
+type ScrapeActionRequest struct {
+	Selector  string `json:"selector"`
+	Attribute string `json:"attribute,omitempty"`
+	TimeoutMs int64  `json:"timeout_ms,omitempty"`
+}
+
+type ScrapeActionResponse struct {
+	Value  interface{} `json:"value"`
+	Exists bool        `json:"exists"`
+}
+
+type EvaluateActionRequest struct {
+	Expression   string `json:"expression"`
+	AwaitPromise bool   `json:"await_promise"`
+	TimeoutMs    int64  `json:"timeout_ms,omitempty"`
+}
+
+type EvaluateActionResponse struct {
+	Result interface{} `json:"result"`
+}
+
+type GraphQLActionRequest struct {
+	Endpoint  string                 `json:"endpoint"`
+	Query     string                 `json:"query"`
+	Variables map[string]interface{} `json:"variables,omitempty"`
+	TimeoutMs int64                  `json:"timeout_ms,omitempty"`
+}
+
+type GraphQLActionResponse map[string]interface{}
+
+type MCPRequest struct {
+	Command string                 `json:"command"`
+	Params  map[string]interface{} `json:"params"`
+}
+
+type MCPResponse struct {
+	Result interface{} `json:"result"`
+	Error  string      `json:"error"`
 }
 
 func (c *Client) ListVMs(ctx context.Context) ([]VM, error) {
@@ -256,6 +316,61 @@ func (c *Client) WatchVMLogs(ctx context.Context, name string, handler func(VMLo
 	}
 }
 
+func (c *Client) WatchAGUI(ctx context.Context, handler func(string)) error {
+	if handler == nil {
+		return fmt.Errorf("client: handler required")
+	}
+
+	wsURL := c.baseURL.ResolveReference(&url.URL{Path: "/ws/v1/agui"})
+	switch wsURL.Scheme {
+	case "http":
+		wsURL.Scheme = "ws"
+	case "https":
+		wsURL.Scheme = "wss"
+	case "ws", "wss":
+	default:
+		return fmt.Errorf("client: unsupported scheme %q", wsURL.Scheme)
+	}
+
+	dialer := websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 30 * time.Second,
+	}
+
+	conn, resp, err := dialer.DialContext(ctx, wsURL.String(), nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	if err != nil {
+		return fmt.Errorf("client: watch agui dial: %w", err)
+	}
+	defer conn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+			_ = conn.Close()
+		case <-done:
+		}
+	}()
+
+	for {
+		msgType, payload, err := conn.ReadMessage()
+		if err != nil {
+			close(done)
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || errors.Is(err, context.Canceled) || ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("client: read agui event: %w", err)
+		}
+		if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
+			handler(string(payload))
+		}
+	}
+}
+
 func (c *Client) AgentRequest(ctx context.Context, vmName, method, path string, body any, out any) error {
 	if strings.TrimSpace(vmName) == "" {
 		return fmt.Errorf("client: vm name required")
@@ -313,6 +428,54 @@ func (c *Client) BaseURL() *url.URL {
 	}
 	clone := *c.baseURL
 	return &clone
+}
+
+func (c *Client) NavigateVM(ctx context.Context, name string, payload NavigateActionRequest) error {
+	return c.AgentRequest(ctx, name, http.MethodPost, "/v1/actions/navigate", payload, nil)
+}
+
+func (c *Client) ScreenshotVM(ctx context.Context, name string, payload ScreenshotActionRequest) (*ScreenshotActionResponse, error) {
+	var response ScreenshotActionResponse
+	if err := c.AgentRequest(ctx, name, http.MethodPost, "/v1/actions/screenshot", payload, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (c *Client) ScrapeVM(ctx context.Context, name string, payload ScrapeActionRequest) (*ScrapeActionResponse, error) {
+	var response ScrapeActionResponse
+	if err := c.AgentRequest(ctx, name, http.MethodPost, "/v1/actions/scrape", payload, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (c *Client) EvaluateVM(ctx context.Context, name string, payload EvaluateActionRequest) (*EvaluateActionResponse, error) {
+	var response EvaluateActionResponse
+	if err := c.AgentRequest(ctx, name, http.MethodPost, "/v1/actions/evaluate", payload, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (c *Client) GraphQLVM(ctx context.Context, name string, payload GraphQLActionRequest) (GraphQLActionResponse, error) {
+	var response GraphQLActionResponse
+	if err := c.AgentRequest(ctx, name, http.MethodPost, "/v1/actions/graphql", payload, &response); err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+func (c *Client) MCP(ctx context.Context, request MCPRequest) (*MCPResponse, error) {
+	var response MCPResponse
+	req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/mcp", request)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.do(req, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
 }
 
 func (c *Client) newRequest(ctx context.Context, method, path string, body any) (*http.Request, error) {

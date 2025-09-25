@@ -18,17 +18,17 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	agentruntime "github.com/ccheshirecat/overhyped/internal/agent/runtime"
+	agentruntime "github.com/ccheshirecat/volant/internal/agent/runtime"
 )
 
 const (
 	defaultListenAddr     = ":8080"
-	defaultTimeoutEnvKey  = "overhyped_AGENT_DEFAULT_TIMEOUT"
-	defaultListenEnvKey   = "overhyped_AGENT_LISTEN_ADDR"
-	defaultRemoteAddrKey  = "overhyped_AGENT_REMOTE_DEBUGGING_ADDR"
-	defaultRemotePortKey  = "overhyped_AGENT_REMOTE_DEBUGGING_PORT"
-	defaultUserDataDirKey = "overhyped_AGENT_USER_DATA_DIR"
-	defaultExecPathKey    = "overhyped_AGENT_EXEC_PATH"
+	defaultTimeoutEnvKey  = "volant_AGENT_DEFAULT_TIMEOUT"
+	defaultListenEnvKey   = "volant_AGENT_LISTEN_ADDR"
+	defaultRemoteAddrKey  = "volant_AGENT_REMOTE_DEBUGGING_ADDR"
+	defaultRemotePortKey  = "volant_AGENT_REMOTE_DEBUGGING_PORT"
+	defaultUserDataDirKey = "volant_AGENT_USER_DATA_DIR"
+	defaultExecPathKey    = "volant_AGENT_EXEC_PATH"
 )
 
 type Config struct {
@@ -51,7 +51,7 @@ type App struct {
 
 func Run(ctx context.Context) error {
 	cfg := loadConfig()
-	logger := log.New(os.Stdout, "hype-agent: ", log.LstdFlags|log.LUTC)
+	logger := log.New(os.Stdout, "volary: ", log.LstdFlags|log.LUTC)
 
 	browser, err := agentruntime.NewBrowser(ctx, agentruntime.BrowserConfig{
 		RemoteDebuggingAddr: cfg.RemoteDebuggingAddr,
@@ -105,6 +105,12 @@ func (a *App) run(ctx context.Context) error {
 		r.Post("/dom/wait-selector", a.handleWaitSelector)
 
 		r.Post("/script/evaluate", a.handleEvaluate)
+
+		r.Post("/actions/navigate", a.handleNavigate)
+		r.Post("/actions/screenshot", a.handleScreenshot)
+		r.Post("/actions/scrape", a.handleScrape)
+		r.Post("/actions/evaluate", a.handleEvaluate)
+		r.Post("/actions/graphql", a.handleGraphQL)
 
 		r.Post("/profile/attach", a.handleProfileAttach)
 		r.Get("/profile/extract", a.handleProfileExtract)
@@ -479,12 +485,89 @@ func (a *App) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if strings.TrimSpace(req.Expression) == "" {
+		respondError(w, http.StatusBadRequest, "expression is required")
+		return
+	}
 	result, err := a.browser.Evaluate(a.duration(req.TimeoutMs), req.Expression, req.AwaitPromise)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]any{"result": result})
+}
+
+type scrapeRequest struct {
+	Selector  string `json:"selector"`
+	Attribute string `json:"attribute"`
+	TimeoutMs int64  `json:"timeout_ms"`
+}
+
+func (a *App) handleScrape(w http.ResponseWriter, r *http.Request) {
+	var req scrapeRequest
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if strings.TrimSpace(req.Selector) == "" {
+		respondError(w, http.StatusBadRequest, "selector is required")
+		return
+	}
+
+	timeout := a.duration(req.TimeoutMs)
+
+	if attr := strings.TrimSpace(req.Attribute); attr != "" {
+		value, exists, err := a.browser.GetAttribute(timeout, req.Selector, attr)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]any{"value": value, "exists": exists})
+		return
+	}
+
+	text, err := a.browser.GetText(timeout, req.Selector, true)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"value": text, "exists": true})
+}
+
+type graphqlRequest struct {
+	Endpoint  string                 `json:"endpoint"`
+	Query     string                 `json:"query"`
+	Variables map[string]any         `json:"variables"`
+	TimeoutMs int64                  `json:"timeout_ms"`
+}
+
+func (a *App) handleGraphQL(w http.ResponseWriter, r *http.Request) {
+	var req graphqlRequest
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if strings.TrimSpace(req.Endpoint) == "" {
+		respondError(w, http.StatusBadRequest, "endpoint is required")
+		return
+	}
+	if strings.TrimSpace(req.Query) == "" {
+		respondError(w, http.StatusBadRequest, "query is required")
+		return
+	}
+
+	if req.Variables == nil {
+		req.Variables = map[string]any{}
+	}
+
+	responseBody, err := a.browser.GraphQL(a.duration(req.TimeoutMs), req.Endpoint, req.Query, req.Variables)
+	if err != nil {
+		respondError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, responseBody)
 }
 
 type screenshotRequest struct {

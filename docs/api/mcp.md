@@ -1,11 +1,11 @@
 ---
 title: "Model Context Protocol"
-description: "Integrating Overhyped with LLM agents through the MCP endpoint."
+description: "Integrating Volant with LLM agents through the MCP endpoint."
 ---
 
 # Model Context Protocol (MCP)
 
-overhyped exposes a Model Context Protocol endpoint to enable LLM-driven orchestration flows.
+Volant exposes a Model Context Protocol endpoint to enable LLM-driven orchestration flows.
 
 ## Endpoint
 
@@ -18,7 +18,7 @@ Request payload:
 
 ```json
 {
-  "command": "hype.vms.list",
+  "command": "volant.vms.list",
   "params": {}
 }
 ```
@@ -39,9 +39,9 @@ Response payload:
 
 | Command | Description | Parameters | Response |
 | --- | --- | --- | --- |
-| `hype.vms.list` | List all orchestrated VMs | none | Array of VM summaries (id, name, status, ip, cpu, memory) |
-| `hype.vms.create` | Create a VM with default resources | `name` (string) | VM summary |
-| `hype.system.get_capabilities` | Discover available commands | none | Command metadata (name, description, params) |
+| `volant.vms.list` | List all orchestrated VMs | none | Array of VM summaries (id, name, status, ip, cpu, memory) |
+| `volant.vms.create` | Create a VM with default resources | `name` (string) | VM summary |
+| `volant.system.get_capabilities` | Discover available commands | none | Command metadata (name, description, params) |
 
 ## Command Examples
 
@@ -49,7 +49,7 @@ Response payload:
 
 Request:
 ```json
-{"command": "hype.vms.list", "params": {}}
+{"command": "volant.vms.list", "params": {}}
 ```
 Response (success):
 ```json
@@ -72,7 +72,7 @@ Response (success):
 Request:
 ```json
 {
-  "command": "hype.vms.create",
+  "command": "volant.vms.create",
   "params": {
     "name": "demo"
   }

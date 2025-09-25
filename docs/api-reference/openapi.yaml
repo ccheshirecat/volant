@@ -1,9 +1,9 @@
 openapi: 3.0.0
 info:
-  title: Overhyped REST API
+  title: Volant REST API
   version: 1.0.0
   description: >-
-    REST interface for the Overhyped microVM automation platform.
+    REST interface for the Volant microVM automation platform.
     All endpoints default to `http://127.0.0.1:7777`.
   contact:
     name: API Support
@@ -139,8 +139,8 @@ paths:
           type: string
         example: "exec"
     post:
-      summary: Proxy requests to hype-agent
-      description: Forwards a request to the hype-agent running inside the specified VM. This is used for executing commands, managing files, and other agent-based interactions.
+      summary: Proxy requests to volary
+      description: Forwards a request to the volary running inside the specified VM. This is used for executing commands, managing files, and other agent-based interactions.
       operationId: proxyAgentRequest
       tags: [agent]
       requestBody:
@@ -227,7 +227,7 @@ paths:
   /ws/v1/vms/{name}/logs:
     get:
       summary: Stream agent logs as WebSocket JSON payloads
-      description: Upgrades the connection to a WebSocket to stream logs directly from the hype-agent running inside the specified VM.
+      description: Upgrades the connection to a WebSocket to stream logs directly from the volary running inside the specified VM.
       operationId: streamAgentLogs
       tags: [agent]
       parameters:
@@ -429,7 +429,7 @@ components:
           type: string
           nullable: true
       example:
-        result: "overhyped-vm"
+        result: "volant-vm"
         error: null
     AGUIEvent:
       oneOf:

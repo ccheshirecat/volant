@@ -15,7 +15,7 @@
 // --- Utility Functions ---
 
 static void print_error(const char *context) {
-    fprintf(stderr, "overhyped Init ERROR in %s: %s\n", context, strerror(errno));
+    fprintf(stderr, "volant Init ERROR in %s: %s\n", context, strerror(errno));
     fflush(stderr);
 }
 
@@ -73,15 +73,15 @@ static pid_t spawn_agent(void) {
     pid_t pid = fork();
     if (pid < 0) { print_error("fork for agent"); return -1; }
     if (pid == 0) { // Child process
-        const char *agent_path = "/usr/local/bin/hype-agent";
+        const char *agent_path = "/usr/local/bin/volary";
         char *const agent_argv[] = {(char *)agent_path, NULL};
         char *const agent_envp[] = {"PATH=/usr/local/bin:/usr/bin:/bin:/sbin", NULL};
         execve(agent_path, agent_argv, agent_envp);
         // This part is only reached if execve fails
-        print_error("execve hype-agent");
+        print_error("execve volary");
         _exit(1);
     }
-    printf("[INIT] Launched hype-agent with PID %d.\n", pid);
+    printf("[INIT] Launched volary with PID %d.\n", pid);
     fflush(stdout);
     return pid;
 }
@@ -133,23 +133,23 @@ int main(void) {
             dup2(serial_fd, 1);
             dup2(serial_fd, 2);
             if (serial_fd > 2) close(serial_fd);
-            printf("\n--- Overhyped Debug Shell ---\n\n"); fflush(stdout);
+            printf("\n--- Volant Debug Shell ---\n\n"); fflush(stdout);
             execl("/bin/sh", "sh", "-l", NULL);
         }
         _exit(1); // Exit if shell fails to start
     }
 
-    // 5. Launch the main hype-agent
+    // 5. Launch the main volary
     pid_t agent_pid = spawn_agent();
 
     // 6. Supervisor Loop: The heart of PID 1.
-    printf("[INIT] Init complete. Now supervising hype-agent.\n"); fflush(stdout);
+    printf("[INIT] Init complete. Now supervising volary.\n"); fflush(stdout);
     while (1) {
         int status;
         pid_t pid = wait(&status);
         if (pid > 0) {
             if (pid == agent_pid) {
-                fprintf(stderr, "[INIT] CRITICAL: hype-agent (PID %d) has exited. Restarting in 5s...\n", pid);
+                fprintf(stderr, "[INIT] CRITICAL: volary (PID %d) has exited. Restarting in 5s...\n", pid);
                 fflush(stderr);
                 sleep(5); // Prevent rapid crash loops
                 agent_pid = spawn_agent();

@@ -28,7 +28,7 @@ import (
 const (
 	DefaultRemoteAddr         = "0.0.0.0"
 	DefaultRemotePort         = 9222
-	defaultUserDataDirName    = "hype-agent-data"
+	defaultUserDataDirName    = "volary-data"
 	DefaultActionTimeout      = 60 * time.Second
 	devtoolsStartupTimeout    = 10 * time.Second
 	devtoolsProbeRetryBackoff = 250 * time.Millisecond
@@ -421,6 +421,101 @@ func (b *Browser) Evaluate(timeout time.Duration, expression string, awaitPromis
 		return "script evaluation complete", nil
 	})
 	return result, err
+}
+
+// GraphQL executes a GraphQL POST using the browser context, preserving session data.
+func (b *Browser) GraphQL(timeout time.Duration, endpoint, query string, variables map[string]any) (map[string]any, error) {
+	if strings.TrimSpace(endpoint) == "" {
+		return nil, errors.New("endpoint required")
+	}
+	if strings.TrimSpace(query) == "" {
+		return nil, errors.New("query required")
+	}
+	if variables == nil {
+		variables = map[string]any{}
+	}
+
+	payload := map[string]any{
+		"query":     query,
+		"variables": variables,
+	}
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	endpointLiteral := jsString(endpoint)
+	bodyLiteral := jsString(string(bodyBytes))
+
+	var raw map[string]any
+	err = b.run(timeout, "graphql", truncateForLog(fmt.Sprintf("GraphQL POST %s", endpoint), 120), func(ctx context.Context) (string, error) {
+		expression := fmt.Sprintf(`(async () => {
+			const response = await fetch(%s, {
+				method: "POST",
+				headers: {"Content-Type": "application/json"},
+				body: %s,
+				credentials: "include",
+			});
+			const headers = {};
+			response.headers.forEach((value, key) => { headers[key] = value; });
+			const text = await response.text();
+			let jsonValue = null;
+			try { jsonValue = JSON.parse(text); } catch (err) { jsonValue = null; }
+			return {
+				status: response.status,
+				ok: response.ok,
+				headers,
+				text,
+				json: jsonValue,
+			};
+		})()`, endpointLiteral, bodyLiteral)
+
+		remote, _, evalErr := cpruntime.Evaluate(expression).
+			WithReturnByValue(true).
+			WithAwaitPromise(true).
+			Do(ctx)
+		if evalErr != nil {
+			return "", evalErr
+		}
+		value, decodeErr := decodeRemoteObject(remote)
+		if decodeErr != nil {
+			return "", decodeErr
+		}
+		converted, ok := value.(map[string]any)
+		if !ok {
+			return "", fmt.Errorf("graphql unexpected result type %T", value)
+		}
+		raw = converted
+		return "graphql executed", nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	response := map[string]any{}
+	if status, ok := raw["status"].(float64); ok {
+		response["status"] = int(status)
+	}
+	if okValue, ok := raw["ok"].(bool); ok {
+		response["ok"] = okValue
+	}
+	if text, ok := raw["text"].(string); ok {
+		response["text"] = text
+	}
+	if jsonValue, exists := raw["json"]; exists {
+		response["json"] = jsonValue
+	}
+	if headersRaw, ok := raw["headers"].(map[string]any); ok {
+		headers := make(map[string]string, len(headersRaw))
+		for key, value := range headersRaw {
+			if str, ok := value.(string); ok {
+				headers[key] = str
+			}
+		}
+		response["headers"] = headers
+	}
+
+	return response, nil
 }
 
 // Screenshot captures a screenshot and returns the raw bytes.

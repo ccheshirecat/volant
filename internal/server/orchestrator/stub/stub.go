@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ccheshirecat/overhyped/internal/server/db"
-	"github.com/ccheshirecat/overhyped/internal/server/orchestrator"
+	"github.com/ccheshirecat/volant/internal/server/db"
+	"github.com/ccheshirecat/volant/internal/server/orchestrator"
 )
 
 // Engine is a placeholder implementation used until the real orchestrator lands.

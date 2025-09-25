@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ccheshirecat/overhyped/internal/server/config"
-	"github.com/ccheshirecat/overhyped/internal/server/db"
-	"github.com/ccheshirecat/overhyped/internal/server/eventbus"
-	"github.com/ccheshirecat/overhyped/internal/server/orchestrator"
+	"github.com/ccheshirecat/volant/internal/server/config"
+	"github.com/ccheshirecat/volant/internal/server/db"
+	"github.com/ccheshirecat/volant/internal/server/eventbus"
+	"github.com/ccheshirecat/volant/internal/server/orchestrator"
 )
 
 // App wires the config, persistence, orchestrator, and HTTP transport.
