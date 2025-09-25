@@ -76,7 +76,7 @@ func (b *BridgeManager) CleanupTap(ctx context.Context, tap string) error {
 
 const (
 	maxInterfaceNameLen = 15 // Linux IFNAMSIZ (16) minus null terminator
-	tapPrefix           = "ohtap-"
+	tapPrefix           = "vttap-"
 )
 
 func tapNameFrom(vmName string) string {

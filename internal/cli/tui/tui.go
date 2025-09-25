@@ -1080,6 +1080,161 @@ func (m *model) planCommand(parts []string) (commandPlan, error) {
 					return []string{fmt.Sprintf("VM %s deletion requested", name)}, nil
 				},
 			}, nil
+
+		case "navigate":
+			if len(parts) < 4 {
+				return commandPlan{}, fmt.Errorf("vms navigate requires a VM name and URL")
+			}
+			name := parts[2]
+			url := parts[3]
+			return commandPlan{
+				label: fmt.Sprintf("vms navigate %s", name),
+				action: func(ctx context.Context, api *client.Client) ([]string, error) {
+					payload := client.NavigateActionRequest{URL: url}
+					if err := api.NavigateVM(ctx, name, payload); err != nil {
+						return nil, err
+					}
+					return []string{fmt.Sprintf("Navigation requested for %s", name)}, nil
+				},
+			}, nil
+
+		case "screenshot":
+			if len(parts) < 3 {
+				return commandPlan{}, fmt.Errorf("vms screenshot requires a VM name")
+			}
+			name := parts[2]
+			return commandPlan{
+				label: fmt.Sprintf("vms screenshot %s", name),
+				action: func(ctx context.Context, api *client.Client) ([]string, error) {
+					payload := client.ScreenshotActionRequest{}
+					resp, err := api.ScreenshotVM(ctx, name, payload)
+					if err != nil {
+						return nil, err
+					}
+					return []string{fmt.Sprintf("Screenshot captured (%d bytes)", resp.ByteLength)}, nil
+				},
+			}, nil
+
+        case "scrape":
+            if len(parts) < 3 {
+                return commandPlan{}, fmt.Errorf("vms scrape requires a VM name")
+            }
+            name := parts[2]
+            if len(parts) < 4 {
+                return commandPlan{}, fmt.Errorf("vms scrape requires selector argument (e.g. css=.btn)")
+            }
+            selector := ""
+            attribute := ""
+            attrValue := ""
+            for _, opt := range parts[3:] {
+                if kv := strings.SplitN(opt, "=", 2); len(kv) == 2 {
+                    switch kv[0] {
+                    case "css":
+                        selector = kv[1]
+                    case "attr":
+                        attribute = kv[1]
+                    case "value":
+                        attrValue = kv[1]
+                    }
+                }
+            }
+            if strings.TrimSpace(selector) == "" {
+                return commandPlan{}, fmt.Errorf("selector is required for scrape (use css=.selector)")
+            }
+            return commandPlan{
+                label: fmt.Sprintf("vms scrape %s", name),
+                action: func(ctx context.Context, api *client.Client) ([]string, error) {
+                    payload := client.ScrapeActionRequest{Selector: selector, Attribute: attribute}
+                    resp, err := api.ScrapeVM(ctx, name, payload)
+                    if err != nil {
+                        return nil, err
+                    }
+                    output := map[string]any{"exists": resp.Exists, "value": resp.Value}
+                    if attrValue != "" && resp.Exists {
+                        output["matches"] = (fmt.Sprint(resp.Value) == attrValue)
+                    }
+                    data, err := json.MarshalIndent(output, "", "  ")
+                    if err != nil {
+                        return nil, err
+                    }
+                    return []string{string(data)}, nil
+                },
+            }, nil
+
+        case "exec":
+            if len(parts) < 3 {
+                return commandPlan{}, fmt.Errorf("vms exec requires a VM name")
+            }
+            name := parts[2]
+            if len(parts) < 4 {
+                return commandPlan{}, fmt.Errorf("vms exec requires a JavaScript expression")
+            }
+            expression := strings.Join(parts[3:], " ")
+            return commandPlan{
+                label: fmt.Sprintf("vms exec %s", name),
+                action: func(ctx context.Context, api *client.Client) ([]string, error) {
+                    payload := client.EvaluateActionRequest{Expression: expression, AwaitPromise: true}
+                    resp, err := api.EvaluateVM(ctx, name, payload)
+                    if err != nil {
+                        return nil, err
+                    }
+                    data, err := json.MarshalIndent(resp, "", "  ")
+                    if err != nil {
+                        return nil, err
+                    }
+                    return []string{string(data)}, nil
+                },
+            }, nil
+
+        case "graphql":
+            if len(parts) < 3 {
+                return commandPlan{}, fmt.Errorf("vms graphql requires a VM name")
+            }
+            name := parts[2]
+            endpoint := ""
+            query := ""
+            variablesJSON := ""
+            for _, opt := range parts[3:] {
+                if kv := strings.SplitN(opt, "=", 2); len(kv) == 2 {
+                    switch kv[0] {
+                    case "endpoint":
+                        endpoint = kv[1]
+                    case "query":
+                        query = kv[1]
+                    case "variables":
+                        variablesJSON = kv[1]
+                    }
+                }
+            }
+            if endpoint == "" {
+                return commandPlan{}, fmt.Errorf("endpoint is required (endpoint=https://...)")
+            }
+            if query == "" {
+                return commandPlan{}, fmt.Errorf("query is required (query='{...}')")
+            }
+            return commandPlan{
+                label: fmt.Sprintf("vms graphql %s", name),
+                action: func(ctx context.Context, api *client.Client) ([]string, error) {
+                    payload := client.GraphQLActionRequest{Endpoint: endpoint, Query: query}
+                    if variablesJSON != "" {
+                        var vars map[string]any
+                        if err := json.Unmarshal([]byte(variablesJSON), &vars); err != nil {
+                            return nil, fmt.Errorf("decode variables JSON: %w", err)
+                        }
+                        payload.Variables = vars
+                    }
+                    resp, err := api.GraphQLVM(ctx, name, payload)
+                    if err != nil {
+                        return nil, err
+                    }
+                    data, err := json.MarshalIndent(resp, "", "  ")
+                    if err != nil {
+                        return nil, err
+                    }
+                    return []string{string(data)}, nil
+                },
+            }, nil
+
 		default:
 			return commandPlan{}, fmt.Errorf("unknown vms subcommand %q", sub)
 		}
