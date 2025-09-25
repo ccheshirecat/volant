@@ -21,7 +21,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 
-	"github.com/ccheshirecat/overhyped/internal/cli/client"
+	"github.com/ccheshirecat/volant/internal/cli/client"
 )
 
 func newBrowsersCmd() *cobra.Command {
@@ -31,6 +31,34 @@ func newBrowsersCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(newBrowsersProxyCmd())
+	cmd.AddCommand(newBrowsersStreamCmd())
+	return cmd
+}
+
+func newBrowsersStreamCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "stream <vm>",
+		Short: "Print the remote DevTools WebSocket URL",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+
+			ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
+			defer cancel()
+
+			info, err := api.GetAgentDevTools(ctx, args[0])
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "%s\n", info.WebSocketURL)
+			return nil
+		},
+	}
+
 	return cmd
 }
 

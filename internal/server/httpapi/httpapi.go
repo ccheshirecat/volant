@@ -21,11 +21,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"github.com/ccheshirecat/overhyped/internal/protocol/agui"
-	"github.com/ccheshirecat/overhyped/internal/server/db"
-	"github.com/ccheshirecat/overhyped/internal/server/eventbus"
-	"github.com/ccheshirecat/overhyped/internal/server/orchestrator"
-	orchestratorevents "github.com/ccheshirecat/overhyped/internal/server/orchestrator/events"
+	"github.com/ccheshirecat/volant/internal/protocol/agui"
+	"github.com/ccheshirecat/volant/internal/server/db"
+	"github.com/ccheshirecat/volant/internal/server/eventbus"
+	"github.com/ccheshirecat/volant/internal/server/orchestrator"
+	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
 )
 
 const (
@@ -51,12 +51,12 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus) http
 	r.Use(gin.Recovery())
 	r.Use(requestLogger(logger))
 
-	if cidr := os.Getenv("OVERHYPED_API_ALLOW_CIDR"); cidr != "" {
+	if cidr := os.Getenv("VOLANT_API_ALLOW_CIDR"); cidr != "" {
 		allowList := strings.Split(cidr, ",")
 		r.Use(ipFilterMiddleware(logger, allowList))
 	}
 
-	if apiKey := os.Getenv("OVERHYPED_API_KEY"); apiKey != "" {
+	if apiKey := os.Getenv("VOLANT_API_KEY"); apiKey != "" {
 		r.Use(apiKeyMiddleware(apiKey))
 	}
 
@@ -85,6 +85,9 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus) http
 			vms.GET(":name", api.getVM)
 			vms.DELETE(":name", api.deleteVM)
 			vms.Any(":name/agent/*path", api.proxyAgent)
+			vms.POST(":name/actions/navigate", api.handleNavigateAction)
+			vms.POST(":name/actions/screenshot", api.handleScreenshotAction)
+			vms.POST(":name/actions/exec", api.handleExecAction)
 		}
 
 		events := v1.Group("/events")
@@ -158,7 +161,7 @@ func ipFilterMiddleware(logger *slog.Logger, cidrs []string) gin.HandlerFunc {
 
 func apiKeyMiddleware(expected string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		provided := c.GetHeader("X-Overhyped-API-Key")
+		provided := c.GetHeader("X-Volant-API-Key")
 		if provided == "" {
 			provided = c.Query("api_key")
 		}
@@ -176,6 +179,36 @@ type apiServer struct {
 	bus         eventbus.Bus
 	agentPort   int
 	agentClient *http.Client
+}
+
+type navigateActionRequest struct {
+	URL string `json:"url" binding:"required"`
+}
+
+type screenshotActionRequest struct {
+	FullPage bool   `json:"full_page"`
+	Format   string `json:"format"`
+	Quality  int    `json:"quality"`
+}
+
+type execActionRequest struct {
+	Expression string `json:"expression" binding:"required"`
+}
+
+type scrapeActionRequest struct {
+	Selector  string `json:"selector" binding:"required"`
+	Attribute string `json:"attribute"`
+}
+
+type evaluateActionRequest struct {
+	Expression   string `json:"expression" binding:"required"`
+	AwaitPromise bool   `json:"await_promise"`
+}
+
+type graphqlActionRequest struct {
+	Endpoint  string                 `json:"endpoint"`
+	Query     string                 `json:"query" binding:"required"`
+	Variables map[string]interface{} `json:"variables"`
 }
 
 type createVMRequest struct {
@@ -971,6 +1004,85 @@ func writeWebSocketClose(conn *websocket.Conn, code int, message string) {
 	_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, message), time.Now().Add(time.Second))
 }
 
+func (api *apiServer) agentAction(c *gin.Context, vm *db.VM, method, path string, body any, out any) error {
+	if method == "" {
+		method = http.MethodPost
+	}
+
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encode request"})
+			return err
+		}
+	}
+
+	req, err := http.NewRequestWithContext(c.Request.Context(), method, api.agentURL(vm, path), bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create agent request"})
+		return err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := api.agentClient.Do(req)
+	if err != nil {
+		api.logger.Error("agent action", "vm", vm.Name, "path", path, "error", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		var payload map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			c.JSON(resp.StatusCode, gin.H{"error": http.StatusText(resp.StatusCode)})
+			return fmt.Errorf("agent returned %d", resp.StatusCode)
+		}
+		message, _ := payload["error"].(string)
+		if message == "" {
+			message = http.StatusText(resp.StatusCode)
+		}
+		c.JSON(resp.StatusCode, gin.H{"error": message})
+		return fmt.Errorf("agent returned %d", resp.StatusCode)
+	}
+
+	if out == nil {
+		return nil
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decode agent response"})
+		return err
+	}
+	return nil
+}
+
+func (api *apiServer) resolveVM(c *gin.Context) (*db.VM, bool) {
+	name := c.Param("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "vm name required"})
+		return nil, false
+	}
+
+	vm, err := api.engine.GetVM(c.Request.Context(), name)
+	if err != nil {
+		api.logger.Error("resolve vm", "vm", name, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve vm"})
+		return nil, false
+	}
+	if vm == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "vm not found"})
+		return nil, false
+	}
+	if vm.Status != db.VMStatusRunning || vm.IPAddress == "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "vm not ready"})
+		return nil, false
+	}
+
+	return vm, true
+}
+
 func statusFromError(err error) int {
 	switch {
 	case errors.Is(err, orchestrator.ErrVMNotFound):
@@ -980,4 +1092,156 @@ func statusFromError(err error) int {
 	default:
 		return http.StatusInternalServerError
 	}
+}
+
+
+
+func (api *apiServer) actionNavigate(c *gin.Context) {
+    var req navigateActionRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    vm, ok := api.resolveVM(c)
+    if !ok {
+        return
+    }
+
+    if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/navigate", req, nil); err != nil {
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (api *apiServer) actionScreenshot(c *gin.Context) {
+    var req screenshotActionRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    vm, ok := api.resolveVM(c)
+    if !ok {
+        return
+    }
+
+    var resp map[string]interface{}
+    if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/screenshot", req, &resp); err != nil {
+        return
+    }
+    c.JSON(http.StatusOK, resp)
+}
+
+func (api *apiServer) actionEvaluate(c *gin.Context) {
+    var req evaluateActionRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    vm, ok := api.resolveVM(c)
+    if !ok {
+        return
+    }
+
+    var resp map[string]interface{}
+    if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/evaluate", req, &resp); err != nil {
+        return
+    }
+    c.JSON(http.StatusOK, resp)
+}
+
+func (api *apiServer) handleNavigateAction(c *gin.Context) {
+    var req navigateActionRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    vm, ok := api.resolveVM(c)
+    if !ok {
+        return
+    }
+
+    if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/navigate", req, nil); err != nil {
+        return
+    }
+    c.Status(http.StatusAccepted)
+}
+
+func (api *apiServer) handleScreenshotAction(c *gin.Context) {
+    var req screenshotActionRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    vm, ok := api.resolveVM(c)
+    if !ok {
+        return
+    }
+
+    var resp map[string]any
+    if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/screenshot", req, &resp); err != nil {
+        return
+    }
+    c.JSON(http.StatusOK, resp)
+}
+
+func (api *apiServer) handleExecAction(c *gin.Context) {
+    var req execActionRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    vm, ok := api.resolveVM(c)
+    if !ok {
+        return
+    }
+
+    var resp map[string]any
+    if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/evaluate", req, &resp); err != nil {
+        return
+    }
+    c.JSON(http.StatusOK, resp)
+}
+
+func (api *apiServer) actionScrape(c *gin.Context) {
+	var req scrapeActionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	vm, ok := api.resolveVM(c)
+	if !ok {
+		return
+	}
+
+	var resp map[string]interface{}
+	if err := api.agentAction(c, vm, http.MethodPost, "/v1/dom/scrape", req, &resp); err != nil {
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (api *apiServer) actionGraphQL(c *gin.Context) {
+	var req graphqlActionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	vm, ok := api.resolveVM(c)
+	if !ok {
+		return
+	}
+
+	var resp map[string]interface{}
+	if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/graphql", req, &resp); err != nil {
+		return
+	}
+	c.JSON(http.StatusOK, resp)
 }

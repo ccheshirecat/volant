@@ -5,7 +5,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/ccheshirecat/overhyped/internal/server/eventbus"
+	"github.com/ccheshirecat/volant/internal/server/eventbus"
 )
 
 // Bus is an in-memory event bus suitable for single-node development testing.

@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ccheshirecat/overhyped/internal/agent/app"
+	"github.com/ccheshirecat/volant/internal/agent/app"
 )
 
 func main() {

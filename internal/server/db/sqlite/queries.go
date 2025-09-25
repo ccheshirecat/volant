@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ccheshirecat/overhyped/internal/server/db"
+	"github.com/ccheshirecat/volant/internal/server/db"
 )
 
 var timestampLayouts = []string{

@@ -1,4 +1,4 @@
-module github.com/ccheshirecat/overhyped
+module github.com/ccheshirecat/volant
 
 go 1.24
 

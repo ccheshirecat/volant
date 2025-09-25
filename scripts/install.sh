@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-INSTALL_VERSION="${overhyped_VERSION:-latest}"
+INSTALL_VERSION="${volant_VERSION:-latest}"
 INSTALL_FORCE=no
 RUN_SETUP=yes
 NONINTERACTIVE=no
@@ -24,14 +24,14 @@ trap cleanup EXIT INT TERM
 
 usage() {
   cat <<EOF
-overhyped Installer
+volant Installer
 
 Usage: install.sh [options]
 
 Options:
   --version <ver>     Install a specific version (default: latest)
-  --force             Reinstall even if overhyped is already present
-  --skip-setup        Skip running 'hype setup' after installation
+  --force             Reinstall even if volant is already present
+  --skip-setup        Skip running 'volar setup' after installation
   --yes               Non-interactive mode (assume yes to prompts)
   --help              Show this message
 EOF
@@ -75,7 +75,7 @@ require_figlet_font() {
 
 render_banner() {
   if ! command -v figlet >/dev/null 2>&1; then
-    log_info "overhyped Installer"
+    log_info "volant Installer"
     return
   fi
   local font="terrace"
@@ -83,10 +83,10 @@ render_banner() {
     font="pagga"
   fi
   if ! require_figlet_font "$font"; then
-    log_info "overhyped Installer"
+    log_info "volant Installer"
     return
   fi
-  figlet -f "$font" "overhyped"
+  figlet -f "$font" "volant"
 }
 
 check_shell() {
@@ -164,8 +164,8 @@ detect_arch() {
 }
 
 check_existing_install() {
-  if command -v overhyped >/dev/null 2>&1 && [[ "$INSTALL_FORCE" != "yes" ]]; then
-    log_info "overhyped appears to be installed already (use --force to reinstall)."
+  if command -v volant >/dev/null 2>&1 && [[ "$INSTALL_FORCE" != "yes" ]]; then
+    log_info "volant appears to be installed already (use --force to reinstall)."
     exit 0
   fi
 }
@@ -211,7 +211,7 @@ ensure_dependencies() {
 }
 
 create_temp_dir() {
-  TMP_DIR=$(mktemp -d -t overhyped-install-XXXXXX)
+  TMP_DIR=$(mktemp -d -t volant-install-XXXXXX)
 }
 
 resolve_version() {
@@ -219,9 +219,9 @@ resolve_version() {
     RESOLVED_VERSION="$INSTALL_VERSION"
     return
   fi
-  local api="https://api.github.com/repos/ccheshirecat/overhyped/releases/latest"
+  local api="https://api.github.com/repos/ccheshirecat/volant/releases/latest"
   if ! RESOLVED_VERSION=$(curl -sSL "$api" | grep -m1 '"tag_name"' | cut -d '"' -f4); then
-    log_error "Unable to determine latest release. Set overhyped_VERSION manually."
+    log_error "Unable to determine latest release. Set volant_VERSION manually."
     exit 1
   fi
   if [[ -z "$RESOLVED_VERSION" ]]; then
@@ -239,19 +239,19 @@ download_artifact() {
 }
 
 install_binaries() {
-  local archive="${TMP_DIR}/overhyped-${ARCH}.tar.gz"
+  local archive="${TMP_DIR}/volant-${ARCH}.tar.gz"
   local checksum_file="${TMP_DIR}/checksums.txt"
-  local base_url="https://github.com/ccheshirecat/overhyped/releases/download/${RESOLVED_VERSION}"
+  local base_url="https://github.com/ccheshirecat/volant/releases/download/${RESOLVED_VERSION}"
 
   download_artifact "checksums" "${base_url}/checksums.txt" "$checksum_file"
-  download_artifact "overhyped archive" "${base_url}/overhyped-${ARCH}.tar.gz" "$archive"
+  download_artifact "volant archive" "${base_url}/volant-${ARCH}.tar.gz" "$archive"
 
   log_info "Verifying checksums..."
   pushd "$TMP_DIR" >/dev/null
   local checksum_line
-  checksum_line=$(grep "overhyped-${ARCH}.tar.gz" checksums.txt || true)
+  checksum_line=$(grep "volant-${ARCH}.tar.gz" checksums.txt || true)
   if [[ -z "$checksum_line" ]]; then
-    log_error "Checksum entry for overhyped-${ARCH}.tar.gz not found."
+    log_error "Checksum entry for volant-${ARCH}.tar.gz not found."
     exit 1
   fi
   if command -v sha256sum >/dev/null 2>&1; then
@@ -264,25 +264,25 @@ install_binaries() {
   log_info "Extracting binaries..."
   tar -xzf "$archive" -C "$TMP_DIR"
 
-  log_info "Installing overhyped binaries..."
-  sudo install -m 0755 "${TMP_DIR}/overhyped" /usr/local/bin/hype
-  if [[ -f "${TMP_DIR}/hype-agent" ]]; then
-    sudo install -m 0755 "${TMP_DIR}/hype-agent" /usr/local/bin/hype-agent
+  log_info "Installing volant binaries..."
+  sudo install -m 0755 "${TMP_DIR}/volant" /usr/local/bin/volar
+  if [[ -f "${TMP_DIR}/volary" ]]; then
+    sudo install -m 0755 "${TMP_DIR}/volary" /usr/local/bin/volary
   fi
 }
 
-run_overhyped_setup() {
+run_volant_setup() {
   if [[ "$RUN_SETUP" == "no" ]]; then
-    log_info "Skipping 'hype setup' as requested."
+    log_info "Skipping 'volar setup' as requested."
     return
   fi
-  if prompt_yes_no "Run 'sudo hype setup' now?"; then
-    log_info "Running 'sudo hype setup'..."
-    if ! sudo hype setup; then
-      log_warn "'hype setup' failed. You can rerun it manually later."
+  if prompt_yes_no "Run 'sudo volar setup' now?"; then
+    log_info "Running 'sudo volar setup'..."
+    if ! sudo volar setup; then
+      log_warn "'volar setup' failed. You can rerun it manually later."
     fi
   else
-    log_info "You can run 'sudo hype setup' at any time to initialize the system."
+    log_info "You can run 'sudo volar setup' at any time to initialize the system."
   fi
 }
 
@@ -299,8 +299,8 @@ main() {
   create_temp_dir
   resolve_version
   install_binaries
-  run_overhyped_setup
-  log_info "Overhyped installation complete. Launch with 'hype' or 'hype --help'."
+  run_volant_setup
+  log_info "Volant installation complete. Launch with 'volar' or 'volar --help'."
 }
 
 main "$@"

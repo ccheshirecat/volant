@@ -11,22 +11,22 @@ help: ## Show available make targets
 build: build-server build-agent build-cli install-binaries ## Build and install core binaries
 
 .PHONY: build-server
-build-server: ## Build the hyped binary
-	$(GO) build -o $(BIN_DIR)/hyped ./cmd/hyped
+build-server: ## Build the volantd binary
+	$(GO) build -o $(BIN_DIR)/volantd ./cmd/volantd
 
 .PHONY: build-agent
 build-agent:
-	$(GO) build -o $(BIN_DIR)/hype-agent ./cmd/hype-agent
+	$(GO) build -o $(BIN_DIR)/volary ./cmd/volary
 
 .PHONY: build-cli
 build-cli:
-	$(GO) build -o $(BIN_DIR)/hype ./cmd/hype
+	$(GO) build -o $(BIN_DIR)/volar ./cmd/volar
 
 .PHONY: install-binaries
-install-binaries: build-server build-cli ## Install hyped and overhyped to INSTALL_DIR
+install-binaries: build-server build-cli ## Install volantd and volant to INSTALL_DIR
 	mkdir -p $(INSTALL_DIR)
-	install -m 0755 $(BIN_DIR)/hyped $(INSTALL_DIR)/hyped
-	install -m 0755 $(BIN_DIR)/hype $(INSTALL_DIR)/hype
+	install -m 0755 $(BIN_DIR)/volantd $(INSTALL_DIR)/volantd
+	install -m 0755 $(BIN_DIR)/volar $(INSTALL_DIR)/volar
 
 .PHONY: test
 test:
@@ -54,19 +54,19 @@ clean:
 .PHONY: build-images
 build-images: build-agent ## Build initramfs, fetch kernel, verify artifacts, and generate checksums
 	mkdir -p $(ARTIFACTS_DIR)
-	./build/images/build-initramfs.sh $(BIN_DIR)/hype-agent
-	if [ ! -f "$(ARTIFACTS_DIR)/overhyped-initramfs.cpio.gz" ]; then \
+	./build/images/build-initramfs.sh $(BIN_DIR)/volary
+	if [ ! -f "$(ARTIFACTS_DIR)/volant-initramfs.cpio.gz" ]; then \
 		echo "Error: initramfs not built"; exit 1; \
 	fi
 	if [ ! -f "$(ARTIFACTS_DIR)/vmlinux-x86_64" ]; then \
 		echo "Error: kernel not fetched"; exit 1; \
 	fi
-	(cd $(ARTIFACTS_DIR) && sha256sum overhyped-initramfs.cpio.gz vmlinux-x86_64 > checksums.txt)
-	@if [ ! -f "$(ARTIFACTS_DIR)/overhyped-initramfs.cpio.gz" ] || [ ! -f "$(ARTIFACTS_DIR)/vmlinux-x86_64" ]; then \
+	(cd $(ARTIFACTS_DIR) && sha256sum volant-initramfs.cpio.gz vmlinux-x86_64 > checksums.txt)
+	@if [ ! -f "$(ARTIFACTS_DIR)/volant-initramfs.cpio.gz" ] || [ ! -f "$(ARTIFACTS_DIR)/vmlinux-x86_64" ]; then \
 		echo "Error: Artifacts verification failed"; exit 1; \
 	fi
-	@echo "Build images complete: $(ARTIFACTS_DIR)/{overhyped-initramfs.cpio.gz, vmlinux-x86_64, checksums.txt}"
+	@echo "Build images complete: $(ARTIFACTS_DIR)/{volant-initramfs.cpio.gz, vmlinux-x86_64, checksums.txt}"
 
 .PHONY: setup
-setup: build-cli ## Run hype setup (dry run)
-	./bin/hype setup --dry-run
+setup: build-cli ## Run volar setup (dry run)
+	./bin/volar setup --dry-run

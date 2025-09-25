@@ -7,13 +7,13 @@ import (
 )
 
 const (
-    defaultDBPath        = "~/.overhyped/state.db"
+    defaultDBPath        = "~/.volant/state.db"
     defaultAPIListenAddr = "127.0.0.1:7777"
-    defaultBridgeName    = "hypebr0"
+    defaultBridgeName    = "vbr0"
     defaultSubnetCIDR    = "192.168.127.0/24"
     defaultHostIP        = "192.168.127.1"
-    defaultRuntimeDir    = "~/.overhyped/run"
-    defaultLogDir        = "~/.overhyped/logs"
+    defaultRuntimeDir    = "~/.volant/run"
+    defaultLogDir        = "~/.volant/logs"
 )
 
 // ServerConfig captures the runtime configuration required by the daemon.
@@ -34,16 +34,16 @@ type ServerConfig struct {
 // opinionated defaults when unset.
 func FromEnv() (ServerConfig, error) {
 	cfg := ServerConfig{
-		DatabasePath:     getenv("  OVERHYPED_DB_PATH", defaultDBPath),
-		APIListenAddr:    getenv("OVERHYPED_API_LISTEN", defaultAPIListenAddr),
-		BridgeName:       getenv("OVERHYPED_BRIDGE", defaultBridgeName),
-        SubnetCIDR:       getenv("OVERHYPED_SUBNET", defaultSubnetCIDR),
-        HostIP:           getenv("OVERHYPED_HOST_IP", defaultHostIP),
-        KernelImagePath:  os.Getenv("OVERHYPED_KERNEL"),
-        InitramfsPath:    os.Getenv("OVERHYPED_INITRAMFS"),
-        HypervisorBinary: getenv("OVERHYPED_HYPERVISOR", "cloud-hypervisor"),
-        RuntimeDir:       getenv("OVERHYPED_RUNTIME_DIR", defaultRuntimeDir),
-        LogDir:           getenv("OVERHYPED_LOG_DIR", defaultLogDir),
+		DatabasePath:     getenv("  VOLANT_DB_PATH", defaultDBPath),
+		APIListenAddr:    getenv("VOLANT_API_LISTEN", defaultAPIListenAddr),
+		BridgeName:       getenv("VOLANT_BRIDGE", defaultBridgeName),
+        SubnetCIDR:       getenv("VOLANT_SUBNET", defaultSubnetCIDR),
+        HostIP:           getenv("VOLANT_HOST_IP", defaultHostIP),
+        KernelImagePath:  os.Getenv("VOLANT_KERNEL"),
+        InitramfsPath:    os.Getenv("VOLANT_INITRAMFS"),
+        HypervisorBinary: getenv("VOLANT_HYPERVISOR", "cloud-hypervisor"),
+        RuntimeDir:       getenv("VOLANT_RUNTIME_DIR", defaultRuntimeDir),
+        LogDir:           getenv("VOLANT_LOG_DIR", defaultLogDir),
     }
 
 	if _, _, err := net.ParseCIDR(cfg.SubnetCIDR); err != nil {
