@@ -71,7 +71,7 @@ Key responsibilities:
    - Log redirection to `/var/log/volant/volantd.log`.
 6. (Optional) `systemctl daemon-reload && systemctl enable --now volantd`.
 
-> Generate artifacts with `make build-images` if you prefer local kernel/initramfs; pass their paths via `--kernel` / `--initramfs` or environment variables (`VOLANT_KERNEL`, `VOLANT_INITRAMFS`).
+> Generate artifacts with `make build-browser-artifacts` if you prefer local kernel/initramfs; pass their paths via `--kernel` / `--initramfs` or environment variables (`VOLANT_KERNEL`, `VOLANT_INITRAMFS`).
 
 ## Manual Uninstall
 
@@ -89,7 +89,7 @@ Adjust the iptables/bridge commands if you changed defaults.
 ## Troubleshooting
 
 - **`/dev/tty` errors in systemd**: Ensure the unit’s `ExecStart` points to `volantd`, not the CLI.
-- **Missing kernel/initramfs**: Verify `make build-images` output; supply correct paths to `volar setup`.
+- **Missing kernel/initramfs**: Verify `make build-browser-artifacts` output; supply correct paths to `volar setup`.
 - **Networking issues**: Check `ip addr show vbr0`, `ip route`, and `iptables -t nat -L -n` to confirm bridge and MASQUERADE rules.
 - **Logs**: `/var/log/volant/volantd.log`, `journalctl -u volantd`, and event stream (`volar vms watch`).
 

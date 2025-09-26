@@ -1,60 +1,102 @@
 ---
 title: "Using Plugins"
-description: "Extending Volant with specialized, community-built automation workflows."
+description: "Extending the engine with runtime manifests and external runtimes."
 ---
 
-# Using Plugins
+# Plugins & Runtime Manifests
 
-While Volant provides a powerful, general-purpose browser automation framework, its true power is unlocked through its extensible plugin system. Plugins are self-contained modules that provide specialized, high-level workflows for specific domains (e.g., e-commerce, social media, security testing).
+Volant treats every specialized workload as a **plugin**. A plugin is defined by a manifest that declares:
 
-This architecture allows the core of Volant to remain lean and stable, while enabling a vibrant ecosystem of community-driven innovation.
+- The runtime identifier (e.g., `browser`, `worker`, `inference`)
+- Resource hints (CPU, memory)
+- Optional action definitions exposed via the agent
+- Optional OpenAPI references or metadata for discovery
 
-## Managing Plugins
+Plugins allow the engine to remain lightweight while enabling purpose-built runtimes to live in separate repositories.
 
-The `volar` CLI provides a simple set of commands for managing your plugin library.
+---
+
+## Managing plugins
+
+Use the CLI to inspect and manage installed manifests:
 
 ```bash
-# List all currently installed and available plugins
+# List installed manifests
 volar plugins list
 
-# Install a new plugin from a git repository
-volar plugins install github.com/volant-plugins/casino-stake
+# Show manifest details
+volar plugins show browser
 
-# Uninstall a plugin
-volar plugins uninstall casino-stake
+# Install from local JSON
+volar plugins install --manifest ./browser.manifest.json
+
+# Enable / disable
+volar plugins enable browser
+volar plugins disable browser
+
+# Remove a manifest
+volar plugins remove browser
 ```
 
-## Using Plugins with Workloads
+Each command interacts with the control plane: manifests are stored in SQLite and reloaded on daemon startup.
 
-Plugins are activated through **Workloads**. A workload is a long-lived, managed fleet of one or more microVMs, all running a specific plugin's logic.
+---
 
-**Example: The `casino-stake` Plugin**
+## Manifest structure
 
-1. **Create a Workload Pool:**
-  This command creates a fleet of 5 microVMs, each dedicated to the `casino-stake` plugin. Volant automatically handles resource allocation and ensures each VM has the necessary configuration.
+A manifest (`plugin.yaml`/`plugin.json`) typically looks like:
 
-  ```bash
-  volar workloads create my-stake-farm --plugin casino-stake --count 5
-  ```
+```json
+{
+  "name": "browser",
+  "version": "1.0.0",
+  "runtime": "browser",
+  "resources": {
+    "cpu_cores": 2,
+    "memory_mb": 2048
+  },
+  "actions": {
+    "navigate": {
+      "description": "Navigate to URL",
+      "method": "POST",
+      "path": "/v1/browser/navigate",
+      "timeout_ms": 60000
+    }
+  },
+  "openapi": "https://example.com/browser-openapi.json",
+  "enabled": true
+}
+```
 
-2. **Execute Plugin-Specific Actions:**
-  Once the workload is active, you can use the `volar workloads action` command to execute high-level commands that the plugin exposes. The plugin translates these simple commands into complex browser automation sequences.
+The engine never interprets plugin-specific payloads; it simply proxies requests to the agent inside the microVM. Plugin repositories own the runtime implementation, action handlers, and any higher-level workflows.
 
-  ```bash
-  # Claim the daily bonus across all 5 accounts in the pool
-  volar workloads action my-stake-farm claim_daily_bonus
+---
 
-  # Check the balance of all accounts
-  volar workloads action my-stake-farm check_balance
-  ```
+## Plugin lifecycle
 
-3. **Monitor the Workload:**
-  You can get a real-time status update for the entire fleet of VMs in your workload.
+1. **Install** — `volar plugins install --manifest ...` registers the manifest, persists it, and adds it to the in-memory registry.
+2. **Enable** — only enabled manifests can service actions. (New installs default to enabled.)
+3. **Runtime selection** — when creating a VM, pass `--runtime=<plugin runtime>` to pick the correct image/initramfs.
+4. **Action routing** — API requests to `/api/v1/plugins/{plugin}/actions/{action}` resolve to the manifest-defined path inside the agent.
 
-  ```bash
-  volar workloads status my-stake-farm
-  ```
+---
 
-## Developing a Plugin
+## Plugin repositories
 
-(Note: The full plugin development guide is forthcoming.)
+The engine repository focuses on orchestration primitives. Runtime implementations, initramfs builds, and user-facing workflows belong in separate plugin repositories. Those repos typically provide:
+
+- The manifest (`plugin.yaml`/`plugin.json`)
+- Runtime assets (initramfs, kernel overlay, agent extensions)
+- Their own CLI/TUI or documentation for plugin-specific actions
+
+The engine stays stable and universal; plugins can iterate independently.
+
+---
+
+## Authoring guides
+
+- Define a manifest structure and validate with the engine’s JSON schema (forthcoming).
+- Package runtime assets and expose any agent routes required.
+- Publish installation instructions referencing `volar plugins install`.
+
+(Comprehensive plugin author documentation will live in the plugin toolkit repository.)

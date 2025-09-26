@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"time"
-
-	"github.com/go-chi/chi/v5"
 )
 
 // Options captures configuration passed to a runtime implementation.
@@ -15,20 +13,11 @@ type Options struct {
 	Config         map[string]string
 }
 
-// Runtime represents a modular workload runtime hosted inside the agent.
-type Runtime interface {
-	Name() string
-	DevToolsInfo() DevToolsInfo
-	SubscribeLogs(buffer int) (<-chan LogEvent, func())
-	MountRoutes(r chi.Router)
-	Shutdown(ctx context.Context) error
-}
-
 // Factory constructs a runtime instance.
 type Factory func(ctx context.Context, opts Options) (Runtime, error)
 
 var (
-	registryMu sync.RWMutex
+	registryMu      sync.RWMutex
 	runtimeRegistry = map[string]Factory{}
 )
 

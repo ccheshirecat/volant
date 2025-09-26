@@ -2,10 +2,12 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"database/sql"
 	"github.com/ccheshirecat/volant/internal/server/db"
 )
 
@@ -221,5 +223,86 @@ func TestTimestampCoercionHandlesRFC3339(t *testing.T) {
 	}
 	if ts.UTC().Format(time.RFC3339) != "2025-09-23T12:34:56Z" {
 		t.Fatalf("unexpected coerced time: %s", ts)
+	}
+}
+
+func TestPluginRepository(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	t.Cleanup(func() { _ = store.Close(ctx) })
+
+	repo := store.Queries().Plugins()
+
+	plugin := db.Plugin{
+		Name:     "browser",
+		Version:  "1.0.0",
+		Enabled:  true,
+		Metadata: []byte(`{"image":"browser-runtime"}`),
+	}
+	if err := repo.Upsert(ctx, plugin); err != nil {
+		t.Fatalf("upsert plugin: %v", err)
+	}
+
+	stored, err := repo.GetByName(ctx, "browser")
+	if err != nil {
+		t.Fatalf("get plugin: %v", err)
+	}
+	if stored == nil {
+		t.Fatalf("expected plugin, got nil")
+	}
+	if stored.Version != "1.0.0" || !stored.Enabled {
+		t.Fatalf("unexpected stored plugin: %+v", stored)
+	}
+	if string(stored.Metadata) != string(plugin.Metadata) {
+		t.Fatalf("metadata mismatch: %q", stored.Metadata)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	if err := repo.Upsert(ctx, db.Plugin{Name: "browser", Version: "1.1.0", Enabled: false}); err != nil {
+		t.Fatalf("update plugin: %v", err)
+	}
+
+	updated, err := repo.GetByName(ctx, "browser")
+	if err != nil {
+		t.Fatalf("get updated plugin: %v", err)
+	}
+	if updated == nil || updated.Version != "1.1.0" || updated.Enabled {
+		t.Fatalf("plugin not updated: %+v", updated)
+	}
+	if !updated.UpdatedAt.After(updated.InstalledAt) && !updated.UpdatedAt.Equal(updated.InstalledAt) {
+		t.Fatalf("timestamps not updated: install=%v updated=%v", updated.InstalledAt, updated.UpdatedAt)
+	}
+
+	plugins, err := repo.List(ctx)
+	if err != nil {
+		t.Fatalf("list plugins: %v", err)
+	}
+	if len(plugins) != 1 {
+		t.Fatalf("expected 1 plugin, got %d", len(plugins))
+	}
+
+	if err := repo.SetEnabled(ctx, "browser", true); err != nil {
+		t.Fatalf("set enabled: %v", err)
+	}
+	enabled, err := repo.GetByName(ctx, "browser")
+	if err != nil {
+		t.Fatalf("get after enable: %v", err)
+	}
+	if enabled == nil || !enabled.Enabled {
+		t.Fatalf("expected plugin enabled, got %+v", enabled)
+	}
+
+	if err := repo.Delete(ctx, "browser"); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("delete plugin: %v", err)
+		}
+	}
+
+	missing, err := repo.GetByName(ctx, "browser")
+	if err != nil {
+		t.Fatalf("get after delete: %v", err)
+	}
+	if missing != nil {
+		t.Fatalf("expected nil after delete, got %+v", missing)
 	}
 }

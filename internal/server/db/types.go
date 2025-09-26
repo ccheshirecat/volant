@@ -59,11 +59,30 @@ type Store interface {
 	WithTx(ctx context.Context, fn func(Queries) error) error
 }
 
+type Plugin struct {
+	ID          int64
+	Name        string
+	Version     string
+	Enabled     bool
+	Metadata    []byte
+	InstalledAt time.Time
+	UpdatedAt   time.Time
+}
+
+type PluginRepository interface {
+	Upsert(ctx context.Context, plugin Plugin) error
+	List(ctx context.Context) ([]Plugin, error)
+	GetByName(ctx context.Context, name string) (*Plugin, error)
+	SetEnabled(ctx context.Context, name string, enabled bool) error
+	Delete(ctx context.Context, name string) error
+}
+
 // Queries exposes repository accessors bound to a specific connection scope
 // (either the root connection or a transaction).
 type Queries interface {
 	VirtualMachines() VMRepository
 	IPAllocations() IPRepository
+	Plugins() PluginRepository
 }
 
 // VMRepository manages CRUD and lifecycle updates for VMs.

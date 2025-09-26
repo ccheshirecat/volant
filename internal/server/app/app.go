@@ -93,3 +93,10 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 }
+
+func (a *App) Store() db.Store {
+	if a.engine != nil && a.engine.Store() != nil {
+		return a.engine.Store()
+	}
+	return a.store
+}

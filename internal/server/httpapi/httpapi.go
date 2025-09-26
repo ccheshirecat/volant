@@ -61,6 +61,10 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 		r.Use(apiKeyMiddleware(apiKey))
 	}
 
+	if err := loadStoredPlugins(engine, logger, plugins); err != nil {
+		logger.Warn("load stored plugins", "error", err)
+	}
+
 	api := &apiServer{
 		logger:      logger,
 		engine:      engine,
@@ -78,8 +82,6 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 	{
 		v1.GET("/system/status", api.systemStatus)
 
-		v1.POST("/mcp", api.handleMCP)
-
 		vms := v1.Group("/vms")
 		{
 			vms.GET("", api.listVMs)
@@ -87,9 +89,17 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 			vms.GET(":name", api.getVM)
 			vms.DELETE(":name", api.deleteVM)
 			vms.Any(":name/agent/*path", api.proxyAgent)
-			vms.POST(":name/actions/navigate", api.handleNavigateAction)
-			vms.POST(":name/actions/screenshot", api.handleScreenshotAction)
-			vms.POST(":name/actions/exec", api.handleExecAction)
+			vms.POST(":name/actions/:plugin/:action", api.postVMPluginAction)
+		}
+
+		pluginsGroup := v1.Group("/plugins")
+		{
+			pluginsGroup.GET("", api.listPlugins)
+			pluginsGroup.POST("", api.installPlugin)
+			pluginsGroup.GET(":plugin", api.describePlugin)
+			pluginsGroup.DELETE(":plugin", api.removePlugin)
+			pluginsGroup.POST(":plugin/enabled", api.setPluginEnabled)
+			pluginsGroup.POST(":plugin/actions/:action", api.postPluginAction)
 		}
 
 		events := v1.Group("/events")
@@ -103,6 +113,36 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 	r.GET("/ws/v1/agui", api.aguiWebSocket)
 
 	return r
+}
+
+func loadStoredPlugins(engine orchestrator.Engine, logger *slog.Logger, registry *plugins.Registry) error {
+	if engine == nil || registry == nil {
+		return nil
+	}
+	store := engine.Store()
+	if store == nil {
+		return nil
+	}
+	return store.WithTx(context.Background(), func(q db.Queries) error {
+		entries, err := q.Plugins().List(context.Background())
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			var manifest plugins.Manifest
+			if len(entry.Metadata) > 0 {
+				if err := json.Unmarshal(entry.Metadata, &manifest); err != nil {
+					logger.Warn("decode plugin manifest", "plugin", entry.Name, "error", err)
+					continue
+				}
+			} else {
+				manifest = plugins.Manifest{Name: entry.Name, Version: entry.Version}
+			}
+			manifest.Enabled = entry.Enabled
+			registry.Register(manifest)
+		}
+		return nil
+	})
 }
 
 func requestLogger(logger *slog.Logger) gin.HandlerFunc {
@@ -1101,152 +1141,247 @@ func statusFromError(err error) int {
 	}
 }
 
-func (api *apiServer) actionNavigate(c *gin.Context) {
-	var req navigateActionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	vm, ok := api.resolveVM(c)
-	if !ok {
-		return
-	}
-
-	if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/navigate", req, nil); err != nil {
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+func (api *apiServer) postVMPluginAction(c *gin.Context) {
+	vmName := c.Param("name")
+	api.dispatchPluginAction(c, vmName)
 }
 
-func (api *apiServer) actionScreenshot(c *gin.Context) {
-	var req screenshotActionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+func (api *apiServer) dispatchPluginAction(c *gin.Context, vmName string) {
+	if api.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "plugin registry unavailable"})
+		return
+	}
+
+	pluginName := c.Param("plugin")
+	actionName := c.Param("action")
+	manifest, action, err := api.plugins.ResolveAction(pluginName, actionName)
+	if err != nil {
+		api.logger.Error("resolve plugin action", "plugin", pluginName, "action", actionName, "error", err)
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	var payload map[string]any
+	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	vm, ok := api.resolveVM(c)
-	if !ok {
-		return
+	var vm *db.VM
+	if vmName != "" {
+		var ok bool
+		vm, ok = api.resolveVMByName(c, vmName)
+		if !ok {
+			return
+		}
+		if manifest.Runtime != vm.Runtime {
+			c.JSON(http.StatusConflict, gin.H{"error": "vm runtime does not match plugin"})
+			return
+		}
 	}
 
-	var resp map[string]interface{}
-	if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/screenshot", req, &resp); err != nil {
+	targetPath := action.Path
+	if !strings.HasPrefix(targetPath, "/") {
+		targetPath = "/" + targetPath
+	}
+
+	method := action.Method
+	if method == "" {
+		method = http.MethodPost
+	}
+
+	var respBody map[string]any
+	if vm != nil {
+		if err := api.agentAction(c, vm, method, targetPath, payload, &respBody); err != nil {
+			return
+		}
+	} else {
+		resp, err := api.forwardPluginAction(c.Request.Context(), manifest, method, targetPath, payload)
+		if err != nil {
+			api.logger.Error("plugin action forward", "plugin", pluginName, "action", actionName, "error", err)
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		respBody = resp
+	}
+
+	if respBody == nil {
+		c.Status(http.StatusAccepted)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, respBody)
 }
 
-func (api *apiServer) actionEvaluate(c *gin.Context) {
-	var req evaluateActionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+func (api *apiServer) resolveVMByName(c *gin.Context, name string) (*db.VM, bool) {
+	vm, err := api.engine.GetVM(c.Request.Context(), name)
+	if err != nil {
+		api.logger.Error("resolve vm", "vm", name, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve vm"})
+		return nil, false
 	}
-
-	vm, ok := api.resolveVM(c)
-	if !ok {
-		return
+	if vm == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "vm not found"})
+		return nil, false
 	}
-
-	var resp map[string]interface{}
-	if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/evaluate", req, &resp); err != nil {
-		return
+	if vm.Status != db.VMStatusRunning || vm.IPAddress == "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "vm not ready"})
+		return nil, false
 	}
-	c.JSON(http.StatusOK, resp)
+	return vm, true
 }
 
-func (api *apiServer) handleNavigateAction(c *gin.Context) {
-	var req navigateActionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	vm, ok := api.resolveVM(c)
-	if !ok {
-		return
-	}
-
-	if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/navigate", req, nil); err != nil {
-		return
-	}
-	c.Status(http.StatusAccepted)
+func (api *apiServer) forwardPluginAction(ctx context.Context, manifest plugins.Manifest, method, path string, payload map[string]any) (map[string]any, error) {
+	// placeholder for future non-VM plugin action dispatch (e.g. pooled runtimes)
+	return map[string]any{"status": "accepted"}, nil
 }
 
-func (api *apiServer) handleScreenshotAction(c *gin.Context) {
-	var req screenshotActionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+func (api *apiServer) listPlugins(c *gin.Context) {
+	if api.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "plugin registry unavailable"})
 		return
 	}
 
-	vm, ok := api.resolveVM(c)
-	if !ok {
-		return
-	}
-
-	var resp map[string]any
-	if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/screenshot", req, &resp); err != nil {
-		return
-	}
-	c.JSON(http.StatusOK, resp)
+	names := api.plugins.List()
+	c.JSON(http.StatusOK, gin.H{"plugins": names})
 }
 
-func (api *apiServer) handleExecAction(c *gin.Context) {
-	var req execActionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+func (api *apiServer) describePlugin(c *gin.Context) {
+	if api.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "plugin registry unavailable"})
 		return
 	}
 
-	vm, ok := api.resolveVM(c)
+	pluginName := c.Param("plugin")
+	manifest, ok := api.plugins.Get(pluginName)
 	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "plugin not found"})
 		return
 	}
-
-	var resp map[string]any
-	if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/evaluate", req, &resp); err != nil {
-		return
-	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, manifest)
 }
 
-func (api *apiServer) actionScrape(c *gin.Context) {
-	var req scrapeActionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	vm, ok := api.resolveVM(c)
-	if !ok {
-		return
-	}
-
-	var resp map[string]interface{}
-	if err := api.agentAction(c, vm, http.MethodPost, "/v1/dom/scrape", req, &resp); err != nil {
-		return
-	}
-	c.JSON(http.StatusOK, resp)
+func (api *apiServer) postPluginAction(c *gin.Context) {
+	api.dispatchPluginAction(c, "")
 }
 
-func (api *apiServer) actionGraphQL(c *gin.Context) {
-	var req graphqlActionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+func (api *apiServer) installPlugin(c *gin.Context) {
+	if api.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "plugin registry unavailable"})
+		return
+	}
+
+	var manifest plugins.Manifest
+	if err := c.ShouldBindJSON(&manifest); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	vm, ok := api.resolveVM(c)
-	if !ok {
+	if err := manifest.Validate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	var resp map[string]interface{}
-	if err := api.agentAction(c, vm, http.MethodPost, "/v1/browser/graphql", req, &resp); err != nil {
+	if err := api.persistPluginManifest(c.Request.Context(), manifest, true); err != nil {
+		api.logger.Error("install plugin", "plugin", manifest.Name, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+
+	api.plugins.Register(manifest)
+	c.Status(http.StatusCreated)
+}
+
+func (api *apiServer) removePlugin(c *gin.Context) {
+	name := c.Param("plugin")
+	if strings.TrimSpace(name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "plugin name required"})
+		return
+	}
+
+	if err := api.deletePluginManifest(c.Request.Context(), name); err != nil {
+		api.logger.Error("remove plugin", "plugin", name, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
+func (api *apiServer) setPluginEnabled(c *gin.Context) {
+	if api.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "plugin registry unavailable"})
+		return
+	}
+
+	name := c.Param("plugin")
+	var payload struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := api.togglePlugin(c.Request.Context(), name, payload.Enabled); err != nil {
+		api.logger.Error("toggle plugin", "plugin", name, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
+func (api *apiServer) persistPluginManifest(ctx context.Context, manifest plugins.Manifest, enabled bool) error {
+	store := api.engine.Store()
+	if store == nil {
+		return fmt.Errorf("store not configured")
+	}
+
+	return store.WithTx(ctx, func(q db.Queries) error {
+		data, err := json.Marshal(manifest)
+		if err != nil {
+			return err
+		}
+		return q.Plugins().Upsert(ctx, db.Plugin{
+			Name:     manifest.Name,
+			Version:  manifest.Version,
+			Enabled:  enabled,
+			Metadata: data,
+		})
+	})
+}
+
+func (api *apiServer) deletePluginManifest(ctx context.Context, name string) error {
+	store := api.engine.Store()
+	if store == nil {
+		return fmt.Errorf("store not configured")
+	}
+
+	return store.WithTx(ctx, func(q db.Queries) error {
+		return q.Plugins().Delete(ctx, name)
+	})
+}
+
+func (api *apiServer) togglePlugin(ctx context.Context, name string, enabled bool) error {
+	store := api.engine.Store()
+	if store == nil {
+		return fmt.Errorf("store not configured")
+	}
+
+	return store.WithTx(ctx, func(q db.Queries) error {
+		if err := q.Plugins().SetEnabled(ctx, name, enabled); err != nil {
+			return err
+		}
+
+		manifest, ok := api.plugins.Get(name)
+		if !ok {
+			return nil
+		}
+
+		manifest.Enabled = enabled
+		if enabled {
+			api.plugins.Register(manifest)
+		}
+		return nil
+	})
 }

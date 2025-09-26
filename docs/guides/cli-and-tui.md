@@ -63,20 +63,24 @@ See [Installation](../setup/installer.md). Useful flags:
 - `--service-file`
 - `--dry-run`
 
-## `volar browsers`
+## `volar plugins`
 
-Share or consume remote Chrome DevTools endpoints:
+Manage runtime manifests handled by the engine:
 
 ```bash
-volar browsers stream demo
-# ws://192.168.127.5:9222/devtools/browser/...
-
-volar browsers proxy demo --port 9223
-open http://localhost:9223/json/version
+volar plugins list
+volar plugins show browser
+volar plugins install --manifest ./browser.manifest.json
+volar plugins enable browser
+volar plugins disable browser
+volar plugins remove browser
 ```
 
-- `stream` prints the agent-proxied CDP WebSocket URL (perfect for LLM agents or custom tooling).
-- `proxy` runs a local reverse proxy that rewrites DevTools discovery metadata for Chrome.
+Manifests describe runtime metadata (resources, actions, optional OpenAPI specs). See the [Plugins guide](plugins.md) for authoring details.
+
+## `volar browsers`
+
+This command group now serves as a compatibility stub. Browser-specific tooling ships with the browser plugin distribution. Running it from the engine CLI prints guidance on installing the plugin CLI.
 
 ## Interactive TUI
 

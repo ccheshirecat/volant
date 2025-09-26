@@ -64,9 +64,9 @@ func newVMsListCmd() *cobra.Command {
 				fmt.Fprintln(cmd.OutOrStdout(), "No VMs found")
 				return nil
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-10s %-15s %-20s %-6s %-6s\n", "NAME", "STATUS", "IP", "MAC", "CPU", "MEM")
+			fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-10s %-10s %-15s %-20s %-6s %-6s\n", "NAME", "STATUS", "RUNTIME", "IP", "MAC", "CPU", "MEM")
 			for _, vm := range vms {
-				fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-10s %-15s %-20s %-6d %-6d\n", vm.Name, vm.Status, vm.IPAddress, vm.MACAddress, vm.CPUCores, vm.MemoryMB)
+				fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-10s %-10s %-15s %-20s %-6d %-6d\n", vm.Name, vm.Status, vm.Runtime, vm.IPAddress, vm.MACAddress, vm.CPUCores, vm.MemoryMB)
 			}
 			return nil
 		},
@@ -91,7 +91,7 @@ func newVMsGetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Name: %s\nStatus: %s\nIP: %s\nMAC: %s\nCPU: %d\nMemory: %d MB\n", vm.Name, vm.Status, vm.IPAddress, vm.MACAddress, vm.CPUCores, vm.MemoryMB)
+			fmt.Fprintf(cmd.OutOrStdout(), "Name: %s\nStatus: %s\nRuntime: %s\nIP: %s\nMAC: %s\nCPU: %d\nMemory: %d MB\n", vm.Name, vm.Status, vm.Runtime, vm.IPAddress, vm.MACAddress, vm.CPUCores, vm.MemoryMB)
 			if vm.PID != nil {
 				fmt.Fprintf(cmd.OutOrStdout(), "PID: %d\n", *vm.PID)
 			}

@@ -30,6 +30,7 @@ type Engine interface {
 	DestroyVM(ctx context.Context, name string) error
 	ListVMs(ctx context.Context) ([]db.VM, error)
 	GetVM(ctx context.Context, name string) (*db.VM, error)
+	Store() db.Store
 }
 
 // CreateVMRequest captures the inputs required to instantiate a VM lifecycle.
@@ -365,6 +366,10 @@ func (e *engine) ListVMs(ctx context.Context) ([]db.VM, error) {
 
 func (e *engine) GetVM(ctx context.Context, name string) (*db.VM, error) {
 	return e.store.Queries().VirtualMachines().GetByName(ctx, name)
+}
+
+func (e *engine) Store() db.Store {
+	return e.store
 }
 
 func (e *engine) rollbackCreate(ctx context.Context, vm *db.VM) {

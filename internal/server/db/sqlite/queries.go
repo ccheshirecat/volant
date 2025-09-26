@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -34,6 +35,10 @@ func (q *queries) VirtualMachines() db.VMRepository {
 
 func (q *queries) IPAllocations() db.IPRepository {
 	return &ipRepository{exec: q.exec}
+}
+
+func (q *queries) Plugins() db.PluginRepository {
+	return &pluginRepository{exec: q.exec}
 }
 
 type vmRepository struct {
@@ -210,6 +215,87 @@ func (r *ipRepository) Lookup(ctx context.Context, ip string) (*db.IPAllocation,
 	return &alloc, nil
 }
 
+type pluginRepository struct {
+	exec executor
+}
+
+var _ db.PluginRepository = (*pluginRepository)(nil)
+
+func (r *pluginRepository) Upsert(ctx context.Context, plugin db.Plugin) error {
+	meta := plugin.Metadata
+	if meta == nil {
+		meta = []byte{}
+	}
+	_, err := r.exec.ExecContext(ctx, `INSERT INTO plugins (name, version, enabled, metadata, installed_at, updated_at)
+		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(name) DO UPDATE SET version = excluded.version, enabled = excluded.enabled, metadata = excluded.metadata, updated_at = CURRENT_TIMESTAMP;`,
+		plugin.Name, plugin.Version, boolToInt(plugin.Enabled), meta,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert plugin: %w", err)
+	}
+	return nil
+}
+
+func (r *pluginRepository) List(ctx context.Context) ([]db.Plugin, error) {
+	rows, err := r.exec.QueryContext(ctx, `SELECT id, name, version, enabled, metadata, installed_at, updated_at FROM plugins ORDER BY name ASC;`)
+	if err != nil {
+		return nil, fmt.Errorf("list plugins: %w", err)
+	}
+	defer rows.Close()
+
+	var result []db.Plugin
+	for rows.Next() {
+		plugin, err := scanPlugin(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, plugin)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate plugins: %w", err)
+	}
+	return result, nil
+}
+
+func (r *pluginRepository) GetByName(ctx context.Context, name string) (*db.Plugin, error) {
+	row := r.exec.QueryRowContext(ctx, `SELECT id, name, version, enabled, metadata, installed_at, updated_at FROM plugins WHERE name = ?;`, name)
+	plugin, err := scanPlugin(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &plugin, nil
+}
+
+func (r *pluginRepository) SetEnabled(ctx context.Context, name string, enabled bool) error {
+	res, err := r.exec.ExecContext(ctx, `UPDATE plugins SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?;`, boolToInt(enabled), name)
+	if err != nil {
+		return fmt.Errorf("set plugin enabled: %w", err)
+	}
+	if rows, err := res.RowsAffected(); err == nil && rows == 0 {
+		return sql.ErrNoRows
+	} else if err != nil {
+		return fmt.Errorf("set plugin enabled rows: %w", err)
+	}
+	return nil
+}
+
+func (r *pluginRepository) Delete(ctx context.Context, name string) error {
+	res, err := r.exec.ExecContext(ctx, `DELETE FROM plugins WHERE name = ?;`, name)
+	if err != nil {
+		return fmt.Errorf("delete plugin: %w", err)
+	}
+	if rows, err := res.RowsAffected(); err == nil && rows == 0 {
+		return sql.ErrNoRows
+	} else if err != nil {
+		return fmt.Errorf("delete plugin rows: %w", err)
+	}
+	return nil
+}
+
 func scanVM(row rowScanner) (db.VM, error) {
 	var (
 		vm         db.VM
@@ -295,6 +381,61 @@ func scanIP(row rowScanner) (db.IPAllocation, error) {
 	return ip, nil
 }
 
+func scanPlugin(row rowScanner) (db.Plugin, error) {
+	var (
+		plugin      db.Plugin
+		enabledInt  int64
+		metadataRaw []byte
+		installed   any
+		updated     any
+	)
+
+	if err := row.Scan(
+		&plugin.ID,
+		&plugin.Name,
+		&plugin.Version,
+		&enabledInt,
+		&metadataRaw,
+		&installed,
+		&updated,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return db.Plugin{}, sql.ErrNoRows
+		}
+		return db.Plugin{}, fmt.Errorf("scan plugin: %w", err)
+	}
+
+	plugin.Enabled = enabledInt != 0
+	plugin.Metadata = append([]byte(nil), metadataRaw...)
+	plugin.InstalledAt, _ = parseTimeField(installed)
+	plugin.UpdatedAt, _ = parseTimeField(updated)
+	return plugin, nil
+}
+
+func parseTimeField(value any) (time.Time, error) {
+	if value == nil {
+		return time.Time{}, fmt.Errorf("time field nil")
+	}
+	switch v := value.(type) {
+	case time.Time:
+		return v, nil
+	case string:
+		for _, layout := range timestampLayouts {
+			if t, err := time.Parse(layout, v); err == nil {
+				return t, nil
+			}
+		}
+	case []byte:
+		str := string(v)
+		for _, layout := range timestampLayouts {
+			if t, err := time.Parse(layout, str); err == nil {
+				return t, nil
+			}
+		}
+	}
+	return time.Time{}, fmt.Errorf("unsupported time value %T", value)
+}
+
 func nullableInt64(v *int64) any {
 	if v == nil {
 		return nil
@@ -333,4 +474,11 @@ func coerceTime(value any) (time.Time, error) {
 	default:
 		return time.Time{}, fmt.Errorf("unsupported time type %T", value)
 	}
+}
+
+func boolToInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }

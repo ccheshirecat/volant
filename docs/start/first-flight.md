@@ -1,75 +1,81 @@
 ---
 title: Your First VM
-description: A step-by-step tutorial to launch your first microVM and run a browser task.
+description: Launch and inspect a microVM with the Volant engine.
 ---
 
-# Your First VM: A Quick Start Tutorial
+# Your First VM
 
-This guide will walk you through launching your first microVM, interacting with it, and running a simple browser automation task.
+This quickstart walks through provisioning a microVM with the Volant engine, inspecting its state, and cleaning it up. It assumes you have already installed the engine (`volar`, `volantd`, `volary`) and run `volar setup` on the host.
 
-**Prerequisites:** You must have successfully run `volar setup`.
+---
 
-### 1. Launch the Interactive TUI
+## 1. Launch the TUI or CLI
 
-The easiest way to interact with Volant is through the TUI. Open your terminal and simply run:
+You can operate the engine via the CLI or the full-screen TUI. To open the TUI:
 
 ```bash
 volar
 ```
 
-You should see the full-screen TUI, with an empty list of VMs.
+If you prefer scripting, every step below can be executed as a CLI command (`volar <command>`).
 
-### 2. Create Your First MicroVM
+---
 
-In the command input at the bottom of the TUI, type the following command and press Enter:
+## 2. Create a microVM
 
-```
-vms create my-first-vm
-```
-
-You will see the orchestrator spring to life. In the log pane, you'll see events as the VM is created, and within seconds, `my-first-vm` will appear in the VM list with a `(running)` status and an assigned IP address.
-
-### 3. Spawn a Browser Context
-
-The `volary` inside the VM can manage multiple, isolated browser contexts. Let's create one. Type:
+From the TUI command input (or shell), run:
 
 ```
-browsers spawn my-first-vm main-context
+vms create my-first-vm --cpu 2 --memory 2048
 ```
 
-This sends a command through the control plane to the agent, telling it to start a new `headless-shell` instance.
+`volantd` will lease an IP, prepare a TAP device, boot Cloud Hypervisor, and update the SQLite state. Within a few seconds the VM should show up with a `running` status.
 
-### 4. Submit an Automation Task
+---
 
-Now for the magic. We'll submit a task to navigate to a website and take a screenshot. First, create a file named `task.json`:
+## 3. Inspect state
 
-```json
-{
-  "actions": [
-    { "type": "browser.navigateTo", "params": { "url": "https://volant.example" } },
-    { "type": "browser.screenshot", "params": { "path": "/tmp/volant.png" } }
-  ]
-}
+Use the CLI to query details:
+
+```bash
+volar vms get my-first-vm
 ```
 
-Now, submit this task from the TUI:
+You’ll see runtime, IP, MAC, resource allocation, and process PID. To stream lifecycle events:
 
-```
-tasks submit my-first-vm ./task.json
-```
-
-### 5. View the Result
-
-The task will execute inside the microVM. To see the result, you need to retrieve the screenshot. You can see the agent's logs in the TUI to confirm the task was completed.
-
-### 6. Clean Up
-
-Once you're done, you can destroy the VM:
-
-```
-vms destroy my-first-vm
+```bash
+volar vms watch
 ```
 
-You will see the VM disappear from the list in real-time.
+---
 
-Congratulations! you've successfully orchestrated your first secure, microVM-based browser automation workload.
+## 4. Connect to the agent (optional)
+
+Every VM runs the agent (`volary`) on port 8080 inside the microVM. If you have a plugin installed that exposes actions, you can proxy requests via the control plane:
+
+```bash
+volar plugins list
+volar vms actions my-first-vm <plugin> <action> --payload ./payload.json
+```
+
+(See the plugin documentation for available actions; the engine ships with no runtime-specific actions enabled by default.)
+
+---
+
+## 5. Destroy the VM
+
+When you’re done:
+
+```
+vms delete my-first-vm
+```
+
+`volantd` stops the Cloud Hypervisor process, cleans up TAP devices, and releases the static IP back to the pool.
+
+---
+
+## Next Steps
+
+- Explore the [Control Plane guide](../guides/control-plane.md) for a deeper look at the orchestrator internals.
+- Learn how to manage runtimes via [Plugins](../guides/plugins.md).
+- Build engine/browser artifacts using `make build-artifacts`.

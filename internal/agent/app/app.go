@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chromedp/cdproto/cdp"
-	"github.com/chromedp/cdproto/network"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
@@ -25,6 +22,7 @@ const (
 	defaultListenAddr     = ":8080"
 	defaultTimeoutEnvKey  = "volant_AGENT_DEFAULT_TIMEOUT"
 	defaultListenEnvKey   = "volant_AGENT_LISTEN_ADDR"
+	defaultRuntimeEnvKey  = "volant_AGENT_RUNTIME"
 	defaultRemoteAddrKey  = "volant_AGENT_REMOTE_DEBUGGING_ADDR"
 	defaultRemotePortKey  = "volant_AGENT_REMOTE_DEBUGGING_PORT"
 	defaultUserDataDirKey = "volant_AGENT_USER_DATA_DIR"
@@ -33,6 +31,7 @@ const (
 
 type Config struct {
 	ListenAddr          string
+	Runtime             string
 	RemoteDebuggingAddr string
 	RemoteDebuggingPort int
 	UserDataDir         string
@@ -42,7 +41,7 @@ type Config struct {
 
 type App struct {
 	cfg     Config
-	browser *agentruntime.Browser
+	runtime agentruntime.Runtime
 	server  *http.Server
 	timeout time.Duration
 	log     *log.Logger
@@ -53,21 +52,30 @@ func Run(ctx context.Context) error {
 	cfg := loadConfig()
 	logger := log.New(os.Stdout, "volary: ", log.LstdFlags|log.LUTC)
 
-	browser, err := agentruntime.NewBrowser(ctx, agentruntime.BrowserConfig{
-		RemoteDebuggingAddr: cfg.RemoteDebuggingAddr,
-		RemoteDebuggingPort: cfg.RemoteDebuggingPort,
-		UserDataDir:         cfg.UserDataDir,
-		ExecPath:            cfg.ExecPath,
-		DefaultTimeout:      cfg.DefaultTimeout,
-	})
+	runtimeName := strings.TrimSpace(cfg.Runtime)
+	if runtimeName == "" {
+		runtimeName = agentruntime.BrowserRuntimeName
+	}
+
+	opts := agentruntime.Options{
+		DefaultTimeout: cfg.DefaultTimeout,
+		Config: map[string]string{
+			"remote_debugging_addr": cfg.RemoteDebuggingAddr,
+			"remote_debugging_port": strconv.Itoa(cfg.RemoteDebuggingPort),
+			"user_data_dir":         cfg.UserDataDir,
+			"exec_path":             cfg.ExecPath,
+		},
+	}
+
+	runtimeInstance, err := agentruntime.New(ctx, runtimeName, opts)
 	if err != nil {
 		return err
 	}
-	defer browser.Close()
+	defer runtimeInstance.Shutdown(context.Background())
 
 	app := &App{
 		cfg:     cfg,
-		browser: browser,
+		runtime: runtimeInstance,
 		timeout: cfg.DefaultTimeout,
 		log:     logger,
 		started: time.Now().UTC(),
@@ -87,33 +95,7 @@ func (a *App) run(ctx context.Context) error {
 	router.Route("/v1", func(r chi.Router) {
 		r.Get("/devtools", a.handleDevTools)
 		r.Get("/logs/stream", a.handleLogs)
-
-		r.Post("/browser/navigate", a.handleNavigate)
-		r.Post("/browser/reload", a.handleReload)
-		r.Post("/browser/back", a.handleBack)
-		r.Post("/browser/forward", a.handleForward)
-		r.Post("/browser/viewport", a.handleViewport)
-		r.Post("/browser/user-agent", a.handleUserAgent)
-		r.Post("/browser/wait-navigation", a.handleWaitNavigation)
-		r.Post("/browser/screenshot", a.handleScreenshot)
-
-		r.Post("/dom/click", a.handleClick)
-		r.Post("/dom/type", a.handleType)
-		r.Post("/dom/get-text", a.handleGetText)
-		r.Post("/dom/get-html", a.handleGetHTML)
-		r.Post("/dom/get-attribute", a.handleGetAttribute)
-		r.Post("/dom/wait-selector", a.handleWaitSelector)
-
-		r.Post("/script/evaluate", a.handleEvaluate)
-
-		r.Post("/actions/navigate", a.handleNavigate)
-		r.Post("/actions/screenshot", a.handleScreenshot)
-		r.Post("/actions/scrape", a.handleScrape)
-		r.Post("/actions/evaluate", a.handleEvaluate)
-		r.Post("/actions/graphql", a.handleGraphQL)
-
-		r.Post("/profile/attach", a.handleProfileAttach)
-		r.Get("/profile/extract", a.handleProfileExtract)
+		a.runtime.MountRoutes(r)
 	})
 
 	server := &http.Server{
@@ -126,7 +108,11 @@ func (a *App) run(ctx context.Context) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		a.log.Printf("listening on %s (devtools ws: %s)", a.cfg.ListenAddr, a.browser.DevToolsInfo().WebSocketURL)
+		if info, ok := a.runtime.DevToolsInfo(); ok {
+			a.log.Printf("listening on %s (devtools ws: %s)", a.cfg.ListenAddr, info.WebSocketURL)
+		} else {
+			a.log.Printf("listening on %s", a.cfg.ListenAddr)
+		}
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -147,6 +133,7 @@ func (a *App) run(ctx context.Context) error {
 
 func loadConfig() Config {
 	listen := envOrDefault(defaultListenEnvKey, defaultListenAddr)
+	runtimeName := envOrDefault(defaultRuntimeEnvKey, "")
 	remoteAddr := envOrDefault(defaultRemoteAddrKey, agentruntime.DefaultRemoteAddr)
 	remotePort := envIntOrDefault(defaultRemotePortKey, agentruntime.DefaultRemotePort)
 	userDataDir := os.Getenv(defaultUserDataDirKey)
@@ -156,6 +143,7 @@ func loadConfig() Config {
 
 	return Config{
 		ListenAddr:          listen,
+		Runtime:             runtimeName,
 		RemoteDebuggingAddr: remoteAddr,
 		RemoteDebuggingPort: remotePort,
 		UserDataDir:         userDataDir,
@@ -192,10 +180,6 @@ func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 	return fallback
 }
 
-type okResponse struct {
-	Status string `json:"status"`
-}
-
 func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
@@ -205,18 +189,22 @@ func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDevTools(w http.ResponseWriter, r *http.Request) {
-	info := a.browser.DevToolsInfo()
+	info, ok := a.runtime.DevToolsInfo()
+	if !ok {
+		errorJSON(w, http.StatusNotFound, errors.New("runtime does not expose devtools"))
+		return
+	}
 	respondJSON(w, http.StatusOK, info)
 }
 
 func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		respondError(w, http.StatusInternalServerError, "streaming unsupported")
+		errorJSON(w, http.StatusInternalServerError, errors.New("streaming unsupported"))
 		return
 	}
 
-	ch, unsubscribe := a.browser.SubscribeLogs(128)
+	ch, unsubscribe := a.runtime.SubscribeLogs(128)
 	defer unsubscribe()
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -243,532 +231,12 @@ func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type navigateRequest struct {
-	URL       string `json:"url"`
-	TimeoutMs int64  `json:"timeout_ms"`
-}
-
-func (a *App) handleNavigate(w http.ResponseWriter, r *http.Request) {
-	var req navigateRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if strings.TrimSpace(req.URL) == "" {
-		respondError(w, http.StatusBadRequest, "url is required")
-		return
-	}
-	if err := a.browser.Navigate(a.duration(req.TimeoutMs), req.URL); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, okResponse{Status: "ok"})
-}
-
-type reloadRequest struct {
-	IgnoreCache bool  `json:"ignore_cache"`
-	TimeoutMs   int64 `json:"timeout_ms"`
-}
-
-func (a *App) handleReload(w http.ResponseWriter, r *http.Request) {
-	var req reloadRequest
-	_ = decodeJSON(r, &req)
-	if err := a.browser.Reload(a.duration(req.TimeoutMs), req.IgnoreCache); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, okResponse{Status: "ok"})
-}
-
-func (a *App) handleBack(w http.ResponseWriter, r *http.Request) {
-	timeout := parseTimeout(r)
-	if err := a.browser.Back(timeout); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, okResponse{Status: "ok"})
-}
-
-func (a *App) handleForward(w http.ResponseWriter, r *http.Request) {
-	timeout := parseTimeout(r)
-	if err := a.browser.Forward(timeout); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, okResponse{Status: "ok"})
-}
-
-type viewportRequest struct {
-	Width     int     `json:"width"`
-	Height    int     `json:"height"`
-	Scale     float64 `json:"scale"`
-	Mobile    bool    `json:"mobile"`
-	TimeoutMs int64   `json:"timeout_ms"`
-}
-
-func (a *App) handleViewport(w http.ResponseWriter, r *http.Request) {
-	var req viewportRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := a.browser.SetViewport(a.duration(req.TimeoutMs), req.Width, req.Height, req.Scale, req.Mobile); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, okResponse{Status: "ok"})
-}
-
-type userAgentRequest struct {
-	UserAgent      string `json:"user_agent"`
-	AcceptLanguage string `json:"accept_language"`
-	Platform       string `json:"platform"`
-	TimeoutMs      int64  `json:"timeout_ms"`
-}
-
-func (a *App) handleUserAgent(w http.ResponseWriter, r *http.Request) {
-	var req userAgentRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := a.browser.SetUserAgent(a.duration(req.TimeoutMs), req.UserAgent, req.AcceptLanguage, req.Platform); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, okResponse{Status: "ok"})
-}
-
-type clickRequest struct {
-	Selector  string `json:"selector"`
-	Button    string `json:"button"`
-	TimeoutMs int64  `json:"timeout_ms"`
-}
-
-func (a *App) handleClick(w http.ResponseWriter, r *http.Request) {
-	var req clickRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := a.browser.Click(a.duration(req.TimeoutMs), req.Selector, req.Button); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, okResponse{Status: "ok"})
-}
-
-type typeRequest struct {
-	Selector  string `json:"selector"`
-	Value     string `json:"value"`
-	Clear     bool   `json:"clear"`
-	TimeoutMs int64  `json:"timeout_ms"`
-}
-
-func (a *App) handleType(w http.ResponseWriter, r *http.Request) {
-	var req typeRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := a.browser.Type(a.duration(req.TimeoutMs), req.Selector, req.Value, req.Clear); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, okResponse{Status: "ok"})
-}
-
-type textRequest struct {
-	Selector  string `json:"selector"`
-	Visible   bool   `json:"visible"`
-	TimeoutMs int64  `json:"timeout_ms"`
-}
-
-func (a *App) handleGetText(w http.ResponseWriter, r *http.Request) {
-	var req textRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	text, err := a.browser.GetText(a.duration(req.TimeoutMs), req.Selector, req.Visible)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, map[string]any{"text": text})
-}
-
-type htmlRequest struct {
-	Selector  string `json:"selector"`
-	TimeoutMs int64  `json:"timeout_ms"`
-}
-
-func (a *App) handleGetHTML(w http.ResponseWriter, r *http.Request) {
-	var req htmlRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	html, err := a.browser.GetHTML(a.duration(req.TimeoutMs), req.Selector)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, map[string]any{"html": html})
-}
-
-type attributeRequest struct {
-	Selector  string `json:"selector"`
-	Name      string `json:"name"`
-	TimeoutMs int64  `json:"timeout_ms"`
-}
-
-func (a *App) handleGetAttribute(w http.ResponseWriter, r *http.Request) {
-	var req attributeRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	value, ok, err := a.browser.GetAttribute(a.duration(req.TimeoutMs), req.Selector, req.Name)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, map[string]any{
-		"value":  value,
-		"exists": ok,
-	})
-}
-
-type waitSelectorRequest struct {
-	Selector  string `json:"selector"`
-	Visible   bool   `json:"visible"`
-	TimeoutMs int64  `json:"timeout_ms"`
-}
-
-func (a *App) handleWaitSelector(w http.ResponseWriter, r *http.Request) {
-	var req waitSelectorRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := a.browser.WaitForSelector(a.duration(req.TimeoutMs), req.Selector, req.Visible); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, okResponse{Status: "ok"})
-}
-
-type waitNavigationRequest struct {
-	TimeoutMs int64 `json:"timeout_ms"`
-}
-
-func (a *App) handleWaitNavigation(w http.ResponseWriter, r *http.Request) {
-	var req waitNavigationRequest
-	_ = decodeJSON(r, &req)
-	if err := a.browser.WaitForNavigation(a.duration(req.TimeoutMs)); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, okResponse{Status: "ok"})
-}
-
-type evaluateRequest struct {
-	Expression   string `json:"expression"`
-	AwaitPromise bool   `json:"await_promise"`
-	TimeoutMs    int64  `json:"timeout_ms"`
-}
-
-func (a *App) handleEvaluate(w http.ResponseWriter, r *http.Request) {
-	var req evaluateRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if strings.TrimSpace(req.Expression) == "" {
-		respondError(w, http.StatusBadRequest, "expression is required")
-		return
-	}
-	result, err := a.browser.Evaluate(a.duration(req.TimeoutMs), req.Expression, req.AwaitPromise)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, map[string]any{"result": result})
-}
-
-type scrapeRequest struct {
-	Selector  string `json:"selector"`
-	Attribute string `json:"attribute"`
-	TimeoutMs int64  `json:"timeout_ms"`
-}
-
-func (a *App) handleScrape(w http.ResponseWriter, r *http.Request) {
-	var req scrapeRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if strings.TrimSpace(req.Selector) == "" {
-		respondError(w, http.StatusBadRequest, "selector is required")
-		return
-	}
-
-	timeout := a.duration(req.TimeoutMs)
-
-	if attr := strings.TrimSpace(req.Attribute); attr != "" {
-		value, exists, err := a.browser.GetAttribute(timeout, req.Selector, attr)
-		if err != nil {
-			respondError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		respondJSON(w, http.StatusOK, map[string]any{"value": value, "exists": exists})
-		return
-	}
-
-	text, err := a.browser.GetText(timeout, req.Selector, true)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, map[string]any{"value": text, "exists": true})
-}
-
-type graphqlRequest struct {
-	Endpoint  string                 `json:"endpoint"`
-	Query     string                 `json:"query"`
-	Variables map[string]any         `json:"variables"`
-	TimeoutMs int64                  `json:"timeout_ms"`
-}
-
-func (a *App) handleGraphQL(w http.ResponseWriter, r *http.Request) {
-	var req graphqlRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	if strings.TrimSpace(req.Endpoint) == "" {
-		respondError(w, http.StatusBadRequest, "endpoint is required")
-		return
-	}
-	if strings.TrimSpace(req.Query) == "" {
-		respondError(w, http.StatusBadRequest, "query is required")
-		return
-	}
-
-	if req.Variables == nil {
-		req.Variables = map[string]any{}
-	}
-
-	responseBody, err := a.browser.GraphQL(a.duration(req.TimeoutMs), req.Endpoint, req.Query, req.Variables)
-	if err != nil {
-		respondError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-
-	respondJSON(w, http.StatusOK, responseBody)
-}
-
-type screenshotRequest struct {
-	FullPage  bool   `json:"full_page"`
-	Format    string `json:"format"`
-	Quality   int    `json:"quality"`
-	TimeoutMs int64  `json:"timeout_ms"`
-}
-
-func (a *App) handleScreenshot(w http.ResponseWriter, r *http.Request) {
-	var req screenshotRequest
-	_ = decodeJSON(r, &req)
-
-	data, err := a.browser.Screenshot(a.duration(req.TimeoutMs), req.FullPage, req.Format, req.Quality)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	response := map[string]any{
-		"data":        base64.StdEncoding.EncodeToString(data),
-		"format":      strings.ToLower(req.Format),
-		"full_page":   req.FullPage,
-		"byte_length": len(data),
-		"captured_at": time.Now().UTC().Format(time.RFC3339Nano),
-	}
-	respondJSON(w, http.StatusOK, response)
-}
-
-type cookieParamRequest struct {
-	Name     string   `json:"name"`
-	Value    string   `json:"value"`
-	Domain   string   `json:"domain"`
-	Path     string   `json:"path"`
-	Expires  *float64 `json:"expires"`
-	HTTPOnly bool     `json:"http_only"`
-	Secure   bool     `json:"secure"`
-	SameSite string   `json:"same_site"`
-}
-
-type profileAttachRequest struct {
-	Cookies []cookieParamRequest `json:"cookies"`
-	Local   map[string]string    `json:"local_storage"`
-	Session map[string]string    `json:"session_storage"`
-	Timeout int64                `json:"timeout_ms"`
-}
-
-func (a *App) handleProfileAttach(w http.ResponseWriter, r *http.Request) {
-	var req profileAttachRequest
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	var cookies []*network.CookieParam
-	for _, c := range req.Cookies {
-		cookie, err := convertCookieParam(c)
-		if err != nil {
-			respondError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		cookies = append(cookies, cookie)
-	}
-
-	timeout := a.duration(req.Timeout)
-	if len(cookies) > 0 {
-		if err := a.browser.SetCookies(timeout, cookies); err != nil {
-			respondError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-
-	payload := agentruntime.StoragePayload{
-		Local:   req.Local,
-		Session: req.Session,
-	}
-	if err := a.browser.SetStorage(timeout, payload); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	respondJSON(w, http.StatusOK, okResponse{Status: "ok"})
-}
-
-func (a *App) handleProfileExtract(w http.ResponseWriter, r *http.Request) {
-	timeout := parseTimeout(r)
-
-	cookies, err := a.browser.GetCookies(timeout)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	storage, err := a.browser.GetStorage(timeout)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	response := map[string]any{
-		"cookies":         convertCookiesResponse(cookies),
-		"local_storage":   storage.Local,
-		"session_storage": storage.Session,
-	}
-	respondJSON(w, http.StatusOK, response)
-}
-
-func convertCookieParam(req cookieParamRequest) (*network.CookieParam, error) {
-	if strings.TrimSpace(req.Name) == "" {
-		return nil, errors.New("cookie name required")
-	}
-	cookie := &network.CookieParam{
-		Name:  req.Name,
-		Value: req.Value,
-	}
-	if req.Domain != "" {
-		cookie.Domain = req.Domain
-	}
-	if req.Path != "" {
-		cookie.Path = req.Path
-	}
-	cookie.HTTPOnly = req.HTTPOnly
-	cookie.Secure = req.Secure
-
-	switch strings.ToLower(req.SameSite) {
-	case "", "lax":
-		cookie.SameSite = network.CookieSameSiteLax
-	case "none":
-		cookie.SameSite = network.CookieSameSiteNone
-	case "strict":
-		cookie.SameSite = network.CookieSameSiteStrict
-	default:
-		return nil, fmt.Errorf("invalid same_site value %q", req.SameSite)
-	}
-
-	if req.Expires != nil {
-		expires := time.Unix(int64(*req.Expires), 0).UTC()
-		cdpEpoch := cdp.TimeSinceEpoch(expires)
-		cookie.Expires = &cdpEpoch
-	}
-
-	return cookie, nil
-}
-
-func convertCookiesResponse(cookies []*network.Cookie) []map[string]any {
-	result := make([]map[string]any, 0, len(cookies))
-	for _, c := range cookies {
-		item := map[string]any{
-			"name":      c.Name,
-			"value":     c.Value,
-			"domain":    c.Domain,
-			"path":      c.Path,
-			"http_only": c.HTTPOnly,
-			"secure":    c.Secure,
-			"same_site": strings.ToLower(string(c.SameSite)),
-			"expires":   c.Expires,
-		}
-		result = append(result, item)
-	}
-	return result
-}
-
-func parseTimeout(r *http.Request) time.Duration {
-	if value := r.URL.Query().Get("timeout_ms"); value != "" {
-		if ms, err := strconv.ParseInt(value, 10, 64); err == nil && ms > 0 {
-			return time.Duration(ms) * time.Millisecond
-		}
-	}
-	return 0
-}
-
-func (a *App) duration(ms int64) time.Duration {
-	if ms <= 0 {
-		return a.timeout
-	}
-	return time.Duration(ms) * time.Millisecond
-}
-
-func decodeJSON(r *http.Request, dest any) error {
-	defer r.Body.Close()
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(dest); err != nil {
-		return err
-	}
-	return nil
-}
-
 func respondJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	if payload != nil {
-		_ = json.NewEncoder(w).Encode(payload)
-	}
+	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func respondError(w http.ResponseWriter, status int, message string) {
-	if status < 400 {
-		status = http.StatusInternalServerError
-	}
-	respondJSON(w, status, map[string]any{
-		"error": message,
-	})
+func errorJSON(w http.ResponseWriter, status int, err error) {
+	respondJSON(w, status, map[string]any{"error": err.Error()})
 }

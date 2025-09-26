@@ -15,7 +15,7 @@ func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "volar",
 		Short: "volar command-line interface",
-		Long:  "volar CLI provides access to the orchestrator, browser agents, and tooling.",
+		Long:  "volar CLI provides access to the orchestrator tooling.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -25,7 +25,7 @@ func newRootCmd() *cobra.Command {
 
 	cmd.AddCommand(newVersionCmd())
 	cmd.AddCommand(newVMsCmd())
-	cmd.AddCommand(newBrowsersCmd())
+	cmd.AddCommand(newPluginsCmd())
 	cmd.AddCommand(newSetupCmd())
 	return cmd
 }

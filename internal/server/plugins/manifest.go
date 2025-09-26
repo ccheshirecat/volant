@@ -11,6 +11,8 @@ type Manifest struct {
 	Resources   ResourceSpec      `json:"resources"`
 	Actions     map[string]Action `json:"actions"`
 	HealthCheck HealthCheck       `json:"health_check"`
+	Enabled     bool              `json:"enabled"`
+	OpenAPI     string            `json:"openapi,omitempty"`
 }
 
 // ResourceSpec captures runtime requirements for a plugin workload.
@@ -22,6 +24,8 @@ type ResourceSpec struct {
 // Action describes an API surface exposed by the plugin.
 type Action struct {
 	Description string `json:"description"`
+	Method      string `json:"method"`
+	Path        string `json:"path"`
 	TimeoutMs   int64  `json:"timeout_ms"`
 }
 
@@ -50,6 +54,14 @@ func (m Manifest) Validate() error {
 	}
 	if len(m.Actions) == 0 {
 		return fmt.Errorf("plugin manifest: at least one action required")
+	}
+	for name, action := range m.Actions {
+		if action.Method == "" {
+			return fmt.Errorf("plugin manifest: action %s missing method", name)
+		}
+		if action.Path == "" {
+			return fmt.Errorf("plugin manifest: action %s missing path", name)
+		}
 	}
 	return nil
 }

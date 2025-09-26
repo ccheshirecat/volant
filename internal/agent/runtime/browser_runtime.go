@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -12,8 +13,8 @@ const BrowserRuntimeName = "browser"
 
 // browserRuntime adapts Browser to the generic Runtime interface.
 type browserRuntime struct {
-	real    *Browser
-	logger *logEmitter
+	real           *Browser
+	defaultTimeout time.Duration
 }
 
 func newBrowserRuntime(ctx context.Context, opts Options) (Runtime, error) {
@@ -35,36 +36,46 @@ func newBrowserRuntime(ctx context.Context, opts Options) (Runtime, error) {
 		return nil, err
 	}
 
-	runtime := &browserRuntime{real: browser, logger: newLogEmitter()}
-	browser.RegisterLogSubscriber(runtime.logger)
-	return runtime, nil
+	return &browserRuntime{
+		real:           browser,
+		defaultTimeout: cfg.DefaultTimeout,
+	}, nil
 }
 
 func (b *browserRuntime) Name() string { return BrowserRuntimeName }
 
-func (b *browserRuntime) DevToolsInfo() DevToolsInfo { return b.real.DevToolsInfo() }
+func (b *browserRuntime) DevToolsInfo() (DevToolsInfo, bool) { return b.real.DevToolsInfo(), true }
 
 func (b *browserRuntime) SubscribeLogs(buffer int) (<-chan LogEvent, func()) {
-	return b.logger.Subscribe(buffer)
+	return b.real.SubscribeLogs(buffer)
 }
 
+func (b *browserRuntime) BrowserInstance() *Browser { return b.real }
+
 func (b *browserRuntime) MountRoutes(r chi.Router) {
-	r.Post("/actions/navigate", b.wrapAction(func(timeout time.Duration, payload map[string]any) (any, error) {
-		url, _ := payload["url"].(string)
-		return nil, b.real.Navigate(timeout, url)
-	}))
+	r.Route("/browser", b.mountBrowserRoutes)
+	r.Route("/dom", b.mountDOMRoutes)
+	r.Route("/script", b.mountScriptRoutes)
+	r.Route("/actions", b.mountActionRoutes)
+	r.Route("/profile", b.mountProfileRoutes)
 }
 
 func (b *browserRuntime) Shutdown(ctx context.Context) error {
-	b.logger.Close()
-	return b.real.Close()
+	b.real.Close()
+	return nil
 }
 
-func (b *browserRuntime) wrapAction(handler func(timeout time.Duration, payload map[string]any) (any, error)) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// TODO: implement request decoding + timeout handling
+func (b *browserRuntime) duration(ms int64) time.Duration {
+	if ms <= 0 {
+		if b.defaultTimeout > 0 {
+			return b.defaultTimeout
+		}
+		return DefaultActionTimeout
 	}
+	return time.Duration(ms) * time.Millisecond
 }
+
+// Helper utilities ---------------------------------------------------------
 
 func parseInt(value string) (int, error) {
 	parsed, err := strconv.Atoi(value)
