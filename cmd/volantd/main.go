@@ -20,6 +20,7 @@ import (
 	"github.com/ccheshirecat/volant/internal/server/orchestrator"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator/cloudhypervisor"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator/network"
+	"github.com/ccheshirecat/volant/internal/server/plugins"
 	"github.com/ccheshirecat/volant/internal/shared/logging"
 )
 
@@ -59,6 +60,8 @@ func main() {
 		logDir,
 	)
 
+	runtimeRegistry := plugins.NewRegistry()
+
 	var netManager network.Manager
 	if runtime.GOOS == "linux" {
 		netManager = network.NewBridgeManager(cfg.BridgeName)
@@ -83,9 +86,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	handler := httpapi.New(logger, engine, events)
+	handler := httpapi.New(logger, engine, events, runtimeRegistry)
 
-	daemon, err := app.New(cfg, logger, store, engine, events, handler)
+	daemon, err := app.New(cfg, logger, store, engine, events, runtimeRegistry, handler)
 	if err != nil {
 		logger.Error("init app", "error", err)
 		os.Exit(1)

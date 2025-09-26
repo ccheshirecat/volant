@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
+	"github.com/ccheshirecat/volant/internal/server/plugins"
 )
 
 // Client wraps REST access to the volantd API.
@@ -45,6 +46,7 @@ type VM struct {
 	ID            int64  `json:"id"`
 	Name          string `json:"name"`
 	Status        string `json:"status"`
+	Runtime       string `json:"runtime"`
 	PID           *int64 `json:"pid,omitempty"`
 	IPAddress     string `json:"ip_address"`
 	MACAddress    string `json:"mac_address"`
@@ -56,6 +58,7 @@ type VM struct {
 // CreateVMRequest contains creation parameters.
 type CreateVMRequest struct {
 	Name          string `json:"name"`
+	Runtime       string `json:"runtime,omitempty"`
 	CPUCores      int    `json:"cpu_cores"`
 	MemoryMB      int    `json:"memory_mb"`
 	KernelCmdline string `json:"kernel_cmdline,omitempty"`
@@ -108,11 +111,11 @@ type ScreenshotActionRequest struct {
 }
 
 type ScreenshotActionResponse struct {
-	Data        string `json:"data"`
-	Format      string `json:"format"`
-	FullPage    bool   `json:"full_page"`
-	ByteLength  int    `json:"byte_length"`
-	CapturedAt  string `json:"captured_at"`
+	Data       string `json:"data"`
+	Format     string `json:"format"`
+	FullPage   bool   `json:"full_page"`
+	ByteLength int    `json:"byte_length"`
+	CapturedAt string `json:"captured_at"`
 }
 
 type ScrapeActionRequest struct {
@@ -153,6 +156,18 @@ type MCPRequest struct {
 type MCPResponse struct {
 	Result interface{} `json:"result"`
 	Error  string      `json:"error"`
+}
+
+type Plugin struct {
+	Name        string          `json:"name"`
+	Version     string          `json:"version"`
+	Enabled     bool            `json:"enabled"`
+	Runtime     string          `json:"runtime,omitempty"`
+	Image       string          `json:"image,omitempty"`
+	Resources   json.RawMessage `json:"resources,omitempty"`
+	Actions     json.RawMessage `json:"actions,omitempty"`
+	OpenAPI     string          `json:"openapi,omitempty"`
+	MetadataRaw json.RawMessage `json:"metadata,omitempty"`
 }
 
 func (c *Client) ListVMs(ctx context.Context) ([]VM, error) {
@@ -431,12 +446,12 @@ func (c *Client) BaseURL() *url.URL {
 }
 
 func (c *Client) NavigateVM(ctx context.Context, name string, payload NavigateActionRequest) error {
-	return c.AgentRequest(ctx, name, http.MethodPost, "/v1/actions/navigate", payload, nil)
+	return c.PluginActionVM(ctx, name, "browser", "navigate", payload)
 }
 
 func (c *Client) ScreenshotVM(ctx context.Context, name string, payload ScreenshotActionRequest) (*ScreenshotActionResponse, error) {
 	var response ScreenshotActionResponse
-	if err := c.AgentRequest(ctx, name, http.MethodPost, "/v1/actions/screenshot", payload, &response); err != nil {
+	if err := c.PluginActionVM(ctx, name, "browser", "screenshot", payload, &response); err != nil {
 		return nil, err
 	}
 	return &response, nil
@@ -444,7 +459,7 @@ func (c *Client) ScreenshotVM(ctx context.Context, name string, payload Screensh
 
 func (c *Client) ScrapeVM(ctx context.Context, name string, payload ScrapeActionRequest) (*ScrapeActionResponse, error) {
 	var response ScrapeActionResponse
-	if err := c.AgentRequest(ctx, name, http.MethodPost, "/v1/actions/scrape", payload, &response); err != nil {
+	if err := c.PluginActionVM(ctx, name, "browser", "scrape", payload, &response); err != nil {
 		return nil, err
 	}
 	return &response, nil
@@ -452,7 +467,7 @@ func (c *Client) ScrapeVM(ctx context.Context, name string, payload ScrapeAction
 
 func (c *Client) EvaluateVM(ctx context.Context, name string, payload EvaluateActionRequest) (*EvaluateActionResponse, error) {
 	var response EvaluateActionResponse
-	if err := c.AgentRequest(ctx, name, http.MethodPost, "/v1/actions/evaluate", payload, &response); err != nil {
+	if err := c.PluginActionVM(ctx, name, "browser", "evaluate", payload, &response); err != nil {
 		return nil, err
 	}
 	return &response, nil
@@ -460,7 +475,7 @@ func (c *Client) EvaluateVM(ctx context.Context, name string, payload EvaluateAc
 
 func (c *Client) GraphQLVM(ctx context.Context, name string, payload GraphQLActionRequest) (GraphQLActionResponse, error) {
 	var response GraphQLActionResponse
-	if err := c.AgentRequest(ctx, name, http.MethodPost, "/v1/actions/graphql", payload, &response); err != nil {
+	if err := c.PluginActionVM(ctx, name, "browser", "graphql", payload, &response); err != nil {
 		return nil, err
 	}
 	return response, nil
@@ -476,6 +491,28 @@ func (c *Client) MCP(ctx context.Context, request MCPRequest) (*MCPResponse, err
 		return nil, err
 	}
 	return &response, nil
+}
+
+func (c *Client) PluginActionVM(ctx context.Context, vmName, plugin, action string, payload any, out ...any) error {
+	path := fmt.Sprintf("/api/v1/vms/%s/actions/%s/%s", url.PathEscape(vmName), url.PathEscape(plugin), url.PathEscape(action))
+	return c.pluginAction(ctx, path, payload, out...)
+}
+
+func (c *Client) PluginAction(ctx context.Context, plugin, action string, payload any, out ...any) error {
+	path := fmt.Sprintf("/api/v1/plugins/%s/actions/%s", url.PathEscape(plugin), url.PathEscape(action))
+	return c.pluginAction(ctx, path, payload, out...)
+}
+
+func (c *Client) pluginAction(ctx context.Context, path string, payload any, out ...any) error {
+	req, err := c.newRequest(ctx, http.MethodPost, path, payload)
+	if err != nil {
+		return err
+	}
+
+	if len(out) == 0 {
+		return c.do(req, nil)
+	}
+	return c.do(req, out[0])
 }
 
 func (c *Client) newRequest(ctx context.Context, method, path string, body any) (*http.Request, error) {
@@ -541,4 +578,65 @@ func (c *Client) GetSystemStatus(ctx context.Context) (*SystemStatus, error) {
 		return nil, err
 	}
 	return &status, nil
+}
+
+func (c *Client) ListPlugins(ctx context.Context) ([]plugins.Manifest, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, "/api/v1/plugins", nil)
+	if err != nil {
+		return nil, err
+	}
+	var response struct {
+		Plugins []string `json:"plugins"`
+	}
+	if err := c.do(req, &response); err != nil {
+		return nil, err
+	}
+	result := make([]plugins.Manifest, 0, len(response.Plugins))
+	for _, name := range response.Plugins {
+		plugin, err := c.GetPlugin(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		if plugin != nil {
+			result = append(result, *plugin)
+		}
+	}
+	return result, nil
+}
+
+func (c *Client) GetPlugin(ctx context.Context, name string) (*plugins.Manifest, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, "/api/v1/plugins/"+url.PathEscape(name), nil)
+	if err != nil {
+		return nil, err
+	}
+	var manifest plugins.Manifest
+	if err := c.do(req, &manifest); err != nil {
+		return nil, err
+	}
+	return &manifest, nil
+}
+
+func (c *Client) InstallPlugin(ctx context.Context, manifest plugins.Manifest) error {
+	req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/plugins", manifest)
+	if err != nil {
+		return err
+	}
+	return c.do(req, nil)
+}
+
+func (c *Client) RemovePlugin(ctx context.Context, name string) error {
+	req, err := c.newRequest(ctx, http.MethodDelete, "/api/v1/plugins/"+url.PathEscape(name), nil)
+	if err != nil {
+		return err
+	}
+	return c.do(req, nil)
+}
+
+func (c *Client) SetPluginEnabled(ctx context.Context, name string, enabled bool) error {
+	payload := map[string]any{"enabled": enabled}
+	req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/plugins/"+url.PathEscape(name)+"/enabled", payload)
+	if err != nil {
+		return err
+	}
+	return c.do(req, nil)
 }

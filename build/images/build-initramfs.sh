@@ -8,7 +8,7 @@ fi
 
 REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 CONTEXT="$REPO_ROOT/build/images"
-OUTPUT_DIR="$REPO_ROOT/build/artifacts"
+OUTPUT_DIR=${OUTPUT_DIR:-$REPO_ROOT/build/artifacts}
 AGENT_BIN=${1:-$REPO_ROOT/bin/volary}
 IMAGE_TAG=${IMAGE_TAG:-volant-initramfs:latest}
 INITRAMFS_NAME=${INITRAMFS_NAME:-volant-initramfs.cpio.gz}

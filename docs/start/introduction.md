@@ -1,64 +1,63 @@
 ---
 title: Introduction
-description: Volant. Underestimated. Unstoppable.
+description: Meet Volant, the modular microVM orchestrator.
 ---
 
-# VOLANT
+# Volant
 
-**Volant is a microVM-based browser automation framework built on a single, defiant premise: the old way is broken.**
+Volant is a **modular microVM orchestration engine**. It gives you a production-ready control plane, CLI, and automation surface for running secure, stateful workloads inside Cloud Hypervisor microVMs.
 
-We reject the fragile, process-based paradigm of traditional tools. We believe that true security and statefulness are not features to be bolted on; they are the **unbreakable foundation** upon which all modern automation must be built.
-
-We provide this foundation through kernel-isolated microVMs. This is not an incremental improvement. It is a fundamental architectural shift.
-
----
-
-## A Flawed Foundation
-
-The entire landscape of browser automation is a graveyard of hacks built on a flawed foundation. Tools like Puppeteer and Playwright run the browser as a simple process, making them fundamentally insecure, easy to detect, and a nightmare to manage at scale. The industry has been engaged in a constant, unwinnable arms race.
-
-**We are not here to build a better weapon for that race. We are here to end it.**
-
-Volant solves these problems at the architectural level. We don't patch the browser; we give every browser its own pristine, disposable operating system.
-
-| Feature             | The Old Way (Puppeteer/Playwright) | The Volant Way                                |
-| ------------------- | :--------------------------------: | :-----------------------------------------------: |
-| **Isolation**       |         Process Sandbox          | **Kernel-Level Isolation (via microVM)**         |
-| **State Persistence** |        Manual (Cookies)          | **Full System Snapshots (True Statefulness)**      |
-| **Stealth**         |      Constant Cat-and-Mouse      | **Pristine, Forensically-Perfect Environments**  |
-| **Scalability**     |       Complex & Brittle          | **Natively Orchestrated & Built to Scale**       |
+The engine ships with opinionated defaults so you can go from zero to isolated workloads in minutes, while staying flexible enough to power bespoke runtime plugins (browser automation, AI inference, workers, and more).
 
 ---
 
-## Simplicity by Design
+## Why a microVM orchestrator?
 
-Virtualization sounds complex. We've made it simple. Volant is an aggressively **opinionated platform** that abstracts away the entire infrastructure layer.
+The industry standard for orchestration is still container sandboxes. They’re fast, but they were never designed for long-lived, stateful, or security-sensitive automation. Volant takes a different path:
 
-The `volar setup` command transforms any Linux machine into a private browser cloud in minutes. Our "God Mode" TUI provides a beautiful, interactive command center. The complexity is still there—we just handled it for you.
+| Capability          | Containers                            | Volant MicroVMs                               |
+| ------------------- | ------------------------------------- | ---------------------------------------------- |
+| Isolation           | Namespace / cgroup sandbox            | **Hardware-virtualized microVM**               |
+| Networking          | Overlay-centric                       | **Explicit bridge with static IP leasing**     |
+| State persistence   | Volumes, manual copy                  | **Snapshot-first architecture**                |
+| Runtime plugability | Images baked into orchestrator        | **Declarative manifest per runtime**           |
 
-This is not a tool for infrastructure experts. This is a weapon for builders. Power users are free to look under the hood and customize everything, but our default is a single, powerful promise: **it just works.**
-
----
-
-## Who is this for?
-
-Volant is for anyone who is tired of the old compromises and requires a professional-grade, reliable, and secure platform for their web-based workloads.
-
-- **Automation Engineers** building high-stakes, mission-critical workflows.
-- **Security Researchers** who need a truly sandboxed environment for analysis.
-- **AI Developers** looking for a secure, stateful, and observable execution layer for their autonomous agents.
-- **Anyone** who believes their LLM deserves a better, safer way to interact with the web.
+We package those primitives behind a simple control plane (`volantd`), CLI/TUI (`volar`), and agent (`volary`) so teams can focus on what they run—not how to glue together virtualization plumbing.
 
 ---
 
-## Where's The Hype?
+## What’s in the box?
 
-The name would be ironic if we couldn't back it up.
+- **Control plane (`volantd`)**: native microVM orchestrator, IPAM, event bus, plugin registry, REST/MCP/AG-UI APIs.
+- **CLI & TUI (`volar`)**: scriptable commands and a terminal dashboard for operators.
+- **Agent (`volary`)**: runtime host inside the microVM that exposes plugin-defined actions over HTTP/WebSocket.
+- **Plugin system**: manifests describe runtimes, resources, and action proxies—so specialized workloads can live in dedicated repos.
 
-Volant is **AI-native** from the ground up. The control plane speaks **Model Context Protocol (MCP)** and streams **AG-UI events** out of the box.
+---
 
-This isn't a feature bolted on to chase a trend. Our entire architecture—the secure isolation, the stateful persistence, the simple API—was designed to be the perfect physical execution layer for AI. We built the platform that we, and our agents, wanted to use.
+## Who uses Volant?
 
-**Hype is the product. MicroVMs are the truth.**
+- Platform teams provisioning secure, isolated execution environments for internal automation.
+- AI infrastructure engineers needing stateful, observable runtimes for model agents.
+- Security researchers who want deterministic, disposable environments.
+- Plugin authors building reusable runtime bundles (browser automation, HTTP clients, scraping, RPA, etc.).
 
-> **Repo**: [`github.com/ccheshirecat/volant`](https://github.com/ccheshirecat/volant)
+---
+
+## Design principles
+
+1. **Batteries-included, buildable-out**: A single binary gets you networking, orchestration, and APIs, but every layer is pluggable.
+2. **MicroVM-first**: All workload isolation is hardware-virtualized. The orchestrator speaks Cloud Hypervisor directly.
+3. **Declarative runtimes**: Plugins describe resources and actions in manifests; the engine handles lifecycle.
+4. **Plain dependencies**: SQLite for state, Go binaries for daemon/CLI/agent, Docker-based image tooling for initramfs builds.
+
+---
+
+## Next steps
+
+- [Installation](installation.md): bootstrap the engine on a host.
+- [Control Plane Overview](../guides/control-plane.md): deep dive into `volantd` internals.
+- [CLI & TUI](../guides/cli-and-tui.md): operating the engine.
+- [Plugin Guide](../guides/plugins.md): how manifests and runtimes fit together.
+
+For detailed APIs, see the [REST](../api/rest-api.md) and [MCP](../api/mcp.md) references.

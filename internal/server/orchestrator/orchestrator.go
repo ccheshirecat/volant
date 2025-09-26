@@ -30,11 +30,13 @@ type Engine interface {
 	DestroyVM(ctx context.Context, name string) error
 	ListVMs(ctx context.Context) ([]db.VM, error)
 	GetVM(ctx context.Context, name string) (*db.VM, error)
+	Store() db.Store
 }
 
 // CreateVMRequest captures the inputs required to instantiate a VM lifecycle.
 type CreateVMRequest struct {
 	Name              string
+	Runtime           string
 	CPUCores          int
 	MemoryMB          int
 	KernelCmdlineHint string
@@ -185,6 +187,11 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		return nil, err
 	}
 
+	req.Runtime = strings.TrimSpace(req.Runtime)
+	if req.Runtime == "" {
+		req.Runtime = "browser"
+	}
+
 	netmask := formatNetmask(e.subnet.Mask)
 	hostname := sanitizeHostname(req.Name)
 
@@ -214,6 +221,7 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		vm := &db.VM{
 			Name:          req.Name,
 			Status:        db.VMStatusStarting,
+			Runtime:       req.Runtime,
 			IPAddress:     allocation.IPAddress,
 			MACAddress:    mac,
 			CPUCores:      req.CPUCores,
@@ -358,6 +366,10 @@ func (e *engine) ListVMs(ctx context.Context) ([]db.VM, error) {
 
 func (e *engine) GetVM(ctx context.Context, name string) (*db.VM, error) {
 	return e.store.Queries().VirtualMachines().GetByName(ctx, name)
+}
+
+func (e *engine) Store() db.Store {
+	return e.store
 }
 
 func (e *engine) rollbackCreate(ctx context.Context, vm *db.VM) {

@@ -21,7 +21,7 @@ func encodeAsJSON(out io.Writer, payload interface{}) error {
 	return enc.Encode(payload)
 }
 
-func decodeBase64(data string) ([]byte, error) {
+func DecodeBase64(data string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(data)
 }
 
@@ -64,9 +64,9 @@ func newVMsListCmd() *cobra.Command {
 				fmt.Fprintln(cmd.OutOrStdout(), "No VMs found")
 				return nil
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-10s %-15s %-20s %-6s %-6s\n", "NAME", "STATUS", "IP", "MAC", "CPU", "MEM")
+			fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-10s %-10s %-15s %-20s %-6s %-6s\n", "NAME", "STATUS", "RUNTIME", "IP", "MAC", "CPU", "MEM")
 			for _, vm := range vms {
-				fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-10s %-15s %-20s %-6d %-6d\n", vm.Name, vm.Status, vm.IPAddress, vm.MACAddress, vm.CPUCores, vm.MemoryMB)
+				fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-10s %-10s %-15s %-20s %-6d %-6d\n", vm.Name, vm.Status, vm.Runtime, vm.IPAddress, vm.MACAddress, vm.CPUCores, vm.MemoryMB)
 			}
 			return nil
 		},
@@ -91,7 +91,7 @@ func newVMsGetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Name: %s\nStatus: %s\nIP: %s\nMAC: %s\nCPU: %d\nMemory: %d MB\n", vm.Name, vm.Status, vm.IPAddress, vm.MACAddress, vm.CPUCores, vm.MemoryMB)
+			fmt.Fprintf(cmd.OutOrStdout(), "Name: %s\nStatus: %s\nRuntime: %s\nIP: %s\nMAC: %s\nCPU: %d\nMemory: %d MB\n", vm.Name, vm.Status, vm.Runtime, vm.IPAddress, vm.MACAddress, vm.CPUCores, vm.MemoryMB)
 			if vm.PID != nil {
 				fmt.Fprintf(cmd.OutOrStdout(), "PID: %d\n", *vm.PID)
 			}
@@ -110,6 +110,12 @@ func newVMsCreateCmd() *cobra.Command {
 		Short: "Create a microVM",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			runtimeName, err := cmd.Flags().GetString("runtime")
+			if err != nil {
+				return err
+			}
+			runtimeName = strings.TrimSpace(runtimeName)
+
 			cpu, err := cmd.Flags().GetInt("cpu")
 			if err != nil {
 				return err
@@ -132,6 +138,7 @@ func newVMsCreateCmd() *cobra.Command {
 
 			vm, err := api.CreateVM(ctx, client.CreateVMRequest{
 				Name:          args[0],
+				Runtime:       runtimeName,
 				CPUCores:      cpu,
 				MemoryMB:      mem,
 				KernelCmdline: kernelCmdline,
@@ -143,6 +150,7 @@ func newVMsCreateCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().String("runtime", "browser", "Runtime type to launch (browser, etc.)")
 	cmd.Flags().Int("cpu", 2, "Number of virtual CPU cores")
 	cmd.Flags().Int("memory", 2048, "Memory (MB)")
 	cmd.Flags().String("kernel-cmdline", "", "Additional kernel cmdline parameters")
@@ -260,7 +268,7 @@ func newVMsScreenshotCmd() *cobra.Command {
 				return err
 			}
 
-			data, decodeErr := decodeBase64(resp.Data)
+			data, decodeErr := DecodeBase64(resp.Data)
 			if decodeErr != nil {
 				return decodeErr
 			}

@@ -12,15 +12,16 @@ import (
 	"strings"
 	"time"
 
-    "github.com/charmbracelet/bubbles/key"
-    "github.com/charmbracelet/bubbles/list"
-    "github.com/charmbracelet/bubbles/spinner"
-    "github.com/charmbracelet/bubbles/textinput"
-    "github.com/charmbracelet/bubbles/viewport"
-    tea "github.com/charmbracelet/bubbletea"
-    "github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
-    "github.com/ccheshirecat/volant/internal/cli/client"
+	"github.com/ccheshirecat/volant/internal/cli/client"
+	"github.com/ccheshirecat/volant/internal/cli/standard"
 )
 
 var (
@@ -86,8 +87,10 @@ var (
 		key.WithKeys("ctrl+a"),
 	)
 
-	rootCommands   = []string{"vms", "status", "help", "mcp"}
-	vmsSubcommands = []string{"list", "get", "create", "delete", "navigate", "screenshot", "scrape", "exec", "graphql"}
+	rootCommands    = []string{"vms", "status", "help", "mcp"}
+	vmsSubcommands  = []string{"list", "get", "create", "delete", "navigate", "screenshot", "scrape", "exec", "graphql"}
+	scrapeArgHints  = []string{"css=", "attr=", "value="}
+	graphqlArgHints = []string{"endpoint=", "query=", "variables="}
 )
 
 var defaultMCPSuggestions = []string{"volar.vms.list", "volar.vms.create", "volar.system.get_capabilities"}
@@ -194,28 +197,28 @@ type model struct {
 	eventCh   chan client.VMEvent
 	streamEOF bool
 
-	logCh        chan client.VMLogEvent
-	logCancel    context.CancelFunc
-	logStreamEOF bool
-	aguiCh       chan aguiStreamEvent
-	aguiCancel   context.CancelFunc
-	aguiStreamEOF bool
-	aguiActive      bool
-	aguiBuffer      []string
-	aguiError       error
-	showAGUI        bool
-	aguiLogs        []string
+	logCh            chan client.VMLogEvent
+	logCancel        context.CancelFunc
+	logStreamEOF     bool
+	aguiCh           chan aguiStreamEvent
+	aguiCancel       context.CancelFunc
+	aguiStreamEOF    bool
+	aguiActive       bool
+	aguiBuffer       []string
+	aguiError        error
+	showAGUI         bool
+	aguiLogs         []string
 	aguiStreamCancel context.CancelFunc
 
 	logs       []string
 	selectedVM string
 
 	// UI components
-	vmList  list.Model
-	logView viewport.Model
+	vmList   list.Model
+	logView  viewport.Model
 	aguiView viewport.Model
-	input   textinput.Model
-	spinner spinner.Model
+	input    textinput.Model
+	spinner  spinner.Model
 
 	focused paneFocus
 	layout  layoutMode
@@ -302,56 +305,56 @@ func (m *model) setPersistentStatus(level statusLevel, message string) {
 }
 
 func (m *model) applyResponsiveLayout(width, height int) {
-    if width <= 0 || height <= 0 {
-        return
-    }
+	if width <= 0 || height <= 0 {
+		return
+	}
 
-    usableWidth := maxInt(width-(layoutOuterMargin*2), layoutMinPaneWidth)
-    topSections := headerReservedHeight + statusReservedHeight
-    bottomSections := helpReservedHeight + inputReservedHeight
-    usableHeight := maxInt(height-(topSections+bottomSections), layoutMinPaneHeight)
+	usableWidth := maxInt(width-(layoutOuterMargin*2), layoutMinPaneWidth)
+	topSections := headerReservedHeight + statusReservedHeight
+	bottomSections := helpReservedHeight + inputReservedHeight
+	usableHeight := maxInt(height-(topSections+bottomSections), layoutMinPaneHeight)
 
-    // Choose layout orientation.
-    if usableWidth >= layoutMinHorizontalWidth {
-        m.layout = layoutHorizontal
-    } else {
-        m.layout = layoutVertical
-    }
+	// Choose layout orientation.
+	if usableWidth >= layoutMinHorizontalWidth {
+		m.layout = layoutHorizontal
+	} else {
+		m.layout = layoutVertical
+	}
 
-    var paneWidth, paneHeight int
-    switch m.layout {
-    case layoutHorizontal:
-        paneWidth = (usableWidth - layoutPaneGap) / 2
-        if paneWidth < layoutMinPaneWidth {
-            paneWidth = layoutMinPaneWidth
-        }
-        paneHeight = usableHeight - layoutPaneChromeHeight
-    default:
-        paneWidth = usableWidth
-        paneHeight = (usableHeight - layoutPaneGap) / 2
-    }
+	var paneWidth, paneHeight int
+	switch m.layout {
+	case layoutHorizontal:
+		paneWidth = (usableWidth - layoutPaneGap) / 2
+		if paneWidth < layoutMinPaneWidth {
+			paneWidth = layoutMinPaneWidth
+		}
+		paneHeight = usableHeight - layoutPaneChromeHeight
+	default:
+		paneWidth = usableWidth
+		paneHeight = (usableHeight - layoutPaneGap) / 2
+	}
 
-    if paneHeight < layoutMinPaneHeight {
-        paneHeight = layoutMinPaneHeight
-    }
+	if paneHeight < layoutMinPaneHeight {
+		paneHeight = layoutMinPaneHeight
+	}
 
-    paneContentWidth := paneWidth - layoutPaneChromeWidth
-    if paneContentWidth < layoutMinPaneWidth {
-        paneContentWidth = layoutMinPaneWidth
-    }
+	paneContentWidth := paneWidth - layoutPaneChromeWidth
+	if paneContentWidth < layoutMinPaneWidth {
+		paneContentWidth = layoutMinPaneWidth
+	}
 
-    m.vmList.SetWidth(paneContentWidth)
-    m.vmList.SetHeight(paneHeight)
-    m.logView.Width = paneContentWidth
-    m.logView.Height = paneHeight
-    m.aguiView.Width = paneContentWidth
-    m.aguiView.Height = paneHeight
+	m.vmList.SetWidth(paneContentWidth)
+	m.vmList.SetHeight(paneHeight)
+	m.logView.Width = paneContentWidth
+	m.logView.Height = paneHeight
+	m.aguiView.Width = paneContentWidth
+	m.aguiView.Height = paneHeight
 
-    inputWidth := usableWidth
-    if inputWidth < layoutMinPaneWidth {
-        inputWidth = layoutMinPaneWidth
-    }
-    m.input.Width = inputWidth
+	inputWidth := usableWidth
+	if inputWidth < layoutMinPaneWidth {
+		inputWidth = layoutMinPaneWidth
+	}
+	m.input.Width = inputWidth
 }
 
 func newModel(ctx context.Context, cancel context.CancelFunc, api *client.Client) model {
@@ -483,7 +486,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case focusInput:
 			switch {
-		case key.Matches(msg, tabKey):
+			case key.Matches(msg, tabKey):
 				value := m.input.Value()
 				trimmed := strings.TrimSpace(value)
 				trailingSpace := strings.HasSuffix(value, " ")
@@ -1103,137 +1106,174 @@ func (m *model) planCommand(parts []string) (commandPlan, error) {
 				return commandPlan{}, fmt.Errorf("vms screenshot requires a VM name")
 			}
 			name := parts[2]
+			flags := parts[3:]
+			var output string
+			payload := client.ScreenshotActionRequest{}
+			for i := 0; i < len(flags); i++ {
+				token := flags[i]
+				switch {
+				case strings.HasPrefix(token, "--output="):
+					output = strings.TrimPrefix(token, "--output=")
+				case token == "--output" && i+1 < len(flags):
+					i++
+					output = flags[i]
+				case token == "--full-page":
+					payload.FullPage = true
+				case strings.HasPrefix(token, "--format="):
+					payload.Format = strings.TrimPrefix(token, "--format=")
+				}
+			}
+			if payload.Format == "" {
+				payload.Format = "png"
+			}
 			return commandPlan{
 				label: fmt.Sprintf("vms screenshot %s", name),
 				action: func(ctx context.Context, api *client.Client) ([]string, error) {
-					payload := client.ScreenshotActionRequest{}
 					resp, err := api.ScreenshotVM(ctx, name, payload)
 					if err != nil {
 						return nil, err
 					}
-					return []string{fmt.Sprintf("Screenshot captured (%d bytes)", resp.ByteLength)}, nil
+					data, decodeErr := standard.DecodeBase64(resp.Data)
+					if decodeErr != nil {
+						return nil, decodeErr
+					}
+					filePath := output
+					if strings.TrimSpace(filePath) == "" {
+						suffix := resp.Format
+						if suffix == "" {
+							suffix = payload.Format
+						}
+						if suffix == "" {
+							suffix = "png"
+						}
+						filePath = fmt.Sprintf("%s_%d.%s", name, time.Now().Unix(), suffix)
+					}
+					if err := os.WriteFile(filePath, data, 0o644); err != nil {
+						return nil, err
+					}
+					return []string{fmt.Sprintf("Screenshot saved to %s (%d bytes)", filePath, len(data))}, nil
 				},
 			}, nil
 
-        case "scrape":
-            if len(parts) < 3 {
-                return commandPlan{}, fmt.Errorf("vms scrape requires a VM name")
-            }
-            name := parts[2]
-            if len(parts) < 4 {
-                return commandPlan{}, fmt.Errorf("vms scrape requires selector argument (e.g. css=.btn)")
-            }
-            selector := ""
-            attribute := ""
-            attrValue := ""
-            for _, opt := range parts[3:] {
-                if kv := strings.SplitN(opt, "=", 2); len(kv) == 2 {
-                    switch kv[0] {
-                    case "css":
-                        selector = kv[1]
-                    case "attr":
-                        attribute = kv[1]
-                    case "value":
-                        attrValue = kv[1]
-                    }
-                }
-            }
-            if strings.TrimSpace(selector) == "" {
-                return commandPlan{}, fmt.Errorf("selector is required for scrape (use css=.selector)")
-            }
-            return commandPlan{
-                label: fmt.Sprintf("vms scrape %s", name),
-                action: func(ctx context.Context, api *client.Client) ([]string, error) {
-                    payload := client.ScrapeActionRequest{Selector: selector, Attribute: attribute}
-                    resp, err := api.ScrapeVM(ctx, name, payload)
-                    if err != nil {
-                        return nil, err
-                    }
-                    output := map[string]any{"exists": resp.Exists, "value": resp.Value}
-                    if attrValue != "" && resp.Exists {
-                        output["matches"] = (fmt.Sprint(resp.Value) == attrValue)
-                    }
-                    data, err := json.MarshalIndent(output, "", "  ")
-                    if err != nil {
-                        return nil, err
-                    }
-                    return []string{string(data)}, nil
-                },
-            }, nil
+		case "scrape":
+			if len(parts) < 3 {
+				return commandPlan{}, fmt.Errorf("vms scrape requires a VM name")
+			}
+			name := parts[2]
+			if len(parts) < 4 {
+				return commandPlan{}, fmt.Errorf("vms scrape requires selector argument (e.g. css=.btn)")
+			}
+			selector := ""
+			attribute := ""
+			attrValue := ""
+			for _, opt := range parts[3:] {
+				if kv := strings.SplitN(opt, "=", 2); len(kv) == 2 {
+					switch kv[0] {
+					case "css":
+						selector = kv[1]
+					case "attr":
+						attribute = kv[1]
+					case "value":
+						attrValue = kv[1]
+					}
+				}
+			}
+			if strings.TrimSpace(selector) == "" {
+				return commandPlan{}, fmt.Errorf("selector is required for scrape (use css=.selector)")
+			}
+			return commandPlan{
+				label: fmt.Sprintf("vms scrape %s", name),
+				action: func(ctx context.Context, api *client.Client) ([]string, error) {
+					payload := client.ScrapeActionRequest{Selector: selector, Attribute: attribute}
+					resp, err := api.ScrapeVM(ctx, name, payload)
+					if err != nil {
+						return nil, err
+					}
+					output := map[string]any{"exists": resp.Exists, "value": resp.Value}
+					if attrValue != "" && resp.Exists {
+						output["matches"] = (fmt.Sprint(resp.Value) == attrValue)
+					}
+					data, err := json.MarshalIndent(output, "", "  ")
+					if err != nil {
+						return nil, err
+					}
+					return []string{string(data)}, nil
+				},
+			}, nil
 
-        case "exec":
-            if len(parts) < 3 {
-                return commandPlan{}, fmt.Errorf("vms exec requires a VM name")
-            }
-            name := parts[2]
-            if len(parts) < 4 {
-                return commandPlan{}, fmt.Errorf("vms exec requires a JavaScript expression")
-            }
-            expression := strings.Join(parts[3:], " ")
-            return commandPlan{
-                label: fmt.Sprintf("vms exec %s", name),
-                action: func(ctx context.Context, api *client.Client) ([]string, error) {
-                    payload := client.EvaluateActionRequest{Expression: expression, AwaitPromise: true}
-                    resp, err := api.EvaluateVM(ctx, name, payload)
-                    if err != nil {
-                        return nil, err
-                    }
-                    data, err := json.MarshalIndent(resp, "", "  ")
-                    if err != nil {
-                        return nil, err
-                    }
-                    return []string{string(data)}, nil
-                },
-            }, nil
+		case "exec":
+			if len(parts) < 3 {
+				return commandPlan{}, fmt.Errorf("vms exec requires a VM name")
+			}
+			name := parts[2]
+			if len(parts) < 4 {
+				return commandPlan{}, fmt.Errorf("vms exec requires a JavaScript expression")
+			}
+			expression := strings.Join(parts[3:], " ")
+			return commandPlan{
+				label: fmt.Sprintf("vms exec %s", name),
+				action: func(ctx context.Context, api *client.Client) ([]string, error) {
+					payload := client.EvaluateActionRequest{Expression: expression, AwaitPromise: true}
+					resp, err := api.EvaluateVM(ctx, name, payload)
+					if err != nil {
+						return nil, err
+					}
+					data, err := json.MarshalIndent(resp, "", "  ")
+					if err != nil {
+						return nil, err
+					}
+					return []string{string(data)}, nil
+				},
+			}, nil
 
-        case "graphql":
-            if len(parts) < 3 {
-                return commandPlan{}, fmt.Errorf("vms graphql requires a VM name")
-            }
-            name := parts[2]
-            endpoint := ""
-            query := ""
-            variablesJSON := ""
-            for _, opt := range parts[3:] {
-                if kv := strings.SplitN(opt, "=", 2); len(kv) == 2 {
-                    switch kv[0] {
-                    case "endpoint":
-                        endpoint = kv[1]
-                    case "query":
-                        query = kv[1]
-                    case "variables":
-                        variablesJSON = kv[1]
-                    }
-                }
-            }
-            if endpoint == "" {
-                return commandPlan{}, fmt.Errorf("endpoint is required (endpoint=https://...)")
-            }
-            if query == "" {
-                return commandPlan{}, fmt.Errorf("query is required (query='{...}')")
-            }
-            return commandPlan{
-                label: fmt.Sprintf("vms graphql %s", name),
-                action: func(ctx context.Context, api *client.Client) ([]string, error) {
-                    payload := client.GraphQLActionRequest{Endpoint: endpoint, Query: query}
-                    if variablesJSON != "" {
-                        var vars map[string]any
-                        if err := json.Unmarshal([]byte(variablesJSON), &vars); err != nil {
-                            return nil, fmt.Errorf("decode variables JSON: %w", err)
-                        }
-                        payload.Variables = vars
-                    }
-                    resp, err := api.GraphQLVM(ctx, name, payload)
-                    if err != nil {
-                        return nil, err
-                    }
-                    data, err := json.MarshalIndent(resp, "", "  ")
-                    if err != nil {
-                        return nil, err
-                    }
-                    return []string{string(data)}, nil
-                },
-            }, nil
+		case "graphql":
+			if len(parts) < 3 {
+				return commandPlan{}, fmt.Errorf("vms graphql requires a VM name")
+			}
+			name := parts[2]
+			endpoint := ""
+			query := ""
+			variablesJSON := ""
+			for _, opt := range parts[3:] {
+				if kv := strings.SplitN(opt, "=", 2); len(kv) == 2 {
+					switch kv[0] {
+					case "endpoint":
+						endpoint = kv[1]
+					case "query":
+						query = kv[1]
+					case "variables":
+						variablesJSON = kv[1]
+					}
+				}
+			}
+			if endpoint == "" {
+				return commandPlan{}, fmt.Errorf("endpoint is required (endpoint=https://...)")
+			}
+			if query == "" {
+				return commandPlan{}, fmt.Errorf("query is required (query='{...}')")
+			}
+			return commandPlan{
+				label: fmt.Sprintf("vms graphql %s", name),
+				action: func(ctx context.Context, api *client.Client) ([]string, error) {
+					payload := client.GraphQLActionRequest{Endpoint: endpoint, Query: query}
+					if variablesJSON != "" {
+						var vars map[string]any
+						if err := json.Unmarshal([]byte(variablesJSON), &vars); err != nil {
+							return nil, fmt.Errorf("decode variables JSON: %w", err)
+						}
+						payload.Variables = vars
+					}
+					resp, err := api.GraphQLVM(ctx, name, payload)
+					if err != nil {
+						return nil, err
+					}
+					data, err := json.MarshalIndent(resp, "", "  ")
+					if err != nil {
+						return nil, err
+					}
+					return []string{string(data)}, nil
+				},
+			}, nil
 
 		default:
 			return commandPlan{}, fmt.Errorf("unknown vms subcommand %q", sub)
@@ -1347,7 +1387,7 @@ func (m *model) autocomplete(value string) (string, bool) {
 		}
 		// trailing space after second token
 		switch second {
-		case "delete", "destroy", "get":
+		case "delete", "destroy", "get", "navigate", "screenshot", "scrape", "exec", "graphql":
 			if len(m.vms) == 0 {
 				return "", false
 			}
@@ -1361,29 +1401,65 @@ func (m *model) autocomplete(value string) (string, bool) {
 			return "", false
 		}
 	default:
+		first := tokens[0]
 		second := tokens[1]
 		partial := tokens[len(tokens)-1]
-		if !hasTrailingSpace && (second == "delete" || second == "destroy" || second == "get") {
-			vmNames := make([]string, len(m.vms))
-			for i, vm := range m.vms {
-				vmNames[i] = vm.Name
-			}
-			sort.Strings(vmNames)
-			matches := prefixMatches(partial, vmNames)
-			if len(matches) == 0 {
-				return "", false
-			}
-			path := strings.Join(tokens[:len(tokens)-1], " ")
-			if len(matches) == 1 {
-				return withLeading(fmt.Sprintf("%s %s", path, matches[0])), true
-			}
-			prefix := longestCommonPrefix(matches)
-			if len(prefix) > len(partial) {
-				return withLeading(fmt.Sprintf("%s %s", path, prefix)), true
+
+		if first == "vms" || first == "vm" {
+			switch second {
+			case "delete", "destroy", "get", "navigate", "screenshot", "scrape", "exec", "graphql":
+				// Suggest VM names for third arg
+				if len(tokens) == 3 && !hasTrailingSpace {
+					vmNames := make([]string, len(m.vms))
+					for i, vm := range m.vms {
+						vmNames[i] = vm.Name
+					}
+					sort.Strings(vmNames)
+					matches := prefixMatches(partial, vmNames)
+					if len(matches) == 0 {
+						return "", false
+					}
+					prefix := longestCommonPrefix(matches)
+					if len(matches) == 1 {
+						return withLeading(fmt.Sprintf("%s %s %s", first, second, matches[0])), true
+					}
+					if len(prefix) > len(partial) {
+						return withLeading(strings.Join(append(tokens[:len(tokens)-1], prefix), " ")), true
+					}
+				}
+
+				// Specialized hints after VM name
+				if len(tokens) >= 3 {
+					switch second {
+					case "screenshot":
+						hints := []string{"--output=", "--full-page", fmt.Sprintf("--format=%s", partial)}
+						return applyOptionAutocomplete(tokens, hints, withLeading)
+					case "scrape":
+						return applyOptionAutocomplete(tokens, scrapeArgHints, withLeading)
+					case "graphql":
+						return applyOptionAutocomplete(tokens, graphqlArgHints, withLeading)
+					}
+				}
 			}
 		}
 		return "", false
 	}
+}
+
+func applyOptionAutocomplete(tokens []string, hints []string, withLeading func(string) string) (string, bool) {
+	current := tokens[len(tokens)-1]
+	matches := prefixMatches(current, hints)
+	if len(matches) == 0 {
+		return "", false
+	}
+	if len(matches) == 1 {
+		return withLeading(strings.Join(append(tokens[:len(tokens)-1], matches[0]), " ")), true
+	}
+	prefix := longestCommonPrefix(matches)
+	if len(prefix) > len(current) {
+		return withLeading(strings.Join(append(tokens[:len(tokens)-1], prefix), " ")), true
+	}
+	return "", false
 }
 
 func (m *model) ensureLogStreamForSelection() tea.Cmd {
