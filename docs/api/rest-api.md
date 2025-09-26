@@ -77,4 +77,3 @@ None enforced currently; expected to be behind private networks.
 - Authentication hardening (mTLS, JWT, OAuth)
 - Pagination/filtering for VM list
 - Artifact/task endpoints
-- Swagger UI bundling in docs site
