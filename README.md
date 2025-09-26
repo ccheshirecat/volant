@@ -23,7 +23,7 @@
 
 > **The modular microVM orchestration engine.**
 
-Volant turns Cloud Hypervisor microVMs into a first-class runtime surface. The project ships a control plane, CLI/TUI, and agent that speak a common plugin contract so teams can run secure, stateful workloads without stitching together networking, scheduling, and lifecycle plumbing themselves.
+Volant turns microVMs into a first-class runtime surface. The project ships a control plane, CLI/TUI, and agent that speak a common plugin contract so teams can run secure, stateful workloads without stitching together networking, scheduling, and lifecycle plumbing themselves.
 
 Runtime-specific behavior lives in plugins. The core engine stays lean, plugin authors ship their own kernels/initramfs overlays, and operators choose what to enable.
 
