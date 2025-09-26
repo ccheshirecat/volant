@@ -19,178 +19,141 @@
 
 ---
 
-# VOLANT
+# Volant
 
-> **The Modular Engine for Modern Browser Automation**  
-> Secure. Stateful. Scalable. Powered by **microVMs.**
+> **The modular microVM orchestration engine.**
 
----
+Volant turns microVMs into a first-class runtime surface. The project ships a control plane, CLI/TUI, and agent that speak a common plugin contract so teams can run secure, stateful workloads without stitching together networking, scheduling, and lifecycle plumbing themselves.
 
-## ⚡ What is Volant?
-
-Volant is a **minimal, opinionated execution layer** designed to make  
-headless browser automation effortless at scale.  
-
-With a single command, you get:  
-- Bridged networking  
-- MicroVM orchestration  
-- Stateful isolation  
-- Infinite horizontal scaling  
-
-All inside **ephemeral initramfs-based microVMs** tuned for speed and stealth.  
+Runtime-specific behavior lives in plugins. The core engine stays lean, plugin authors ship their own kernels/initramfs overlays, and operators choose what to enable.
 
 ---
 
-## 🌌 Why Volant?
+## Overview
 
-Volant is built for one thing:  
-to make **browser automation** secure, scalable, and effortless.  
-
-Most existing approaches lean on containers or fragile hacks.  
-We went lower: every browser runs inside a **minimal microVM** with:  
-- Native networking  
-- Kernel-level isolation  
-- Built-in orchestration  
-
-No extra setup. No Kubernetes. No boilerplate.  
-Just the cleanest way to run browsers at scale — the way it should have always been.  
-
-While Volant is purpose-built for browsers, it’s not an accident.  
-It reflects the same design philosophy that guides our broader work:  
-**simple, opinionated systems that scale without complexity.**
+- **Control plane (`volantd`)** manages SQLite-backed state, static IP leasing, orchestration, REST/MCP/AG-UI APIs, and the plugin registry.
+- **Agent (`volary`)** boots inside each microVM, hydrates the declared runtime, and mounts plugin-defined HTTP/WebSocket routes.
+- **CLI & TUI (`volar`)** provide a dual-mode operator experience: scriptable Cobra commands and a Bubble Tea dashboard.
+- **Plugins** declare resources, actions, and health probes via manifests—letting browser automation, AI inference, worker pools, or custom stacks share the same engine.
 
 ---
 
-## 🚀 Quickstart
+## Highlights
+
+- 🛡 **Hardware isolation first** – every workload runs inside a Cloud Hypervisor microVM with static network bridging.
+- 🧩 **Plugin contract** – manifests capture runtime requirements, action endpoints, and OpenAPI metadata.
+- 🔌 **Universal proxy** – the control plane can forward REST, SSE, or WebSocket traffic to runtime agents without exposing private IPs.
+- 📡 **AI-native APIs** – REST, Model Context Protocol, and AG-UI event streams ship in the box.
+- 🧰 **Operator ergonomics** – one binary installs networking, bootstraps the database, and exposes both CLI and TUI surfaces.
+
+---
+
+## Quick start
 
 ```bash
-# Install Volant instantly
-# Downloads binaries, builds initramfs using docker, and downloads kernel
-
+# Install the Volant toolchain (binaries, kernel, initramfs)
 curl -sSL https://install.volant.cloud | bash
 
-# Set up systemd service and configure bridge networking
+# Configure the host (bridge networking, NAT, systemd service)
+sudo volar setup
 
-sudo volar setup 
+# Create a microVM using the default runtime manifest
+volar vms create demo --cpu 2 --memory 2048
 
-# Launch the TUI dashboard
-volar
+# Install a plugin (example: browser runtime defined in a separate repo)
+volar plugins install browser --manifest ./manifests/browser.json
 
-# Create your first microVM
-volar vms create my-first-vm
+# Invoke a plugin action against the VM
+volar vms action demo browser navigate --payload '{"url":"https://example.com"}'
 ```
+
+Refer to `docs/guides/plugins.md` for manifest structure and distribution workflows.
 
 ---
 
-## ✨ Features
+## Architecture at a glance
 
-- 🛡 **Security by Design** — Kernel-level isolation for every workload.  
-- 💾 **Stateful Persistence** — Snapshot + restore environments instantly.  
-- ⚡ **Velocity Through Simplicity** — Zero-config setup + intuitive TUI.  
-- 🌐 **Universal Architecture** — Orchestrate browsers, AI inference, anything.  
-- 🤖 **AI-Native** — MCP + AG-UI protocols built in.  
-
----
-
-## 🔥 Example: Browser Automation
-
-```bash
-# Install the browser automation plugin
-volar plugins install viper
-
-# Create a fleet of 10 browser microVMs
-volar workloads create browser-farm   --plugin viper   --profiles ./profiles/accounts.json   --count 10
-
-# Execute a high-level action
-volar workloads action browser-farm navigate --url="https://example.com"
-```
+| Layer | Responsibility |
+| ----- | -------------- |
+| Control plane | Persist state (SQLite), lease IPs, spawn microVMs, proxy agent traffic, emit events |
+| Agent | Boot runtime, expose plugin routes, stream logs, surface DevTools info when available |
+| Plugins | Provide kernels/initramfs overlays, declare resources/actions, publish OpenAPI metadata |
+| Tooling | `volar` CLI/TUI + REST/MCP clients consuming the same manifests |
 
 ---
 
-## 📂 Repository Layout
+## Plugin workflow
 
-<details>
-<summary>Expand</summary>
-
-```
-
-cmd/              # Entry points
-volantd/        # Control plane daemon
-volar/          # CLI client
-volary/         # In-VM agent
-
-internal/         # Core implementation
-agent/          # Agent runtime
-cli/            # Cobra CLI + Bubble Tea TUI
-protocol/       # MCP + AG-UI integrations
-server/         # Orchestrator, API, persistence
-app/          # Application lifecycle
-config/       # Config loading + validation
-db/           # SQLite persistence
-eventbus/     # Internal pub/sub
-httpapi/      # REST + SSE endpoints
-orchestrator/ # MicroVM scheduling
-setup/          # Host initialization
-shared/         # Logging, helpers, common utils
-
-build/            # Image pipeline + artifacts
-artifacts/
-images/
-
-Makefile          # Build + setup automation
-go.mod / go.sum   # Dependencies
-README.md         # This file
-
-docs/             # Documentation
-```
-</details>
-
----
-
-## 🧩 Development Setup
-
-<details>
-<summary>Expand</summary>
-
-1. Install **Go 1.22+**.  
-2. Export environment variables:  
-   - `VOLANT_KERNEL` — path to kernel image  
-   - `VOLANT_INITRAMFS` — path to initramfs bundle  
-   - `VOLANT_HOST_IP` — default: `192.168.127.1`  
-   - `VOLANT_RUNTIME_DIR` / `VOLANT_LOG_DIR` — sockets & logs  
-3. Build binaries:  
+1. **Author** a manifest (`name`, `version`, `runtime`, resource envelope, actions with method/path).
+2. **Package** kernel/initramfs bundles or additional artifacts referenced by the manifest.
+3. **Install** via `volar plugins install <name> --manifest path/to/manifest.json`.
+4. **Enable/disable** with `volar plugins enable <name>` or `volar plugins disable <name>`.
+5. **Call actions** using VM-scoped or global endpoints:
    ```bash
-   make build  
-   ```  
-4. Run dry-run host config:  
-   ```bash
-   volar setup --dry-run
-   sudo volar setup
-   ```  
-5. Build initramfs + kernel:  
-   ```bash
-   ./build/images/build-initramfs.sh
+   volar vms action <vm> <plugin> <action> --payload ./payload.json
+   volar plugins action <plugin> <action> --payload ./payload.json
    ```
-</details>
+
+The engine persists manifests, enforces enablement state, and resolves action routing so microVMs only run compatible runtimes.
 
 ---
 
-## 📖 Documentation
+## Repository layout
 
-→ [**docs.volant.cloud**](https://docs.volant.cloud) for guides, deep dives, and API reference.  
+```
+cmd/               # Entry points (volantd, volar, volary)
+internal/          # Control plane, agent runtime, CLI/TUI, protocols
+  agent/
+  cli/
+  protocol/
+  server/
+  setup/
+build/             # Kernel/initramfs tooling
+docs/              # Product documentation
+Makefile           # Build + setup automation
+go.mod / go.sum
+```
 
 ---
 
-## 🤝 Contributing
+## Development
 
-Contributions are welcome. PRs encouraged.  
+1. Install **Go 1.22+** and Docker.
+2. Build binaries: `make build` (or `make volantd volar volary`).
+3. Build artifacts (kernel/initramfs): `make build-images`.
+4. Run integration SQLite migrations: `make migrate`.
+5. Launch the control plane locally:
+   ```bash
+   ./bin/volantd --config ./configs/dev.yaml
+   ./bin/volar vms list
+   ```
+
+See `docs/guides/development.md` for deeper instructions.
 
 ---
 
-## 📜 License
+## Documentation
 
-Licensed under **Apache 2.0**. See [LICENSE](LICENSE).
+The latest guides live in [`docs/`](docs) and at [docs.volant.cloud](https://docs.volant.cloud) once published.
+
+Key entry points:
+- [Start here](docs/start/introduction.md)
+- [Plugin authoring](docs/guides/plugins.md)
+- [REST API](docs/api/rest-api.md)
+- [MCP interface](docs/api/mcp.md)
 
 ---
 
-<p align="center"><i>Volant — Defined by design, not discussion.</i></p>
+## Contributing
+
+Pull requests, issues, and plugin proposals are welcome. Please see `CONTRIBUTING.md` (coming soon) for workflow details.
+
+---
+
+## License
+
+Apache 2.0 – see [LICENSE](LICENSE).
+
+---
+
+<p align="center"><i>Volant — Build the runtime you need, without rebuilding the control plane.</i></p>

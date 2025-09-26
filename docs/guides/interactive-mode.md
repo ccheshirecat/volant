@@ -1,31 +1,69 @@
 ---
-title: Interactive Mode (Proxy)
-description: How to get a live, interactive view of a remote browser.
+title: Interactive Mode (Runtime Proxy)
+description: How to surface runtime-specific interactive sessions through the engine.
 ---
 
-# Interactive Mode: The DevTools Proxy
+# Interactive Mode
 
-One of Volant's most powerful features is the ability to get a live, fully interactive "remote desktop" session for any browser running inside a microVM. This is the ultimate tool for debugging, human-in-the-loop automation, and observability.
+Volant’s control plane can proxy arbitrary runtime endpoints exposed by plugins. While the engine ships without a browser runtime, the same mechanism is used by browser-focused plugins to surface Chrome DevTools, VNC views, or any custom interactive UI.
 
-## How it Works
+This page explains the engine-level plumbing; consult individual plugin documentation for concrete commands and payloads.
 
-The `volar browsers proxy` command creates a secure, multi-layered proxy that tunnels the Chrome DevTools Protocol (CDP) from the `headless-shell` process inside the VM all the way to your local machine. For quick integrations, `volar browsers stream` prints the raw WebSocket endpoint so other tools (including AI agents) can connect directly.
+---
 
-## Usage
+## How the proxy works
 
-1.  **Start the Proxy:**
-    In your terminal, run the proxy command, specifying the name of a running VM:
+When a plugin exposes an action (via its manifest) that returns a proxied URL or starts a long-lived tunnel, the engine:
+
+1. Resolves the manifest (`/api/v1/plugins/{plugin}/actions/{action}` or VM-scoped equivalent).
+2. Forwards the request to the agent running inside the microVM.
+3. Streams the response (HTTP/WebSocket/SSE) back to the caller, without ever exposing the microVM’s private IP.
+
+Plugins can register actions such as “open DevTools”, “start remote desktop”, or “expose debugger session”. From the engine perspective, they are just HTTP proxies.
+
+---
+
+## CLI workflow
+
+The engine CLI provides a generic action surface:
+
 ```bash
-    volar browsers stream my-first-vm
-    volar browsers proxy my-first-vm
+# Invoke a plugin action against a VM runtime
+volar vms actions <vm-name> <plugin> <action> --payload ./payload.json
+
+# Or call unscoped plugin actions (for pooled runtimes)
+volar plugins action <plugin> <action> --payload ./payload.json
 ```
-    The CLI will start a local server and print a message:
-    `✅ CDP proxy is live. Open http://localhost:9222 in your browser to inspect.`
 
-2.  **Connect Your Local Browser:**
-    Open a standard Chrome or Chromium browser on your laptop and navigate to `http://localhost:9222`.
+The structure of `payload.json` and the semantics of the response are defined by the plugin. Browser plugins, for example, typically return a local URL or begin streaming a proxied DevTools session.
 
-3.  **Inspect the Remote Target:**
-    You will see a list of the available browser tabs running inside the remote microVM. Click "inspect" on the one you want to control.
+> Tip: Run `volar plugins show <name>` to inspect a manifest and discover available actions.
 
-A new Chrome DevTools window will open. This window is a **live, pixel-perfect, and fully interactive stream** of the remote browser. You can click, type, inspect the DOM, and use the full power of the DevTools as if the browser were running locally.
+---
+
+## TUI integration
+
+The interactive TUI lets you issue the same action commands. Select a VM, open the command input, and run:
+
+```
+plugins action <plugin> <action> --payload '{"...": ...}'
+```
+
+Any events or logs emitted by the plugin runtime will appear in the log pane thanks to the event bus.
+
+---
+
+## Browser-specific workflows
+
+If you’re looking for the “open remote DevTools” or “start live browser session” commands referenced in earlier documentation, those now live in the browser plugin repository. Install the browser plugin and follow its CLI/TUI guide to enable interactive sessions.
+
+The base engine intentionally avoids bundling browser tooling so that other runtime plugins (AI inference, workers, etc.) can coexist without assumptions.
+
+---
+
+## Summary
+
+- Interactive capabilities are defined by plugins.
+- The engine proxies requests via `/api/v1/plugins/.../actions/...` and the matching CLI commands.
+- Use plugin manifests/docs to understand how to surface the runtime-specific UI you need.
+- Browser-centric interactive commands are part of the browser plugin distribution, not the core engine.

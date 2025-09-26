@@ -54,7 +54,7 @@ func Run(ctx context.Context) error {
 
 	runtimeName := strings.TrimSpace(cfg.Runtime)
 	if runtimeName == "" {
-		runtimeName = agentruntime.BrowserRuntimeName
+		return errors.New("runtime not specified")
 	}
 
 	opts := agentruntime.Options{
@@ -95,7 +95,6 @@ func (a *App) run(ctx context.Context) error {
 	router.Route("/v1", func(r chi.Router) {
 		r.Get("/devtools", a.handleDevTools)
 		r.Get("/logs/stream", a.handleLogs)
-		a.runtime.MountRoutes(r)
 	})
 
 	server := &http.Server{
@@ -108,11 +107,7 @@ func (a *App) run(ctx context.Context) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		if info, ok := a.runtime.DevToolsInfo(); ok {
-			a.log.Printf("listening on %s (devtools ws: %s)", a.cfg.ListenAddr, info.WebSocketURL)
-		} else {
-			a.log.Printf("listening on %s", a.cfg.ListenAddr)
-		}
+		a.log.Printf("listening on %s", a.cfg.ListenAddr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -134,12 +129,12 @@ func (a *App) run(ctx context.Context) error {
 func loadConfig() Config {
 	listen := envOrDefault(defaultListenEnvKey, defaultListenAddr)
 	runtimeName := envOrDefault(defaultRuntimeEnvKey, "")
-	remoteAddr := envOrDefault(defaultRemoteAddrKey, agentruntime.DefaultRemoteAddr)
-	remotePort := envIntOrDefault(defaultRemotePortKey, agentruntime.DefaultRemotePort)
+	remoteAddr := os.Getenv(defaultRemoteAddrKey)
+	remotePort := envIntOrDefault(defaultRemotePortKey, 0)
 	userDataDir := os.Getenv(defaultUserDataDirKey)
 	execPath := os.Getenv(defaultExecPathKey)
 
-	defaultTimeout := parseDurationEnv(defaultTimeoutEnvKey, agentruntime.DefaultActionTimeout)
+	defaultTimeout := parseDurationEnv(defaultTimeoutEnvKey, 0)
 
 	return Config{
 		ListenAddr:          listen,
@@ -189,46 +184,11 @@ func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDevTools(w http.ResponseWriter, r *http.Request) {
-	info, ok := a.runtime.DevToolsInfo()
-	if !ok {
-		errorJSON(w, http.StatusNotFound, errors.New("runtime does not expose devtools"))
-		return
-	}
-	respondJSON(w, http.StatusOK, info)
+	errorJSON(w, http.StatusNotFound, errors.New("runtime does not expose devtools"))
 }
 
 func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		errorJSON(w, http.StatusInternalServerError, errors.New("streaming unsupported"))
-		return
-	}
-
-	ch, unsubscribe := a.runtime.SubscribeLogs(128)
-	defer unsubscribe()
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	ctx := r.Context()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case event, ok := <-ch:
-			if !ok {
-				return
-			}
-			data, err := json.Marshal(event)
-			if err != nil {
-				a.log.Printf("log stream marshal error: %v", err)
-				continue
-			}
-			fmt.Fprintf(w, "data: %s\n\n", data)
-			flusher.Flush()
-		}
-	}
+	errorJSON(w, http.StatusNotFound, errors.New("runtime does not expose log streaming"))
 }
 
 func respondJSON(w http.ResponseWriter, status int, payload any) {
