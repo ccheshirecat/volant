@@ -3,7 +3,7 @@ info:
   title: Volant REST API
   version: 1.0.0
   description: >-
-    REST interface for the Volant microVM automation platform.
+    REST interface for the Volant microVM orchestration engine.
     All endpoints default to `http://127.0.0.1:7777`.
   contact:
     name: API Support
@@ -47,7 +47,7 @@ paths:
   /api/v1/vms:
     get:
       summary: List VMs
-      description: Retrieves a list of all virtual machines managed by the platform, including their metadata.
+      description: Retrieves a list of all virtual machines managed by the platform.
       operationId: listVMs
       tags: [vm]
       responses:
@@ -59,18 +59,6 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/VM'
-                example:
-                  - id: 1
-                    name: "demo-vm-1"
-                    status: "running"
-                    ip_address: "192.168.1.10"
-                    mac_address: "00:11:22:33:44:55"
-                    cpu_cores: 2
-                    memory_mb: 2048
-                    kernel_cmdline: "console=ttyS0"
-                    pid: 12345
-                    created_at: "2023-10-27T10:00:00Z"
-                    updated_at: "2023-10-27T10:05:00Z"
         '500':
           $ref: '#/components/responses/InternalError'
     post:
@@ -118,7 +106,7 @@ paths:
           $ref: '#/components/responses/InternalError'
     delete:
       summary: Destroy VM
-      description: Stops and permanently deletes a virtual machine identified by its name. This action is irreversible.
+      description: Stops and permanently deletes a virtual machine identified by its name.
       operationId: destroyVM
       tags: [vm]
       responses:
@@ -140,7 +128,7 @@ paths:
         example: "exec"
     post:
       summary: Proxy requests to volary
-      description: Forwards a request to the volary running inside the specified VM. This is used for executing commands, managing files, and other agent-based interactions.
+      description: Forwards a request to the agent running inside the specified VM.
       operationId: proxyAgentRequest
       tags: [agent]
       requestBody:
@@ -148,8 +136,6 @@ paths:
           application/json:
             schema:
               type: object
-              example:
-                command: ["ls", "-la"]
       responses:
         '200':
           description: Agent response
@@ -157,16 +143,39 @@ paths:
             application/json:
               schema:
                 type: object
-                example:
-                  stdout: "total 8\ndrwxr-xr-x 2 root root 4096 Oct 27 10:00 .\n"
-                  stderr: ""
-                  exit_code: 0
         '502':
           $ref: '#/components/responses/BadGateway'
+  /api/v1/vms/{name}/actions/{plugin}/{action}:
+    parameters:
+      - $ref: '#/components/parameters/VMName'
+      - $ref: '#/components/parameters/PluginName'
+      - $ref: '#/components/parameters/ActionName'
+    post:
+      summary: Dispatch plugin action to VM
+      description: Resolves a plugin manifest and forwards the action payload to the runtime agent inside the VM.
+      operationId: invokePluginActionScoped
+      tags: [plugins]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginActionPayload'
+      responses:
+        '200':
+          description: Plugin action response
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/v1/events/vms:
     get:
       summary: Stream VM lifecycle events (SSE)
-      description: Establishes a Server-Sent Events (SSE) connection to stream real-time lifecycle events for all VMs, such as creation, termination, and status changes.
+      description: Establishes a Server-Sent Events (SSE) connection to stream real-time lifecycle events for all VMs.
       operationId: streamVMEvents
       tags: [events]
       responses:
@@ -176,6 +185,117 @@ paths:
             text/event-stream:
               schema:
                 $ref: '#/components/schemas/VMEvent'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/plugins:
+    get:
+      summary: List plugin manifests
+      description: Returns the identifiers of all plugin manifests currently registered with the engine.
+      operationId: listPlugins
+      tags: [plugins]
+      responses:
+        '200':
+          description: Plugin identifiers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginListResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      summary: Install plugin manifest
+      description: Installs or updates a plugin manifest. The manifest is persisted and loaded on subsequent daemon starts.
+      operationId: installPlugin
+      tags: [plugins]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginManifest'
+      responses:
+        '201':
+          description: Manifest installed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/plugins/{plugin}:
+    parameters:
+      - $ref: '#/components/parameters/PluginName'
+    get:
+      summary: Fetch plugin manifest
+      description: Retrieves the manifest metadata for the specified plugin.
+      operationId: getPlugin
+      tags: [plugins]
+      responses:
+        '200':
+          description: Plugin manifest metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginManifest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      summary: Remove plugin manifest
+      description: Removes the manifest from persistent storage and the in-memory registry.
+      operationId: deletePlugin
+      tags: [plugins]
+      responses:
+        '204':
+          description: Manifest removed
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/plugins/{plugin}/enabled:
+    parameters:
+      - $ref: '#/components/parameters/PluginName'
+    post:
+      summary: Enable or disable plugin manifest
+      description: Toggles whether the plugin manifest is active for routing requests.
+      operationId: setPluginEnabled
+      tags: [plugins]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginEnableRequest'
+      responses:
+        '200':
+          description: Updated enablement state
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/plugins/{plugin}/actions/{action}:
+    parameters:
+      - $ref: '#/components/parameters/PluginName'
+      - $ref: '#/components/parameters/ActionName'
+    post:
+      summary: Dispatch plugin action (unscoped)
+      description: Resolves the specified plugin manifest and proxies the action to the runtime. Useful for runtimes that are not scoped to a specific VM (e.g., pooled services).
+      operationId: invokePluginAction
+      tags: [plugins]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginActionPayload'
+      responses:
+        '200':
+          description: Plugin action response
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
   /api/v1/mcp:
@@ -201,75 +321,38 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
-  /ws/v1/vms/{name}/devtools/{devToolsPath}:
-    get:
-      summary: Proxy Chrome DevTools WebSocket
-      description: Upgrades the connection to a WebSocket and proxies it to the Chrome DevTools endpoint of the agent inside the specified VM.
-      operationId: proxyDevToolsWebSocket
-      tags: [agent]
-      parameters:
-        - $ref: '#/components/parameters/VMName'
-        - name: devToolsPath
-          in: path
-          required: true
-          schema:
-            type: string
-          example: "json/version"
-      responses:
-        '101':
-          description: WebSocket Upgrade
-        '204':
-          description: Success response for linter compatibility. The actual success code is 101.
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '502':
-          $ref: '#/components/responses/BadGateway'
-  /ws/v1/vms/{name}/logs:
-    get:
-      summary: Stream agent logs as WebSocket JSON payloads
-      description: Upgrades the connection to a WebSocket to stream logs directly from the volary running inside the specified VM.
-      operationId: streamAgentLogs
-      tags: [agent]
-      parameters:
-        - $ref: '#/components/parameters/VMName'
-      responses:
-        '101':
-          description: WebSocket Upgrade
-        '204':
-          description: Success response for linter compatibility. The actual success code is 101.
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '502':
-          $ref: '#/components/responses/BadGateway'
-  /ws/v1/agui:
-    get:
-      summary: Stream AG-UI events
-      description: Upgrades the connection to a WebSocket to stream AG-UI events.
-      operationId: streamAGUIEvents
-      tags: [agui]
-      responses:
-        '101':
-          description: WebSocket Upgrade streaming AG-UI events
-        '204':
-          description: Success response for linter compatibility. The actual success code is 101.
 components:
   parameters:
     VMName:
       name: name
       in: path
       required: true
+      description: VM name
       schema:
         type: string
-      example: demo
+    PluginName:
+      name: plugin
+      in: path
+      required: true
+      description: Plugin identifier
+      schema:
+        type: string
+    ActionName:
+      name: action
+      in: path
+      required: true
+      description: Action identifier exposed by the plugin manifest
+      schema:
+        type: string
   responses:
     BadRequest:
-      description: Invalid request payload or parameters
+      description: Bad request
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     Conflict:
-      description: Resource conflict
+      description: Conflict
       content:
         application/json:
           schema:
@@ -281,13 +364,13 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     InternalError:
-      description: Server error
+      description: Internal server error
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     BadGateway:
-      description: Upstream agent error
+      description: Downstream error contacting agent runtime
       content:
         application/json:
           schema:
@@ -298,15 +381,15 @@ components:
       properties:
         vm_count:
           type: integer
-          example: 3
+          example: 4
         cpu_percent:
           type: number
           format: float
-          example: 42.5
+          example: 37.42
         mem_percent:
           type: number
           format: float
-          example: 58.1
+          example: 62.17
     VM:
       type: object
       properties:
@@ -316,7 +399,12 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, running, stopped, crashed]
+        runtime:
+          type: string
+          description: Runtime identifier selected for the VM
+        pid:
+          type: integer
+          nullable: true
         ip_address:
           type: string
         mac_address:
@@ -327,8 +415,6 @@ components:
           type: integer
         kernel_cmdline:
           type: string
-        pid:
-          type: integer
           nullable: true
         created_at:
           type: string
@@ -338,24 +424,15 @@ components:
           type: string
           format: date-time
           nullable: true
-      example:
-        id: 1
-        name: "demo-vm"
-        status: "running"
-        ip_address: "192.168.1.10"
-        mac_address: "00:11:22:33:44:55"
-        cpu_cores: 2
-        memory_mb: 2048
-        kernel_cmdline: "console=ttyS0"
-        pid: 12345
-        created_at: "2023-10-27T10:00:00Z"
-        updated_at: "2023-10-27T10:05:00Z"
     CreateVMRequest:
       type: object
       required: [name, cpu_cores, memory_mb]
       properties:
         name:
           type: string
+        runtime:
+          type: string
+          description: Optional runtime/plugin identifier. Defaults to `browser` if omitted.
         cpu_cores:
           type: integer
           minimum: 1
@@ -364,11 +441,7 @@ components:
           minimum: 64
         kernel_cmdline:
           type: string
-      example:
-        name: "new-web-server"
-        cpu_cores: 4
-        memory_mb: 4096
-        kernel_cmdline: "ro console=ttyS0"
+          nullable: true
     VMEvent:
       type: object
       properties:
@@ -380,99 +453,97 @@ components:
           type: string
         ip_address:
           type: string
+        message:
+          type: string
         timestamp:
           type: string
           format: date-time
-        message:
-          type: string
-        stream:
-          type: string
-          nullable: true
-        line:
-          type: string
-          nullable: true
-      example:
-        type: "vm_status_change"
-        name: "demo-vm"
-        status: "crashed"
-        ip_address: "192.168.1.10"
-        timestamp: "2023-10-27T11:00:00Z"
-        message: "VM process exited with non-zero status"
-        stream: null
-        line: null
-    Error:
-      type: object
-      properties:
-        error:
-          type: string
-      example:
-        error: "VM with name 'demo' not found."
     MCPRequest:
       type: object
-      required: [command]
       properties:
         command:
           type: string
         params:
           type: object
           additionalProperties: true
-      example:
-        command: "filesystem.read"
-        params:
-          path: "/etc/hostname"
     MCPResponse:
       type: object
       properties:
         result:
-          nullable: true
+          type: object
+          additionalProperties: true
         error:
           type: string
           nullable: true
-      example:
-        result: "volant-vm"
-        error: null
-    AGUIEvent:
-      oneOf:
-        - $ref: '#/components/schemas/RunStartedEvent'
-        - $ref: '#/components/schemas/TextMessageEvent'
-        - $ref: '#/components/schemas/RunFinishedEvent'
-      example:
-        type: "text"
-        text: "Processing complete."
-    RunStartedEvent:
+    PluginListResponse:
       type: object
       properties:
-        type:
-          type: string
-          enum: [run_started]
-        id:
-          type: string
+        plugins:
+          type: array
+          items:
+            type: string
+    PluginManifest:
+      type: object
+      required: [name, version, runtime]
+      properties:
         name:
           type: string
-      example:
-        type: "run_started"
-        id: "run-1234f"
-        name: "Data Processing Job"
-    TextMessageEvent:
+        version:
+          type: string
+        runtime:
+          type: string
+        enabled:
+          type: boolean
+          default: true
+        image:
+          type: string
+          nullable: true
+        resources:
+          type: object
+          nullable: true
+          properties:
+            cpu_cores:
+              type: integer
+            memory_mb:
+              type: integer
+        actions:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/PluginAction'
+        openapi:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+    PluginAction:
       type: object
       properties:
-        type:
+        description:
           type: string
-          enum: [text]
-        text:
+        method:
           type: string
-      example:
-        type: "text"
-        text: "Step 1 of 3 completed."
-    RunFinishedEvent:
+        path:
+          type: string
+        timeout_ms:
+          type: integer
+    PluginEnableRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+    PluginActionPayload:
+      type: object
+      description: Arbitrary request body forwarded to the plugin runtime. Structure depends on the plugin-specific contract.
+      additionalProperties: true
+    Error:
       type: object
       properties:
-        type:
+        error:
           type: string
-          enum: [run_finished]
-        output:
-          type: string
-      example:
-        type: "run_finished"
-        output: "Job finished successfully with result: 42"
+        details:
+          type: object
+          additionalProperties: true
         
