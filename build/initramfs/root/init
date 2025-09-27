@@ -1,0 +1,54 @@
+#!/bin/sh
+set -eu
+
+log() { printf "[INIT] %s\n" "$1"; }
+
+mount -t devtmpfs devtmpfs /dev
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t tmpfs tmpfs /run
+
+# Basic console setup
+[ -c /dev/console ] || mknod -m 600 /dev/console c 5 1
+exec 0</dev/console 1>/dev/console 2>/dev/console
+
+log "booting universal volant kernel"
+
+# Stage volary into target rootfs once it’s available
+STAGING_SCRIPT=/scripts/stage-volary.sh
+
+# Wait for the primary disk
+for _ in $(seq 1 30); do
+    [ -b /dev/vda ] && break
+    sleep 1
+done
+
+if [ ! -b /dev/vda ]; then
+    log "no /dev/vda found; dropping to rescue shell"
+    exec sh
+fi
+
+mkdir -p /sysroot
+mount -t ext4 -o ro /dev/vda /sysroot 2>/dev/null || \
+mount -t xfs -o ro /dev/vda /sysroot 2>/dev/null || \
+mount -t btrfs -o ro /dev/vda /sysroot 2>/dev/null || true
+
+if ! mountpoint -q /sysroot; then
+    log "failed to mount /dev/vda; dropping to rescue shell"
+    exec sh
+fi
+
+# Remount read/write if possible
+mount -o remount,rw /sysroot 2>/dev/null || log "rootfs is read-only"
+
+[ -x "$STAGING_SCRIPT" ] && "$STAGING_SCRIPT" /sysroot || log "stage-volary missing"
+
+if [ ! -x /sysroot/usr/local/bin/volary ]; then
+    log "volary missing after staging; rescue shell"
+    exec sh
+fi
+
+log "switching root"
+cd /sysroot
+umount /proc /sys /dev 2>/dev/null || true
+exec switch_root /sysroot /usr/local/bin/volary
