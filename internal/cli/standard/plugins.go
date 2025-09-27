@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ccheshirecat/volant/internal/server/plugins"
+	"github.com/ccheshirecat/volant/internal/pluginspec"
 )
 
 func newPluginsCmd() *cobra.Command {
@@ -121,7 +121,7 @@ func newPluginsInstallCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var manifest plugins.Manifest
+			var manifest pluginspec.Manifest
 			if err := json.Unmarshal(data, &manifest); err != nil {
 				return fmt.Errorf("decode manifest: %w", err)
 			}

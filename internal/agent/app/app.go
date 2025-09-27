@@ -1,11 +1,14 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -15,6 +18,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	agentruntime "github.com/ccheshirecat/volant/internal/agent/runtime"
+	"github.com/ccheshirecat/volant/internal/pluginspec"
 )
 
 const (
@@ -39,12 +43,14 @@ type Config struct {
 }
 
 type App struct {
-	cfg     Config
-	runtime agentruntime.Runtime
-	server  *http.Server
-	timeout time.Duration
-	log     *log.Logger
-	started time.Time
+	cfg      Config
+	runtime  agentruntime.Runtime
+	server   *http.Server
+	timeout  time.Duration
+	log      *log.Logger
+	started  time.Time
+	manifest *pluginspec.Manifest
+	client   *http.Client
 }
 
 func Run(ctx context.Context) error {
@@ -56,6 +62,11 @@ func Run(ctx context.Context) error {
 		return errors.New("runtime not specified")
 	}
 
+	manifest, err := resolveManifest()
+	if err != nil {
+		return err
+	}
+
 	opts := agentruntime.Options{
 		DefaultTimeout: cfg.DefaultTimeout,
 		Config: map[string]string{
@@ -65,6 +76,9 @@ func Run(ctx context.Context) error {
 			"exec_path":             cfg.ExecPath,
 		},
 	}
+	if manifest != nil {
+		opts.Manifest = manifest
+	}
 
 	runtimeInstance, err := agentruntime.New(ctx, runtimeName, opts)
 	if err != nil {
@@ -73,11 +87,13 @@ func Run(ctx context.Context) error {
 	defer runtimeInstance.Shutdown(context.Background())
 
 	app := &App{
-		cfg:     cfg,
-		runtime: runtimeInstance,
-		timeout: cfg.DefaultTimeout,
-		log:     logger,
-		started: time.Now().UTC(),
+		cfg:      cfg,
+		runtime:  runtimeInstance,
+		timeout:  cfg.DefaultTimeout,
+		log:      logger,
+		started:  time.Now().UTC(),
+		manifest: manifest,
+		client:   &http.Client{Timeout: cfg.DefaultTimeout + 30*time.Second},
 	}
 	return app.run(ctx)
 }
@@ -94,6 +110,12 @@ func (a *App) run(ctx context.Context) error {
 	router.Route("/v1", func(r chi.Router) {
 		r.Get("/devtools", a.handleDevTools)
 		r.Get("/logs/stream", a.handleLogs)
+		if err := a.mountRuntimeRoutes(r); err != nil {
+			a.log.Printf("runtime route mount error: %v", err)
+		}
+		if err := a.mountManifestRoutes(r); err != nil {
+			a.log.Printf("manifest route mount error: %v", err)
+		}
 	})
 
 	server := &http.Server{
@@ -146,6 +168,36 @@ func loadConfig() Config {
 	}
 }
 
+func resolveManifest() (*pluginspec.Manifest, error) {
+	if encoded := strings.TrimSpace(os.Getenv("VOLANT_MANIFEST")); encoded != "" {
+		manifest, err := pluginspec.Decode(encoded)
+		if err != nil {
+			return nil, err
+		}
+		return &manifest, nil
+	}
+
+	data, err := os.ReadFile("/proc/cmdline")
+	if err != nil {
+		return nil, err
+	}
+	fields := strings.Fields(string(data))
+	for _, field := range fields {
+		parts := strings.SplitN(field, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if parts[0] == pluginspec.CmdlineKey {
+			manifest, err := pluginspec.Decode(parts[1])
+			if err != nil {
+				return nil, err
+			}
+			return &manifest, nil
+		}
+	}
+	return nil, nil
+}
+
 func envOrDefault(key, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 		return value
@@ -188,6 +240,120 @@ func (a *App) handleDevTools(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
 	errorJSON(w, http.StatusNotFound, errors.New("runtime does not expose log streaming"))
+}
+
+func (a *App) mountRuntimeRoutes(r chi.Router) error {
+	adapter := runtimeRouter{Router: r}
+	if aware, ok := a.runtime.(agentruntime.ManifestAware); ok && a.manifest != nil {
+		return aware.MountRoutesWithManifest(adapter, *a.manifest)
+	}
+	return a.runtime.MountRoutes(adapter)
+}
+
+func (a *App) mountManifestRoutes(router chi.Router) error {
+	if a.manifest == nil {
+		return nil
+	}
+	if strings.TrimSpace(strings.ToLower(a.manifest.Workload.Type)) != "http" {
+		return nil
+	}
+	baseURL := strings.TrimSpace(a.manifest.Workload.BaseURL)
+	if baseURL == "" {
+		return nil
+	}
+	parsedBase, err := url.Parse(baseURL)
+	if err != nil {
+		return err
+	}
+
+	for actionName, action := range a.manifest.Actions {
+		method := strings.ToUpper(strings.TrimSpace(action.Method))
+		if method == "" {
+			method = http.MethodPost
+		}
+		path := strings.TrimSpace(action.Path)
+		if path == "" {
+			continue
+		}
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+
+		var routeTimeout time.Duration
+		if action.TimeoutMs > 0 {
+			routeTimeout = time.Duration(action.TimeoutMs) * time.Millisecond
+		} else {
+			routeTimeout = a.timeout
+		}
+
+		handler := a.forwardManifestAction(parsedBase, path, routeTimeout, actionName)
+		router.MethodFunc(method, path, handler)
+	}
+	return nil
+}
+
+func (a *App) forwardManifestAction(base *url.URL, actionPath string, timeout time.Duration, actionName string) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		ctx := req.Context()
+		if timeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+		}
+
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			errorJSON(w, http.StatusBadRequest, err)
+			return
+		}
+		_ = req.Body.Close()
+
+		rel := &url.URL{Path: actionPath, RawQuery: req.URL.RawQuery}
+		target := base.ResolveReference(rel)
+
+		proxyReq, err := http.NewRequestWithContext(ctx, req.Method, target.String(), bytes.NewReader(body))
+		if err != nil {
+			errorJSON(w, http.StatusBadGateway, err)
+			return
+		}
+		copyHeaders(proxyReq.Header, req.Header)
+
+		resp, err := a.client.Do(proxyReq)
+		if err != nil {
+			errorJSON(w, http.StatusBadGateway, err)
+			return
+		}
+		defer resp.Body.Close()
+
+		copyHeaders(w.Header(), resp.Header)
+		w.WriteHeader(resp.StatusCode)
+		if _, err := io.Copy(w, resp.Body); err != nil {
+			a.log.Printf("manifest action %s proxy error: %v", actionName, err)
+		}
+	}
+}
+
+func copyHeaders(dst, src http.Header) {
+	dst.Del("Host")
+	for key, values := range src {
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
+}
+
+type runtimeRouter struct {
+	chi.Router
+}
+
+func (rr runtimeRouter) Route(prefix string, fn func(agentruntime.Router)) {
+	rr.Router.Route(prefix, func(r chi.Router) {
+		fn(runtimeRouter{Router: r})
+	})
+}
+
+func (rr runtimeRouter) Handle(method, path string, handler http.Handler) {
+	rr.Router.Method(method, path, handler)
 }
 
 func respondJSON(w http.ResponseWriter, status int, payload any) {

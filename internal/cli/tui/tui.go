@@ -1006,6 +1006,8 @@ func (m *model) planCommand(parts []string) (commandPlan, error) {
 			cpu := defaultCreateCPUCores
 			mem := defaultCreateMemoryMB
 			kernelCmdline := ""
+			pluginName := ""
+			runtimeFlag := ""
 
 			flags := parts[3:]
 			for i := 0; i < len(flags); i++ {
@@ -1046,16 +1048,38 @@ func (m *model) planCommand(parts []string) (commandPlan, error) {
 				case token == "--kernel-cmdline" && i+1 < len(flags):
 					i++
 					kernelCmdline = flags[i]
+				case strings.HasPrefix(token, "--plugin="):
+					pluginName = strings.TrimSpace(strings.TrimPrefix(token, "--plugin="))
+				case token == "--plugin" && i+1 < len(flags):
+					i++
+					pluginName = strings.TrimSpace(flags[i])
 				default:
 					return commandPlan{}, fmt.Errorf("unknown flag %q", token)
 				}
 			}
 
+			if pluginName == "" {
+				return commandPlan{}, fmt.Errorf("vms create requires --plugin")
+			}
+
 			return commandPlan{
 				label: fmt.Sprintf("vms create %s", name),
 				action: func(ctx context.Context, api *client.Client) ([]string, error) {
+					manifest, err := api.DescribePlugin(ctx, pluginName)
+					if err != nil {
+						return nil, err
+					}
+					runtimeName := strings.TrimSpace(runtimeFlag)
+					if runtimeName == "" {
+						runtimeName = strings.TrimSpace(manifest.Runtime)
+					}
+					if runtimeName == "" {
+						return nil, fmt.Errorf("plugin %s does not define a runtime", pluginName)
+					}
 					req := client.CreateVMRequest{
 						Name:          name,
+						Plugin:        pluginName,
+						Runtime:       runtimeName,
 						CPUCores:      cpu,
 						MemoryMB:      mem,
 						KernelCmdline: kernelCmdline,

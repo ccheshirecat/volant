@@ -21,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
+	"github.com/ccheshirecat/volant/internal/pluginspec"
 	"github.com/ccheshirecat/volant/internal/protocol/agui"
 	"github.com/ccheshirecat/volant/internal/server/db"
 	"github.com/ccheshirecat/volant/internal/server/eventbus"
@@ -129,14 +130,14 @@ func loadStoredPlugins(engine orchestrator.Engine, logger *slog.Logger, registry
 			return err
 		}
 		for _, entry := range entries {
-			var manifest plugins.Manifest
+			var manifest pluginspec.Manifest
 			if len(entry.Metadata) > 0 {
 				if err := json.Unmarshal(entry.Metadata, &manifest); err != nil {
 					logger.Warn("decode plugin manifest", "plugin", entry.Name, "error", err)
 					continue
 				}
 			} else {
-				manifest = plugins.Manifest{Name: entry.Name, Version: entry.Version}
+				manifest = pluginspec.Manifest{Name: entry.Name, Version: entry.Version}
 			}
 			manifest.Enabled = entry.Enabled
 			registry.Register(manifest)
@@ -256,6 +257,7 @@ type graphqlActionRequest struct {
 
 type createVMRequest struct {
 	Name          string `json:"name" binding:"required"`
+	Plugin        string `json:"plugin" binding:"required"`
 	Runtime       string `json:"runtime"`
 	CPUCores      int    `json:"cpu_cores" binding:"required,min=1"`
 	MemoryMB      int    `json:"memory_mb" binding:"required,min=64"`
@@ -340,12 +342,34 @@ func (api *apiServer) createVM(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	pluginName := strings.TrimSpace(req.Plugin)
+	manifest, ok := api.plugins.Get(pluginName)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("plugin %s not found", pluginName)})
+		return
+	}
+	if !manifest.Enabled {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("plugin %s disabled", pluginName)})
+		return
+	}
+	labels := cloneLabelMap(manifest.Labels)
+	manifestCopy := manifest
+	manifestCopy.Labels = labels
+	if strings.TrimSpace(req.Runtime) == "" {
+		req.Runtime = manifestCopy.Runtime
+	}
+	if strings.TrimSpace(req.Runtime) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "runtime not specified and plugin manifest missing runtime"})
+		return
+	}
 	vm, err := api.engine.CreateVM(c.Request.Context(), orchestrator.CreateVMRequest{
 		Name:              req.Name,
 		Runtime:           req.Runtime,
 		CPUCores:          req.CPUCores,
 		MemoryMB:          req.MemoryMB,
 		KernelCmdlineHint: req.KernelCmdline,
+		KernelArgs:        cloneLabelMap(labels),
+		Manifest:          &manifestCopy,
 	})
 	if err != nil {
 		api.logger.Error("create vm", "vm", req.Name, "error", err)
@@ -491,10 +515,25 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 		if !ok {
 			err = fmt.Errorf("name param required")
 		} else {
+			runtime := "browser"
+			if raw, exists := req.Params["runtime"].(string); exists {
+				runtime = strings.TrimSpace(raw)
+			}
+			manifest, ok := api.plugins.Get(runtime)
+			if !ok || !manifest.Enabled {
+				err = fmt.Errorf("runtime %s unavailable", runtime)
+				break
+			}
+			manifestCopy := manifest
+			labels := cloneLabelMap(manifest.Labels)
+			manifestCopy.Labels = labels
 			vm, e := api.engine.CreateVM(ctx, orchestrator.CreateVMRequest{
-				Name:     name,
-				CPUCores: 2,
-				MemoryMB: 2048,
+				Name:       name,
+				Runtime:    runtime,
+				CPUCores:   2,
+				MemoryMB:   2048,
+				Manifest:   &manifestCopy,
+				KernelArgs: labels,
 			})
 			if e != nil {
 				err = e
@@ -1230,7 +1269,7 @@ func (api *apiServer) resolveVMByName(c *gin.Context, name string) (*db.VM, bool
 	return vm, true
 }
 
-func (api *apiServer) forwardPluginAction(ctx context.Context, manifest plugins.Manifest, method, path string, payload map[string]any) (map[string]any, error) {
+func (api *apiServer) forwardPluginAction(ctx context.Context, manifest pluginspec.Manifest, method, path string, payload map[string]any) (map[string]any, error) {
 	// placeholder for future non-VM plugin action dispatch (e.g. pooled runtimes)
 	return map[string]any{"status": "accepted"}, nil
 }
@@ -1270,7 +1309,7 @@ func (api *apiServer) installPlugin(c *gin.Context) {
 		return
 	}
 
-	var manifest plugins.Manifest
+	var manifest pluginspec.Manifest
 	if err := c.ShouldBindJSON(&manifest); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -1331,7 +1370,7 @@ func (api *apiServer) setPluginEnabled(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-func (api *apiServer) persistPluginManifest(ctx context.Context, manifest plugins.Manifest, enabled bool) error {
+func (api *apiServer) persistPluginManifest(ctx context.Context, manifest pluginspec.Manifest, enabled bool) error {
 	store := api.engine.Store()
 	if store == nil {
 		return fmt.Errorf("store not configured")
@@ -1384,4 +1423,51 @@ func (api *apiServer) togglePlugin(ctx context.Context, name string, enabled boo
 		}
 		return nil
 	})
+}
+
+func cloneLabelMap(labels map[string]string) map[string]string {
+	if len(labels) == 0 {
+		return nil
+	}
+	dup := make(map[string]string, len(labels))
+	for key, value := range labels {
+		dup[key] = value
+	}
+	return dup
+}
+
+func (api *apiServer) mountManifestRoutes(router *gin.RouterGroup, vm *db.VM, manifest pluginspec.Manifest) {
+	for _, action := range manifest.Actions {
+		method := strings.ToUpper(strings.TrimSpace(action.Method))
+		if method == "" {
+			method = http.MethodPost
+		}
+		path := strings.TrimSpace(action.Path)
+		if path == "" {
+			continue
+		}
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+		actionPath := path
+		actionMethod := method
+
+		router.Handle(actionMethod, actionPath, func(c *gin.Context) {
+			var payload map[string]any
+			if err := c.ShouldBindJSON(&payload); err != nil && !errors.Is(err, io.EOF) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			if err := api.agentAction(c, vm, actionMethod, actionPath, payload, nil); err != nil {
+				return
+			}
+			c.Status(http.StatusAccepted)
+		})
+	}
+}
+
+func (api *apiServer) handleManifestAction(ctx context.Context, w http.ResponseWriter, req *http.Request, vm *db.VM, manifest pluginspec.Manifest, actionName string, action pluginspec.Action) {
+	// Placeholder: full implementation forthcoming
+	w.WriteHeader(http.StatusNotImplemented)
+	_, _ = w.Write([]byte("manifest action proxy not implemented"))
 }

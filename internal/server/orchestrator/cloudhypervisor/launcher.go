@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -81,11 +82,30 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		"--memory", fmt.Sprintf("size=%dM", spec.MemoryMB),
 		"--kernel", kernelCopy,
 		"--initramfs", initramfsCopy,
-		"--cmdline", spec.KernelCmdline,
 		"--net", fmt.Sprintf("tap=%s,mac=%s", spec.TapDevice, spec.MACAddress),
 		"--serial", "tty",
 		"--console", "off",
 	}
+
+	cmdline := spec.KernelCmdline
+	if len(spec.Args) > 0 {
+		appendix := make([]string, 0, len(spec.Args))
+		for key, value := range spec.Args {
+			key = strings.TrimSpace(key)
+			if key == "" {
+				continue
+			}
+			if strings.TrimSpace(value) == "" {
+				appendix = append(appendix, key)
+				continue
+			}
+			appendix = append(appendix, fmt.Sprintf("%s=%s", key, strings.TrimSpace(value)))
+		}
+		if len(appendix) > 0 {
+			cmdline = strings.TrimSpace(cmdline + " " + strings.Join(appendix, " "))
+		}
+	}
+	args = append(args, "--cmdline", cmdline)
 
 	select {
 	case <-ctx.Done():

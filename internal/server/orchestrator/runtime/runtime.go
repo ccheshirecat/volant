@@ -13,6 +13,7 @@ type LaunchSpec struct {
 	IPAddress     string
 	Gateway       string
 	Netmask       string
+	Args          map[string]string
 }
 
 // Instance represents a running hypervisor process.

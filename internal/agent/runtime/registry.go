@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/ccheshirecat/volant/internal/pluginspec"
 )
 
 // Options captures configuration passed to a runtime implementation.
 type Options struct {
 	DefaultTimeout time.Duration
 	Config         map[string]string
+	Manifest       *pluginspec.Manifest
 }
 
 // Factory constructs a runtime instance.
