@@ -13,16 +13,14 @@ import (
 
 // Options controls the behaviour of the setup routine.
 type Options struct {
-	BridgeName    string
-	SubnetCIDR    string
-	HostCIDR      string
-	DryRun        bool
-	RuntimeDir    string
-	LogDir        string
-	ServicePath   string
-	BinaryPath    string
-	KernelPath    string
-	InitramfsPath string
+	BridgeName  string
+	SubnetCIDR  string
+	HostCIDR    string
+	DryRun      bool
+	RuntimeDir  string
+	LogDir      string
+	ServicePath string
+	BinaryPath  string
 }
 
 // Result collects output and executed commands.
@@ -88,14 +86,6 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("expand log dir: %w", err)
 	}
-	kernelPath, err := expand(opts.KernelPath)
-	if err != nil {
-		return nil, fmt.Errorf("expand kernel path: %w", err)
-	}
-	initramfsPath, err := expand(opts.InitramfsPath)
-	if err != nil {
-		return nil, fmt.Errorf("expand initramfs path: %w", err)
-	}
 	binaryPath, err := expand(opts.BinaryPath)
 	if err != nil {
 		return nil, fmt.Errorf("expand binary path: %w", err)
@@ -152,7 +142,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	if opts.ServicePath != "" {
-		if err := writeServiceFile(binaryPath, kernelPath, initramfsPath, opts, runtimeDir, logDir, opts.DryRun, res); err != nil {
+		if err := writeServiceFile(binaryPath, opts, runtimeDir, logDir, opts.DryRun, res); err != nil {
 			return nil, err
 		}
 	}
@@ -220,18 +210,9 @@ func writeFile(path, data string, dryRun bool, res *Result) error {
 	return os.WriteFile(path, []byte(data), 0o644)
 }
 
-func writeServiceFile(binaryPath, kernelPath, initramfsPath string, opts Options, runtimeDir, logDir string, dryRun bool, res *Result) error {
+func writeServiceFile(binaryPath string, opts Options, runtimeDir, logDir string, dryRun bool, res *Result) error {
 	if binaryPath == "" {
 		return errors.New("server binary path required when writing service file")
-	}
-	if kernelPath == "" || initramfsPath == "" {
-		return errors.New("kernel and initramfs paths are required when writing service file")
-	}
-	if err := ensureFile(kernelPath); err != nil {
-		return fmt.Errorf("kernel path invalid: %w", err)
-	}
-	if err := ensureFile(initramfsPath); err != nil {
-		return fmt.Errorf("initramfs path invalid: %w", err)
 	}
 
 	logFile := filepath.Join(logDir, "volantd.log")
@@ -243,8 +224,6 @@ After=network.target
 Type=simple
 User=root
 Group=root
-Environment=VOLANT_KERNEL=%s
-Environment=VOLANT_INITRAMFS=%s
 Environment=VOLANT_BRIDGE=%s
 Environment=VOLANT_SUBNET=%s
 Environment=VOLANT_RUNTIME_DIR=%s
@@ -258,8 +237,6 @@ StandardError=append:%s
 [Install]
 WantedBy=multi-user.target
 `,
-		kernelPath,
-		initramfsPath,
 		opts.BridgeName,
 		opts.SubnetCIDR,
 		runtimeDir,
@@ -290,19 +267,3 @@ WantedBy=multi-user.target
 	}
 	return nil
 }
-
-func ensureFile(path string) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	if info.IsDir() {
-		return fmt.Errorf("path %s is a directory", path)
-	}
-	return nil
-}
-
-// Err definitions for Setup.
-var (
-	ErrBinaryMissing = errors.New("required binary missing")
-)

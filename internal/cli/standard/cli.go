@@ -15,7 +15,13 @@ func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "volar",
 		Short: "volar command-line interface",
-		Long:  "volar CLI provides access to the orchestrator tooling.",
+		Long: `volar provides access to the VOLANT control plane.
+
+Core commands:
+  vms       Manage microVMs
+  plugins   Install/remove plugin manifests
+  setup     Helper for host networking/service configuration
+`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
