@@ -14,8 +14,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/ccheshirecat/volant/internal/pluginspec"
 	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
-	"github.com/ccheshirecat/volant/internal/server/plugins"
 )
 
 // Client wraps REST access to the volantd API.
@@ -158,17 +158,7 @@ type MCPResponse struct {
 	Error  string      `json:"error"`
 }
 
-type Plugin struct {
-	Name        string          `json:"name"`
-	Version     string          `json:"version"`
-	Enabled     bool            `json:"enabled"`
-	Runtime     string          `json:"runtime,omitempty"`
-	Image       string          `json:"image,omitempty"`
-	Resources   json.RawMessage `json:"resources,omitempty"`
-	Actions     json.RawMessage `json:"actions,omitempty"`
-	OpenAPI     string          `json:"openapi,omitempty"`
-	MetadataRaw json.RawMessage `json:"metadata,omitempty"`
-}
+type Plugin = pluginspec.Manifest
 
 func (c *Client) ListVMs(ctx context.Context) ([]VM, error) {
 	req, err := c.newRequest(ctx, http.MethodGet, "/api/v1/vms", nil)
@@ -580,7 +570,7 @@ func (c *Client) GetSystemStatus(ctx context.Context) (*SystemStatus, error) {
 	return &status, nil
 }
 
-func (c *Client) ListPlugins(ctx context.Context) ([]plugins.Manifest, error) {
+func (c *Client) ListPlugins(ctx context.Context) ([]pluginspec.Manifest, error) {
 	req, err := c.newRequest(ctx, http.MethodGet, "/api/v1/plugins", nil)
 	if err != nil {
 		return nil, err
@@ -591,7 +581,7 @@ func (c *Client) ListPlugins(ctx context.Context) ([]plugins.Manifest, error) {
 	if err := c.do(req, &response); err != nil {
 		return nil, err
 	}
-	result := make([]plugins.Manifest, 0, len(response.Plugins))
+	result := make([]pluginspec.Manifest, 0, len(response.Plugins))
 	for _, name := range response.Plugins {
 		plugin, err := c.GetPlugin(ctx, name)
 		if err != nil {
@@ -604,19 +594,19 @@ func (c *Client) ListPlugins(ctx context.Context) ([]plugins.Manifest, error) {
 	return result, nil
 }
 
-func (c *Client) GetPlugin(ctx context.Context, name string) (*plugins.Manifest, error) {
+func (c *Client) GetPlugin(ctx context.Context, name string) (*pluginspec.Manifest, error) {
 	req, err := c.newRequest(ctx, http.MethodGet, "/api/v1/plugins/"+url.PathEscape(name), nil)
 	if err != nil {
 		return nil, err
 	}
-	var manifest plugins.Manifest
+	var manifest pluginspec.Manifest
 	if err := c.do(req, &manifest); err != nil {
 		return nil, err
 	}
 	return &manifest, nil
 }
 
-func (c *Client) InstallPlugin(ctx context.Context, manifest plugins.Manifest) error {
+func (c *Client) InstallPlugin(ctx context.Context, manifest pluginspec.Manifest) error {
 	req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/plugins", manifest)
 	if err != nil {
 		return err

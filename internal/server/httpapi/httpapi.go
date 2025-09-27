@@ -26,6 +26,7 @@ import (
 	"github.com/ccheshirecat/volant/internal/server/eventbus"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator"
 	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
+	"github.com/ccheshirecat/volant/internal/pluginspec"
 	"github.com/ccheshirecat/volant/internal/server/plugins"
 )
 
@@ -128,15 +129,15 @@ func loadStoredPlugins(engine orchestrator.Engine, logger *slog.Logger, registry
 		if err != nil {
 			return err
 		}
-		for _, entry := range entries {
-			var manifest plugins.Manifest
+	for _, entry := range entries {
+		var manifest pluginspec.Manifest
 			if len(entry.Metadata) > 0 {
 				if err := json.Unmarshal(entry.Metadata, &manifest); err != nil {
 					logger.Warn("decode plugin manifest", "plugin", entry.Name, "error", err)
 					continue
 				}
 			} else {
-				manifest = plugins.Manifest{Name: entry.Name, Version: entry.Version}
+			manifest = pluginspec.Manifest{Name: entry.Name, Version: entry.Version}
 			}
 			manifest.Enabled = entry.Enabled
 			registry.Register(manifest)
@@ -1230,7 +1231,7 @@ func (api *apiServer) resolveVMByName(c *gin.Context, name string) (*db.VM, bool
 	return vm, true
 }
 
-func (api *apiServer) forwardPluginAction(ctx context.Context, manifest plugins.Manifest, method, path string, payload map[string]any) (map[string]any, error) {
+func (api *apiServer) forwardPluginAction(ctx context.Context, manifest pluginspec.Manifest, method, path string, payload map[string]any) (map[string]any, error) {
 	// placeholder for future non-VM plugin action dispatch (e.g. pooled runtimes)
 	return map[string]any{"status": "accepted"}, nil
 }
@@ -1270,7 +1271,7 @@ func (api *apiServer) installPlugin(c *gin.Context) {
 		return
 	}
 
-	var manifest plugins.Manifest
+	var manifest pluginspec.Manifest
 	if err := c.ShouldBindJSON(&manifest); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -1331,7 +1332,7 @@ func (api *apiServer) setPluginEnabled(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-func (api *apiServer) persistPluginManifest(ctx context.Context, manifest plugins.Manifest, enabled bool) error {
+func (api *apiServer) persistPluginManifest(ctx context.Context, manifest pluginspec.Manifest, enabled bool) error {
 	store := api.engine.Store()
 	if store == nil {
 		return fmt.Errorf("store not configured")

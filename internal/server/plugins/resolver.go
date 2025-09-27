@@ -5,27 +5,31 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/ccheshirecat/volant/internal/pluginspec"
 )
 
 // Registry maintains plugin manifests in memory.
 type Registry struct {
 	mu        sync.RWMutex
-	manifests map[string]Manifest
+	manifests map[string]pluginspec.Manifest
 }
 
 // NewRegistry constructs an empty registry populated with built-ins.
-func NewRegistry() *Registry {
-	r := &Registry{manifests: make(map[string]Manifest)}
-	r.Register(BuiltInBrowserManifest)
+func NewRegistry(builtins ...pluginspec.Manifest) *Registry {
+	r := &Registry{manifests: make(map[string]pluginspec.Manifest)}
+	for _, manifest := range builtins {
+		r.Register(manifest)
+	}
 	return r
 }
 
 // Register adds or updates a manifest entry.
-func (r *Registry) Register(manifest Manifest) {
+func (r *Registry) Register(manifest pluginspec.Manifest) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.manifests == nil {
-		r.manifests = make(map[string]Manifest)
+		r.manifests = make(map[string]pluginspec.Manifest)
 	}
 	r.manifests[manifest.Name] = manifest
 }
@@ -50,7 +54,7 @@ func (r *Registry) SetEnabled(name string, enabled bool) {
 }
 
 // Get retrieves the manifest for a plugin.
-func (r *Registry) Get(name string) (Manifest, bool) {
+func (r *Registry) Get(name string) (pluginspec.Manifest, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	manifest, ok := r.manifests[name]
@@ -70,12 +74,12 @@ func (r *Registry) List() []string {
 }
 
 // ResolveAction determines which plugin and action should handle the request.
-func (r *Registry) ResolveAction(pluginName, actionName string) (Manifest, Action, error) {
+func (r *Registry) ResolveAction(pluginName, actionName string) (pluginspec.Manifest, pluginspec.Action, error) {
 	if strings.TrimSpace(pluginName) == "" {
-		return Manifest{}, Action{}, fmt.Errorf("plugin registry: plugin name required")
+		return pluginspec.Manifest{}, pluginspec.Action{}, fmt.Errorf("plugin registry: plugin name required")
 	}
 	if strings.TrimSpace(actionName) == "" {
-		return Manifest{}, Action{}, fmt.Errorf("plugin registry: action name required")
+		return pluginspec.Manifest{}, pluginspec.Action{}, fmt.Errorf("plugin registry: action name required")
 	}
 
 	r.mu.RLock()
@@ -83,14 +87,14 @@ func (r *Registry) ResolveAction(pluginName, actionName string) (Manifest, Actio
 
 	manifest, ok := r.manifests[pluginName]
 	if !ok {
-		return Manifest{}, Action{}, fmt.Errorf("plugin registry: plugin %s not found", pluginName)
+		return pluginspec.Manifest{}, pluginspec.Action{}, fmt.Errorf("plugin registry: plugin %s not found", pluginName)
 	}
 	if !manifest.Enabled {
-		return Manifest{}, Action{}, fmt.Errorf("plugin registry: plugin %s disabled", pluginName)
+		return pluginspec.Manifest{}, pluginspec.Action{}, fmt.Errorf("plugin registry: plugin %s disabled", pluginName)
 	}
 	action, ok := manifest.Actions[actionName]
 	if !ok {
-		return Manifest{}, Action{}, fmt.Errorf("plugin registry: action %s not defined for plugin %s", actionName, pluginName)
+		return pluginspec.Manifest{}, pluginspec.Action{}, fmt.Errorf("plugin registry: action %s not defined for plugin %s", actionName, pluginName)
 	}
 	return manifest, action, nil
 }
