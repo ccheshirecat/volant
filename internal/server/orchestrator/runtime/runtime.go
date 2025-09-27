@@ -4,16 +4,18 @@ import "context"
 
 // LaunchSpec contains the information required to boot a microVM.
 type LaunchSpec struct {
-	Name          string
-	CPUCores      int
-	MemoryMB      int
-	KernelCmdline string
-	TapDevice     string
-	MACAddress    string
-	IPAddress     string
-	Gateway       string
-	Netmask       string
-	Args          map[string]string
+	Name           string
+	CPUCores       int
+	MemoryMB       int
+	KernelCmdline  string
+	TapDevice      string
+	MACAddress     string
+	IPAddress      string
+	Gateway        string
+	Netmask        string
+	Args           map[string]string
+	RootFS         string
+	RootFSChecksum string
 }
 
 // Instance represents a running hypervisor process.

@@ -2,8 +2,10 @@ package cloudhypervisor
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,9 +44,6 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	if l.KernelPath == "" {
 		return nil, fmt.Errorf("cloudhypervisor: kernel path required")
 	}
-	if l.InitramfsPath == "" {
-		return nil, fmt.Errorf("cloudhypervisor: initramfs path required")
-	}
 	if err := os.MkdirAll(l.RuntimeDir, 0o755); err != nil {
 		return nil, fmt.Errorf("cloudhypervisor: ensure runtime dir: %w", err)
 	}
@@ -59,20 +58,41 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	_ = os.Remove(apiSocket)
 
 	kernelCopy := filepath.Join(l.RuntimeDir, fmt.Sprintf("%s.vmlinux", spec.Name))
-	initramfsCopy := filepath.Join(l.RuntimeDir, fmt.Sprintf("%s.initramfs", spec.Name))
 	if err := copyFile(l.KernelPath, kernelCopy); err != nil {
 		return nil, fmt.Errorf("cloudhypervisor: stage kernel: %w", err)
 	}
-	if err := copyFile(l.InitramfsPath, initramfsCopy); err != nil {
-		_ = os.Remove(kernelCopy)
-		return nil, fmt.Errorf("cloudhypervisor: stage initramfs: %w", err)
+
+	var initramfsCopy string
+	if l.InitramfsPath != "" {
+		initramfsCopy = filepath.Join(l.RuntimeDir, fmt.Sprintf("%s.initramfs", spec.Name))
+		if err := copyFile(l.InitramfsPath, initramfsCopy); err != nil {
+			_ = os.Remove(kernelCopy)
+			return nil, fmt.Errorf("cloudhypervisor: stage initramfs: %w", err)
+		}
+	}
+
+	var rootfsPath string
+	if spec.RootFS != "" {
+		rootfsPath = filepath.Join(l.RuntimeDir, fmt.Sprintf("%s.rootfs", spec.Name))
+		if err := streamFile(spec.RootFS, rootfsPath, spec.RootFSChecksum); err != nil {
+			_ = os.Remove(kernelCopy)
+			if initramfsCopy != "" {
+				_ = os.Remove(initramfsCopy)
+			}
+			return nil, fmt.Errorf("cloudhypervisor: fetch rootfs: %w", err)
+		}
 	}
 
 	logPath := filepath.Join(l.LogDir, fmt.Sprintf("%s.log", spec.Name))
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		_ = os.Remove(kernelCopy)
-		_ = os.Remove(initramfsCopy)
+		if initramfsCopy != "" {
+			_ = os.Remove(initramfsCopy)
+		}
+		if rootfsPath != "" {
+			_ = os.Remove(rootfsPath)
+		}
 		return nil, fmt.Errorf("cloudhypervisor: open log file: %w", err)
 	}
 
@@ -81,10 +101,15 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		"--cpus", fmt.Sprintf("boot=%d", spec.CPUCores),
 		"--memory", fmt.Sprintf("size=%dM", spec.MemoryMB),
 		"--kernel", kernelCopy,
-		"--initramfs", initramfsCopy,
 		"--net", fmt.Sprintf("tap=%s,mac=%s", spec.TapDevice, spec.MACAddress),
 		"--serial", "tty",
 		"--console", "off",
+	}
+	if initramfsCopy != "" {
+		args = append(args, "--initramfs", initramfsCopy)
+	}
+	if rootfsPath != "" {
+		args = append(args, "--disk", fmt.Sprintf("path=%s,readonly=false", rootfsPath))
 	}
 
 	cmdline := spec.KernelCmdline
@@ -111,7 +136,12 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	case <-ctx.Done():
 		logFile.Close()
 		_ = os.Remove(kernelCopy)
-		_ = os.Remove(initramfsCopy)
+		if initramfsCopy != "" {
+			_ = os.Remove(initramfsCopy)
+		}
+		if rootfsPath != "" {
+			_ = os.Remove(rootfsPath)
+		}
 		return nil, fmt.Errorf("cloudhypervisor: launch cancelled: %w", ctx.Err())
 	default:
 	}
@@ -123,7 +153,12 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
 		_ = os.Remove(kernelCopy)
-		_ = os.Remove(initramfsCopy)
+		if initramfsCopy != "" {
+			_ = os.Remove(initramfsCopy)
+		}
+		if rootfsPath != "" {
+			_ = os.Remove(rootfsPath)
+		}
 		return nil, fmt.Errorf("cloudhypervisor: start: %w", err)
 	}
 
@@ -142,6 +177,7 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		done:          done,
 		kernelPath:    kernelCopy,
 		initramfsPath: initramfsCopy,
+		rootfsPath:    rootfsPath,
 	}, nil
 }
 
@@ -153,6 +189,7 @@ type instance struct {
 	done          <-chan error
 	kernelPath    string
 	initramfsPath string
+	rootfsPath    string
 }
 
 func (i *instance) Name() string          { return i.name }
@@ -199,6 +236,9 @@ func (i *instance) cleanupArtifacts() {
 	if i.initramfsPath != "" {
 		_ = os.Remove(i.initramfsPath)
 	}
+	if i.rootfsPath != "" {
+		_ = os.Remove(i.rootfsPath)
+	}
 }
 
 func copyFile(src, dst string) error {
@@ -216,6 +256,47 @@ func copyFile(src, dst string) error {
 
 	if _, err := io.Copy(dest, source); err != nil {
 		return err
+	}
+	return nil
+}
+
+func streamFile(src, dst, checksum string) error {
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	var reader io.ReadCloser
+	if strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://") {
+		resp, err := http.Get(src)
+		if err != nil {
+			return err
+		}
+		if resp.StatusCode >= 300 {
+			resp.Body.Close()
+			return fmt.Errorf("download %s: status %s", src, resp.Status)
+		}
+		reader = resp.Body
+	} else {
+		reader, err = os.Open(src)
+		if err != nil {
+			return err
+		}
+	}
+	defer reader.Close()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(out, hasher), reader); err != nil {
+		return err
+	}
+
+	if checksum != "" {
+		expected := strings.TrimPrefix(strings.TrimSpace(checksum), "sha256:")
+		actual := fmt.Sprintf("%x", hasher.Sum(nil))
+		if !strings.EqualFold(expected, actual) {
+			return fmt.Errorf("checksum mismatch: expected %s got %s", expected, actual)
+		}
 	}
 	return nil
 }
