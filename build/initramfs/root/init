@@ -3,46 +3,144 @@ set -eu
 
 log() { printf "[INIT] %s\n" "$1"; }
 
-mount -t devtmpfs devtmpfs /dev
-mount -t proc proc /proc
-mount -t sysfs sys /sys
-mount -t tmpfs tmpfs /run
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mount.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
-# Ensure console
-[ -c /dev/console ] || mknod -m 600 /dev/console c 5 1
-exec 0</dev/console 1>/dev/console 2>/dev/console
+static void log_line(const char *msg) {
+    dprintf(STDOUT_FILENO, "[INIT] %s\n", msg);
+}
 
-log "booting volant init"
+static int run_command(char *const argv[]) {
+    pid_t pid = fork();
+    if (pid < 0) {
+        return -1;
+    }
+    if (pid == 0) {
+        execv(argv[0], argv);
+        _exit(127);
+    }
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) {
+        return -1;
+    }
+    if (WIFEXITED(status)) {
+        return WEXITSTATUS(status);
+    }
+    return -1;
+}
 
-STAGING_SCRIPT=/scripts/stage-volary.sh
-ROOTFS_IMAGE="${VOLANT_ROOTFS:-}"
+static void ensure_console(void) {
+    struct stat st;
+    if (stat("/dev/console", &st) != 0) {
+        mknod("/dev/console", S_IFCHR | 0600, makedev(5, 1));
+    }
+    int fd = open("/dev/console", O_RDWR);
+    if (fd >= 0) {
+        dup2(fd, STDIN_FILENO);
+        dup2(fd, STDOUT_FILENO);
+        dup2(fd, STDERR_FILENO);
+        if (fd > STDERR_FILENO) {
+            close(fd);
+        }
+    }
+}
 
-if [ -n "$ROOTFS_IMAGE" ]; then
-    log "fetching rootfs $ROOTFS_IMAGE"
-    mkdir -p /sysroot
-    if sh /scripts/fetch-rootfs.sh "$ROOTFS_IMAGE" /root/rootfs.img; then
-        mount -o loop /root/rootfs.img /sysroot || log "loop mount failed"
-    fi
-    if mountpoint -q /sysroot; then
-        log "staging volary into rootfs"
-        [ -x "$STAGING_SCRIPT" ] && "$STAGING_SCRIPT" /sysroot || log "stage-volary missing"
-        if [ -x /sysroot/usr/local/bin/volary ]; then
-            log "switching root"
-            cd /sysroot
-            umount /proc /sys /dev 2>/dev/null || true
-            exec switch_root /sysroot /usr/local/bin/volary
-        fi
-        log "volary missing after staging; rescue shell"
-        exec sh
-    fi
-    log "rootfs not mounted; continuing with initrd"
-fi
+static void mount_fs(const char *type, const char *target) {
+    if (mount(type, target, type, 0, "") != 0 && errno != EBUSY) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "mount %s on %s failed: %s", type, target, strerror(errno));
+        log_line(buf);
+    }
+}
 
-# Fallback: run volary directly from initramfs
-if [ -x /usr/local/bin/volary ]; then
-    log "launching volary directly"
-    exec /usr/local/bin/volary
-fi
+static bool read_rootfs(char *buf, size_t buf_size) {
+    FILE *f = fopen("/proc/cmdline", "r");
+    if (!f) {
+        return false;
+    }
+    char line[4096];
+    if (!fgets(line, sizeof(line), f)) {
+        fclose(f);
+        return false;
+    }
+    fclose(f);
 
-log "volary missing; dropping to shell"
-exec sh
+    const char *needle = "volant.rootfs=";
+    char *start = strstr(line, needle);
+    if (!start) {
+        return false;
+    }
+    start += strlen(needle);
+    char *end = strchr(start, ' ');
+    size_t len = end ? (size_t)(end - start) : strlen(start);
+    if (len >= buf_size) {
+        len = buf_size - 1;
+    }
+    memcpy(buf, start, len);
+    buf[len] = '\0';
+    return true;
+}
+
+int main(void) {
+    mount_fs("devtmpfs", "/dev");
+    mount_fs("proc", "/proc");
+    mount_fs("sysfs", "/sys");
+    mount_fs("tmpfs", "/run");
+
+    ensure_console();
+    log_line("booting volant init");
+
+    char rootfs[PATH_MAX];
+    bool have_rootfs = read_rootfs(rootfs, sizeof(rootfs));
+    const char *staging_script = "/scripts/stage-volary.sh";
+    const char *fetch_script = "/scripts/fetch-rootfs.sh";
+
+    if (have_rootfs) {
+        log_line("rootfs specified; fetching image");
+        mkdir("/sysroot", 0755);
+        mkdir("/root", 0755);
+        char *fetch_args[] = {(char *)fetch_script, rootfs, "/root/rootfs.img", NULL};
+        if (access(fetch_script, X_OK) == 0 && run_command(fetch_args) == 0) {
+            log_line("rootfs fetch complete; attempting mount");
+            char *mount_args[] = {"/bin/mount", "-o", "loop", "/root/rootfs.img", "/sysroot", NULL};
+            if (run_command(mount_args) == 0) {
+                log_line("rootfs mounted; staging volary");
+                if (access(staging_script, X_OK) == 0) {
+                    char *stage_args[] = {(char *)staging_script, "/sysroot", NULL};
+                    run_command(stage_args);
+                }
+                if (access("/sysroot/usr/local/bin/volary", X_OK) == 0) {
+                    log_line("switching root to external rootfs");
+                    execl("/bin/switch_root", "switch_root", "/sysroot", "/usr/local/bin/volary", NULL);
+                    perror("switch_root");
+                } else {
+                    log_line("volary missing in mounted rootfs; continuing with initramfs");
+                }
+            } else {
+                log_line("loop mount failed; continuing with initramfs");
+            }
+        } else {
+            log_line("fetch-rootfs script failed; continuing with initramfs");
+        }
+    }
+
+    if (access("/usr/local/bin/volary", X_OK) == 0) {
+        log_line("launching volary from initramfs");
+        execl("/usr/local/bin/volary", "volary", NULL);
+        perror("exec volary");
+    }
+
+    log_line("volary not found; dropping to rescue shell");
+    execl("/bin/sh", "sh", NULL);
+    return 1;
+}

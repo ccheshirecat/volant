@@ -25,6 +25,7 @@ type Manifest struct {
 	Runtime       string            `json:"runtime"`
 	Image         string            `json:"image,omitempty"`
 	ImageDigest   string            `json:"image_digest,omitempty"`
+	RootFS        RootFS            `json:"rootfs,omitempty"`
 	Resources     ResourceSpec      `json:"resources"`
 	Actions       map[string]Action `json:"actions"`
 	HealthCheck   HealthCheck       `json:"health_check"`
@@ -32,6 +33,11 @@ type Manifest struct {
 	Enabled       bool              `json:"enabled"`
 	OpenAPI       string            `json:"openapi,omitempty"`
 	Labels        map[string]string `json:"labels,omitempty"`
+}
+
+type RootFS struct {
+	URL      string `json:"url"`
+	Checksum string `json:"checksum,omitempty"`
 }
 
 // ResourceSpec captures runtime requirements for a plugin workload.
@@ -93,6 +99,9 @@ func (m Manifest) Validate() error {
 	if err := m.Workload.Validate(); err != nil {
 		return err
 	}
+	if err := m.RootFS.Validate(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -112,6 +121,21 @@ func (w Workload) Validate() error {
 		}
 	default:
 		return fmt.Errorf("plugin manifest: workload type %q not supported", w.Type)
+	}
+	return nil
+}
+
+func (r RootFS) Validate() error {
+	url := strings.TrimSpace(r.URL)
+	if url == "" {
+		return nil
+	}
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "file://") && !strings.HasPrefix(url, "/") {
+		return fmt.Errorf("plugin manifest: rootfs url must be http(s), file://, or absolute path")
+	}
+	checksum := strings.TrimSpace(r.Checksum)
+	if checksum != "" && !strings.Contains(checksum, ":") && len(checksum) < 32 {
+		return fmt.Errorf("plugin manifest: rootfs checksum should include algorithm prefix or be a sha256")
 	}
 	return nil
 }

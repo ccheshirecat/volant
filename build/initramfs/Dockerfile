@@ -16,7 +16,7 @@ COPY root/ root/
 # make busybox usable before we call it
 RUN chmod +x root/bin/busybox && \
     root/bin/busybox --install -s root/bin && \
-    chmod +x root/init root/scripts/stage-volary.sh && \
+    chmod +x root/init root/scripts/stage-volary.sh root/scripts/fetch-rootfs.sh && \
     mkdir -p root/dev root/proc root/sys root/tmp root/run root/var/log root/etc &&  \
     touch root/etc/resolv.conf && \
     echo "nameserver 1.1.1.1" > root/etc/resolv.conf

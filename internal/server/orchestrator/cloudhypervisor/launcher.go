@@ -74,7 +74,7 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	var rootfsPath string
 	if spec.RootFS != "" {
 		rootfsPath = filepath.Join(l.RuntimeDir, fmt.Sprintf("%s.rootfs", spec.Name))
-		if err := streamFile(spec.RootFS, rootfsPath, spec.RootFSChecksum); err != nil {
+		if err := streamFile(ctx, spec.RootFS, rootfsPath, spec.RootFSChecksum); err != nil {
 			_ = os.Remove(kernelCopy)
 			if initramfsCopy != "" {
 				_ = os.Remove(initramfsCopy)
@@ -260,7 +260,7 @@ func copyFile(src, dst string) error {
 	return nil
 }
 
-func streamFile(src, dst, checksum string) error {
+func streamFile(ctx context.Context, src, dst, checksum string) error {
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
@@ -269,7 +269,11 @@ func streamFile(src, dst, checksum string) error {
 
 	var reader io.ReadCloser
 	if strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://") {
-		resp, err := http.Get(src)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return err
 		}

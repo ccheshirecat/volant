@@ -295,6 +295,11 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		Args:          cloneArgs(kernelArgs),
 	}
 
+	if req.Manifest != nil {
+		spec.RootFS = strings.TrimSpace(req.Manifest.RootFS.URL)
+		spec.RootFSChecksum = strings.TrimSpace(req.Manifest.RootFS.Checksum)
+	}
+
 	launchCtx := e.launchContext()
 
 	instance, err := e.launcher.Launch(launchCtx, spec)
