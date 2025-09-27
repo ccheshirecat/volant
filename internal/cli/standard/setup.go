@@ -21,8 +21,6 @@ func newSetupCmd() *cobra.Command {
 	var runtimeDir string
 	var logDir string
 	var serviceFile string
-	var kernelPath string
-	var initramfsPath string
 
 	cmd := &cobra.Command{
 		Use:   "setup",
@@ -49,24 +47,15 @@ func newSetupCmd() *cobra.Command {
 			}
 			serverBinary := filepath.Join(filepath.Dir(exe), "volantd")
 
-			if kernelPath == "" {
-				kernelPath = "build/artifacts/vmlinux-x86_64"
-			}
-			if initramfsPath == "" {
-				initramfsPath = "build/artifacts/volant-initramfs.cpio.gz"
-			}
-
 			opts := setup.Options{
-				BridgeName:    bridge,
-				SubnetCIDR:    subnet,
-				HostCIDR:      hostCIDR,
-				DryRun:        dryRun,
-				RuntimeDir:    runtimeDir,
-				LogDir:        logDir,
-				ServicePath:   serviceFile,
-				BinaryPath:    serverBinary,
-				KernelPath:    kernelPath,
-				InitramfsPath: initramfsPath,
+				BridgeName:  bridge,
+				SubnetCIDR:  subnet,
+				HostCIDR:    hostCIDR,
+				DryRun:      dryRun,
+				RuntimeDir:  runtimeDir,
+				LogDir:      logDir,
+				ServicePath: serviceFile,
+				BinaryPath:  serverBinary,
 			}
 
 			res, err := setup.Run(ctx, opts)
@@ -96,8 +85,6 @@ func newSetupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeDir, "runtime-dir", envOrDefault("VOLANT_RUNTIME_DIR", "~/.volant/run"), "Runtime directory for VM sockets")
 	cmd.Flags().StringVar(&logDir, "log-dir", envOrDefault("VOLANT_LOG_DIR", "~/.volant/logs"), "Log directory for VM logs")
 	cmd.Flags().StringVar(&serviceFile, "service-file", "/etc/systemd/system/volantd.service", "Path to write systemd service unit (empty to skip)")
-	cmd.Flags().StringVar(&kernelPath, "kernel", envOrDefault("VOLANT_KERNEL", ""), "Path to kernel image for service (default: build/artifacts/vmlinux-x86_64)")
-	cmd.Flags().StringVar(&initramfsPath, "initramfs", envOrDefault("VOLANT_INITRAMFS", ""), "Path to initramfs image for service (default: build/artifacts/volant-initramfs.cpio.gz)")
 
 	return cmd
 }
