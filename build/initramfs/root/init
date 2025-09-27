@@ -8,47 +8,41 @@ mount -t proc proc /proc
 mount -t sysfs sys /sys
 mount -t tmpfs tmpfs /run
 
-# Basic console setup
+# Ensure console
 [ -c /dev/console ] || mknod -m 600 /dev/console c 5 1
 exec 0</dev/console 1>/dev/console 2>/dev/console
 
-log "booting universal volant kernel"
+log "booting volant init"
 
-# Stage volary into target rootfs once it’s available
 STAGING_SCRIPT=/scripts/stage-volary.sh
+ROOTFS_IMAGE="${VOLANT_ROOTFS:-}"
 
-# Wait for the primary disk
-for _ in $(seq 1 30); do
-    [ -b /dev/vda ] && break
-    sleep 1
-done
-
-if [ ! -b /dev/vda ]; then
-    log "no /dev/vda found; dropping to rescue shell"
-    exec sh
+if [ -n "$ROOTFS_IMAGE" ]; then
+    log "fetching rootfs $ROOTFS_IMAGE"
+    mkdir -p /sysroot
+    if sh /scripts/fetch-rootfs.sh "$ROOTFS_IMAGE" /root/rootfs.img; then
+        mount -o loop /root/rootfs.img /sysroot || log "loop mount failed"
+    fi
+    if mountpoint -q /sysroot; then
+        log "staging volary into rootfs"
+        [ -x "$STAGING_SCRIPT" ] && "$STAGING_SCRIPT" /sysroot || log "stage-volary missing"
+        if [ -x /sysroot/usr/local/bin/volary ]; then
+            log "switching root"
+            cd /sysroot
+            umount /proc /sys /dev 2>/dev/null || true
+            exec switch_root /sysroot /usr/local/bin/volary
+        fi
+        log "volary missing after staging; rescue shell"
+        exec sh
+    fi
+    log "rootfs not mounted; continuing with initrd"
 fi
 
-mkdir -p /sysroot
-mount -t ext4 -o ro /dev/vda /sysroot 2>/dev/null || \
-mount -t xfs -o ro /dev/vda /sysroot 2>/dev/null || \
-mount -t btrfs -o ro /dev/vda /sysroot 2>/dev/null || true
-
-if ! mountpoint -q /sysroot; then
-    log "failed to mount /dev/vda; dropping to rescue shell"
-    exec sh
+# Fallback: run volary directly from initramfs
+if [ -x /usr/local/bin/volary ]; then
+    log "launching volary directly"
+    exec /usr/local/bin/volary
 fi
 
-# Remount read/write if possible
-mount -o remount,rw /sysroot 2>/dev/null || log "rootfs is read-only"
-
-[ -x "$STAGING_SCRIPT" ] && "$STAGING_SCRIPT" /sysroot || log "stage-volary missing"
-
-if [ ! -x /sysroot/usr/local/bin/volary ]; then
-    log "volary missing after staging; rescue shell"
-    exec sh
-fi
-
-log "switching root"
-cd /sysroot
-umount /proc /sys /dev 2>/dev/null || true
-exec switch_root /sysroot /usr/local/bin/volary
+log "volary missing; dropping to shell"
+exec sh
