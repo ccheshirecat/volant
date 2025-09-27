@@ -42,8 +42,8 @@ type CreateVMRequest struct {
 	CPUCores          int
 	MemoryMB          int
 	KernelCmdlineHint string
-	KernelArgs        map[string]string
 	Manifest          *pluginspec.Manifest
+	KernelArgs        map[string]string
 }
 
 // Params wires dependencies for the native orchestrator engine.
@@ -214,11 +214,7 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 
 	req.Runtime = strings.TrimSpace(req.Runtime)
 	if req.Runtime == "" {
-		if manifestRuntime != "" {
-			req.Runtime = manifestRuntime
-		} else {
-			req.Runtime = "browser"
-		}
+		return nil, fmt.Errorf("orchestrator: runtime required")
 	}
 	if manifestRuntime != "" && req.Runtime != manifestRuntime {
 		return nil, fmt.Errorf("orchestrator: runtime mismatch between request (%s) and manifest (%s)", req.Runtime, manifestRuntime)
