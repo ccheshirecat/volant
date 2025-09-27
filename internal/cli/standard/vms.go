@@ -129,6 +129,15 @@ func newVMsCreateCmd() *cobra.Command {
 				return err
 			}
 
+			pluginName, err := cmd.Flags().GetString("plugin")
+			if err != nil {
+				return err
+			}
+			pluginName = strings.TrimSpace(pluginName)
+			if pluginName == "" {
+				return fmt.Errorf("plugin is required")
+			}
+
 			api, err := clientFromCmd(cmd)
 			if err != nil {
 				return err
@@ -136,8 +145,23 @@ func newVMsCreateCmd() *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
+			manifest, err := api.DescribePlugin(ctx, pluginName)
+			if err != nil {
+				return err
+			}
+			if manifest.Labels == nil {
+				manifest.Labels = map[string]string{}
+			}
+			if runtimeName == "" {
+				runtimeName = manifest.Runtime
+			}
+			if strings.TrimSpace(runtimeName) == "" {
+				return fmt.Errorf("plugin %s does not define a runtime", pluginName)
+			}
+
 			vm, err := api.CreateVM(ctx, client.CreateVMRequest{
 				Name:          args[0],
+				Plugin:        pluginName,
 				Runtime:       runtimeName,
 				CPUCores:      cpu,
 				MemoryMB:      mem,
@@ -150,10 +174,11 @@ func newVMsCreateCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("runtime", "browser", "Runtime type to launch (browser, etc.)")
+	cmd.Flags().String("runtime", "", "Runtime type to launch (derived from plugin if omitted)")
 	cmd.Flags().Int("cpu", 2, "Number of virtual CPU cores")
 	cmd.Flags().Int("memory", 2048, "Memory (MB)")
 	cmd.Flags().String("kernel-cmdline", "", "Additional kernel cmdline parameters")
+	cmd.Flags().String("plugin", "", "Plugin name to use when creating the VM")
 	return cmd
 }
 

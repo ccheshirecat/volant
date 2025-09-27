@@ -10,10 +10,12 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ccheshirecat/volant/internal/pluginspec"
 	"github.com/ccheshirecat/volant/internal/server/db"
 	"github.com/ccheshirecat/volant/internal/server/eventbus"
 	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
@@ -40,6 +42,8 @@ type CreateVMRequest struct {
 	CPUCores          int
 	MemoryMB          int
 	KernelCmdlineHint string
+	KernelArgs        map[string]string
+	Manifest          *pluginspec.Manifest
 }
 
 // Params wires dependencies for the native orchestrator engine.
@@ -187,9 +191,37 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		return nil, err
 	}
 
+	kernelArgs := cloneArgs(req.KernelArgs)
+
+	var manifestRuntime string
+	if req.Manifest != nil {
+		manifestRuntime = strings.TrimSpace(req.Manifest.Runtime)
+		encoded, err := pluginspec.Encode(*req.Manifest)
+		if err != nil {
+			return nil, fmt.Errorf("orchestrator: encode manifest: %w", err)
+		}
+		if kernelArgs == nil {
+			kernelArgs = make(map[string]string)
+		}
+		kernelArgs[pluginspec.CmdlineKey] = encoded
+		if manifestRuntime != "" {
+			kernelArgs[pluginspec.RuntimeKey] = manifestRuntime
+		}
+		if name := strings.TrimSpace(req.Manifest.Name); name != "" {
+			kernelArgs[pluginspec.PluginKey] = name
+		}
+	}
+
 	req.Runtime = strings.TrimSpace(req.Runtime)
 	if req.Runtime == "" {
-		req.Runtime = "browser"
+		if manifestRuntime != "" {
+			req.Runtime = manifestRuntime
+		} else {
+			req.Runtime = "browser"
+		}
+	}
+	if manifestRuntime != "" && req.Runtime != manifestRuntime {
+		return nil, fmt.Errorf("orchestrator: runtime mismatch between request (%s) and manifest (%s)", req.Runtime, manifestRuntime)
 	}
 
 	netmask := formatNetmask(e.subnet.Mask)
@@ -216,7 +248,8 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		}
 
 		mac := deriveMAC(req.Name, allocation.IPAddress)
-		cmdline := buildKernelCmdline(allocation.IPAddress, e.hostIP.String(), netmask, hostname, req.KernelCmdlineHint)
+		baseCmdline := buildKernelCmdline(allocation.IPAddress, e.hostIP.String(), netmask, hostname, req.KernelCmdlineHint)
+		fullCmdline := appendKernelArgs(baseCmdline, kernelArgs)
 
 		vm := &db.VM{
 			Name:          req.Name,
@@ -226,7 +259,7 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 			MACAddress:    mac,
 			CPUCores:      req.CPUCores,
 			MemoryMB:      req.MemoryMB,
-			KernelCmdline: cmdline,
+			KernelCmdline: fullCmdline,
 		}
 
 		id, err := vmRepo.Create(ctx, vm)
@@ -263,6 +296,7 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		IPAddress:     vmRecord.IPAddress,
 		Gateway:       e.hostIP.String(),
 		Netmask:       netmask,
+		Args:          cloneArgs(kernelArgs),
 	}
 
 	launchCtx := e.launchContext()
@@ -514,6 +548,43 @@ func buildKernelCmdline(ip, gateway, netmask, hostname, extra string) string {
 		return base
 	}
 	return base + " " + extra
+}
+
+func appendKernelArgs(cmdline string, args map[string]string) string {
+	if len(args) == 0 {
+		return cmdline
+	}
+	baseParts := strings.Fields(cmdline)
+	extra := make([]string, 0, len(args))
+	for key, value := range args {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue == "" {
+			extra = append(extra, trimmedKey)
+			continue
+		}
+		extra = append(extra, fmt.Sprintf("%s=%s", trimmedKey, trimmedValue))
+	}
+	if len(extra) == 0 {
+		return strings.Join(baseParts, " ")
+	}
+	sort.Strings(extra)
+	parts := append(baseParts, extra...)
+	return strings.Join(parts, " ")
+}
+
+func cloneArgs(args map[string]string) map[string]string {
+	if len(args) == 0 {
+		return nil
+	}
+	dup := make(map[string]string, len(args))
+	for key, value := range args {
+		dup[key] = value
+	}
+	return dup
 }
 
 func deriveIPPool(subnet *net.IPNet, hostIP net.IP) ([]string, error) {

@@ -58,6 +58,7 @@ type VM struct {
 // CreateVMRequest contains creation parameters.
 type CreateVMRequest struct {
 	Name          string `json:"name"`
+	Plugin        string `json:"plugin"`
 	Runtime       string `json:"runtime,omitempty"`
 	CPUCores      int    `json:"cpu_cores"`
 	MemoryMB      int    `json:"memory_mb"`
@@ -604,6 +605,10 @@ func (c *Client) GetPlugin(ctx context.Context, name string) (*pluginspec.Manife
 		return nil, err
 	}
 	return &manifest, nil
+}
+
+func (c *Client) DescribePlugin(ctx context.Context, name string) (*pluginspec.Manifest, error) {
+	return c.GetPlugin(ctx, name)
 }
 
 func (c *Client) InstallPlugin(ctx context.Context, manifest pluginspec.Manifest) error {
