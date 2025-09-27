@@ -57,15 +57,6 @@ func FromEnv() (ServerConfig, error) {
 	}
 	cfg.KernelImagePath = kernelPath
 
-	initramfsPath := strings.TrimSpace(os.Getenv("VOLANT_INITRAMFS"))
-	if initramfsPath != "" {
-		initramfsPath = expandPath(initramfsPath)
-		if _, err := os.Stat(initramfsPath); err != nil {
-			return ServerConfig{}, fmt.Errorf("initramfs not found at %s: %w", initramfsPath, err)
-		}
-		cfg.InitramfsPath = initramfsPath
-	}
-
 	if _, _, err := net.ParseCIDR(cfg.SubnetCIDR); err != nil {
 		return ServerConfig{}, fmt.Errorf("invalid subnet cidr %q: %w", cfg.SubnetCIDR, err)
 	}
