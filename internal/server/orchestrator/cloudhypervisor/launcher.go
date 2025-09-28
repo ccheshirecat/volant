@@ -120,8 +120,8 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		"--memory", fmt.Sprintf("size=%dM", spec.MemoryMB),
 		"--kernel", kernelCopy,
 		"--net", netArg,
-		"--serial", fmt.Sprintf("unix=%s", serialPath),
-		"--console", fmt.Sprintf("unix=%s", consolePath),
+		"--serial", fmt.Sprintf("pty,workdir=%s", l.ConsoleDir),
+		"--console", fmt.Sprintf("file=%s", consolePath),
 	}
 	if initramfsCopy != "" {
 		args = append(args, "--initramfs", initramfsCopy)
