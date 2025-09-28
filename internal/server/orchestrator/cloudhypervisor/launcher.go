@@ -23,6 +23,7 @@ type Launcher struct {
 	InitramfsPath string
 	RuntimeDir    string
 	LogDir        string
+	ConsoleDir    string
 }
 
 // New returns a configured Launcher.
@@ -96,14 +97,31 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		return nil, fmt.Errorf("cloudhypervisor: open log file: %w", err)
 	}
 
+	netArg := fmt.Sprintf("tap=%s,mac=%s", spec.TapDevice, spec.MACAddress)
+	if l.ConsoleDir == "" {
+		l.ConsoleDir = l.RuntimeDir
+	}
+	if err := os.MkdirAll(l.ConsoleDir, 0o755); err != nil {
+		return nil, fmt.Errorf("cloudhypervisor: ensure console dir: %w", err)
+	}
+
+	serialPath := spec.SerialSocket
+	if serialPath == "" {
+		serialPath = filepath.Join(l.ConsoleDir, fmt.Sprintf("%s.serial", spec.Name))
+	}
+	consolePath := spec.ConsoleSocket
+	if consolePath == "" {
+		consolePath = filepath.Join(l.ConsoleDir, fmt.Sprintf("%s.console", spec.Name))
+	}
+
 	args := []string{
 		"--api-socket", fmt.Sprintf("path=%s", apiSocket),
 		"--cpus", fmt.Sprintf("boot=%d", spec.CPUCores),
 		"--memory", fmt.Sprintf("size=%dM", spec.MemoryMB),
 		"--kernel", kernelCopy,
-		"--net", fmt.Sprintf("tap=%s,mac=%s", spec.TapDevice, spec.MACAddress),
-		"--serial", "tty",
-		"--console", "off",
+		"--net", netArg,
+		"--serial", fmt.Sprintf("unix=%s", serialPath),
+		"--console", fmt.Sprintf("unix=%s", consolePath),
 	}
 	if initramfsCopy != "" {
 		args = append(args, "--initramfs", initramfsCopy)
@@ -129,6 +147,9 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		if len(appendix) > 0 {
 			cmdline = strings.TrimSpace(cmdline + " " + strings.Join(appendix, " "))
 		}
+	}
+	if spec.IPAddress != "" && spec.Netmask != "" && spec.Gateway != "" {
+		cmdline = strings.TrimSpace(cmdline + " " + fmt.Sprintf("ip=%s::%s:%s::eth0", spec.IPAddress, spec.Gateway, spec.Netmask))
 	}
 	args = append(args, "--cmdline", cmdline)
 
@@ -173,6 +194,8 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		name:          spec.Name,
 		cmd:           cmd,
 		apiSocket:     apiSocket,
+		serialPath:    serialPath,
+		consolePath:   consolePath,
 		logFile:       logFile,
 		done:          done,
 		kernelPath:    kernelCopy,
@@ -185,6 +208,8 @@ type instance struct {
 	name          string
 	cmd           *exec.Cmd
 	apiSocket     string
+	serialPath    string
+	consolePath   string
 	logFile       *os.File
 	done          <-chan error
 	kernelPath    string
@@ -238,6 +263,12 @@ func (i *instance) cleanupArtifacts() {
 	}
 	if i.rootfsPath != "" {
 		_ = os.Remove(i.rootfsPath)
+	}
+	if i.serialPath != "" {
+		_ = os.Remove(i.serialPath)
+	}
+	if i.consolePath != "" {
+		_ = os.Remove(i.consolePath)
 	}
 }
 

@@ -53,6 +53,8 @@ type VM struct {
 	CPUCores      int    `json:"cpu_cores"`
 	MemoryMB      int    `json:"memory_mb"`
 	KernelCmdline string `json:"kernel_cmdline,omitempty"`
+	SerialSocket  string `json:"serial_socket,omitempty"`
+	ConsoleSocket string `json:"console_socket,omitempty"`
 }
 
 // CreateVMRequest contains creation parameters.

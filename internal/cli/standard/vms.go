@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -36,6 +39,7 @@ func newVMsCmd() *cobra.Command {
 	cmd.AddCommand(newVMsDeleteCmd())
 	cmd.AddCommand(newVMsGetCmd())
 	cmd.AddCommand(newVMsWatchCmd())
+	cmd.AddCommand(newVMsConsoleCmd())
 	cmd.AddCommand(newVMsNavigateCmd())
 	cmd.AddCommand(newVMsScreenshotCmd())
 	cmd.AddCommand(newVMsScrapeCmd())
@@ -97,6 +101,12 @@ func newVMsGetCmd() *cobra.Command {
 			}
 			if vm.KernelCmdline != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "Kernel Cmdline: %s\n", vm.KernelCmdline)
+			}
+			if vm.SerialSocket != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "Serial Socket: %s\n", vm.SerialSocket)
+			}
+			if vm.ConsoleSocket != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "Console Socket: %s\n", vm.ConsoleSocket)
 			}
 			return nil
 		},
@@ -476,6 +486,107 @@ func newVMsGraphQLCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&timeout, "timeout", 60*time.Second, "Action timeout")
 
 	return cmd
+}
+
+func newVMsConsoleCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "console <name>",
+		Short: "Attach to a VM serial or console socket",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			useConsole, err := cmd.Flags().GetBool("console")
+			if err != nil {
+				return err
+			}
+			socketPath, err := cmd.Flags().GetString("socket")
+			if err != nil {
+				return err
+			}
+
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
+			defer cancel()
+
+			vm, err := api.GetVM(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			if vm == nil {
+				return fmt.Errorf("vm %s not found", args[0])
+			}
+
+			defaultSocket := vm.SerialSocket
+			if useConsole {
+				defaultSocket = vm.ConsoleSocket
+			}
+			if defaultSocket == "" && strings.TrimSpace(socketPath) == "" {
+				mode := "serial"
+				if useConsole {
+					mode = "console"
+				}
+				return fmt.Errorf("no %s socket available", mode)
+			}
+			if strings.TrimSpace(socketPath) == "" {
+				socketPath = defaultSocket
+			}
+
+			mode := "serial"
+			if useConsole {
+				mode = "console"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Connecting to %s socket: %s\n", mode, socketPath)
+			return attachUnixSocket(cmd, socketPath)
+		},
+	}
+	cmd.Flags().Bool("console", false, "Attach to console socket instead of serial")
+	cmd.Flags().String("socket", "", "Override socket path")
+	return cmd
+}
+
+func attachUnixSocket(cmd *cobra.Command, socketPath string) error {
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		return fmt.Errorf("connect unix socket: %w", err)
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt)
+	defer signal.Stop(sigs)
+
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-sigs:
+			cancel()
+		}
+	}()
+
+	readerDone := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(conn, os.Stdin)
+		cancel()
+	}()
+	go func() {
+		_, _ = io.Copy(cmd.OutOrStdout(), conn)
+		close(readerDone)
+	}()
+
+	select {
+	case <-ctx.Done():
+	case <-readerDone:
+	}
+
+	if err := ctx.Err(); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
 }
 
 func clientFromCmd(cmd *cobra.Command) (*client.Client, error) {

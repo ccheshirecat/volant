@@ -16,6 +16,8 @@ type LaunchSpec struct {
 	Args           map[string]string
 	RootFS         string
 	RootFSChecksum string
+	SerialSocket   string
+	ConsoleSocket  string
 }
 
 // Instance represents a running hypervisor process.

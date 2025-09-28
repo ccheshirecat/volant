@@ -126,6 +126,8 @@ type engine struct {
 type processHandle struct {
 	instance runtime.Instance
 	tapName  string
+	serial   string
+	console  string
 }
 
 var (
@@ -293,6 +295,8 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		Gateway:       e.hostIP.String(),
 		Netmask:       netmask,
 		Args:          cloneArgs(kernelArgs),
+		SerialSocket:  filepath.Join(e.runtimeDir, fmt.Sprintf("%s.serial", vmRecord.Name)),
+		ConsoleSocket: filepath.Join(e.runtimeDir, fmt.Sprintf("%s.console", vmRecord.Name)),
 	}
 
 	if req.Manifest != nil {
@@ -308,10 +312,16 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		e.rollbackCreate(ctx, vmRecord)
 		return nil, err
 	}
+	vmRecord.SerialSocket = spec.SerialSocket
+	vmRecord.ConsoleSocket = spec.ConsoleSocket
 
 	pid := int64(instance.PID())
 	if err := e.store.WithTx(ctx, func(q db.Queries) error {
-		return q.VirtualMachines().UpdateRuntimeState(ctx, insertedID, db.VMStatusRunning, &pid)
+		repo := q.VirtualMachines()
+		if err := repo.UpdateRuntimeState(ctx, insertedID, db.VMStatusRunning, &pid); err != nil {
+			return err
+		}
+		return repo.UpdateSockets(ctx, insertedID, spec.SerialSocket, spec.ConsoleSocket)
 	}); err != nil {
 		_ = instance.Stop(ctx)
 		_ = e.network.CleanupTap(ctx, tapName)
@@ -319,7 +329,7 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 	}
 
 	e.mu.Lock()
-	handle := processHandle{instance: instance, tapName: tapName}
+	handle := processHandle{instance: instance, tapName: tapName, serial: spec.SerialSocket, console: spec.ConsoleSocket}
 	e.instances[vmRecord.Name] = handle
 	e.mu.Unlock()
 
