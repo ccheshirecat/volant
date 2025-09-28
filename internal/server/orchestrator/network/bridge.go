@@ -38,7 +38,12 @@ func (b *BridgeManager) PrepareTap(ctx context.Context, vmName, mac string) (str
 
 	// ip tuntap add dev <tap> mode tap
 	if err := run(ctx, "ip", "tuntap", "add", "dev", tap, "mode", "tap"); err != nil {
-		return "", fmt.Errorf("create tap %s: %w", tap, err)
+		if !strings.Contains(err.Error(), "File exists") {
+			return "", fmt.Errorf("create tap %s: %w", tap, err)
+		}
+		// Tap already exists; reset it
+		_ = run(ctx, "ip", "link", "set", "dev", tap, "down")
+		_ = run(ctx, "ip", "link", "set", "dev", tap, "nomaster")
 	}
 
 	// ip link set dev <tap> address <mac>
