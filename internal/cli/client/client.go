@@ -441,6 +441,9 @@ func (c *Client) BaseURL() *url.URL {
 }
 
 func (c *Client) NavigateVM(ctx context.Context, name string, payload NavigateActionRequest) error {
+	if payload.URL == "" {
+		return fmt.Errorf("client: navigate url required")
+	}
 	return c.PluginActionVM(ctx, name, "browser", "navigate", payload)
 }
 

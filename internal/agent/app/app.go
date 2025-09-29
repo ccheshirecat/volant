@@ -66,6 +66,12 @@ func Run(ctx context.Context) error {
 		logger.Printf("no manifest received at startup; waiting for configuration")
 	}
 
+	runtimeName := strings.TrimSpace(cfg.Runtime)
+	if runtimeName == "" && manifest != nil {
+		runtimeName = strings.TrimSpace(manifest.Runtime)
+	}
+	cfg.Runtime = runtimeName
+
 	app := &App{
 		cfg:      cfg,
 		timeout:  cfg.DefaultTimeout,
@@ -76,7 +82,9 @@ func Run(ctx context.Context) error {
 	}
 
 	if err := app.ensureRuntime(ctx); err != nil {
-		logger.Printf("failed to start runtime %q: %v", strings.TrimSpace(cfg.Runtime), err)
+		if runtimeName != "" {
+			logger.Printf("failed to start runtime %q: %v", runtimeName, err)
+		}
 	}
 
 	return app.run(ctx)
@@ -414,9 +422,19 @@ func (a *App) refreshManifest() error {
 }
 
 func (a *App) ensureRuntime(ctx context.Context) error {
+	if a.manifest == nil {
+		return fmt.Errorf("runtime name required")
+	}
+
 	runtimeName := strings.TrimSpace(a.cfg.Runtime)
-	if runtimeName == "" || a.manifest == nil {
-		return nil
+	if runtimeName == "" {
+		runtimeName = strings.TrimSpace(a.manifest.Runtime)
+		if runtimeName != "" {
+			a.cfg.Runtime = runtimeName
+		}
+	}
+	if runtimeName == "" {
+		return fmt.Errorf("runtime name required")
 	}
 
 	opts := agentruntime.Options{
