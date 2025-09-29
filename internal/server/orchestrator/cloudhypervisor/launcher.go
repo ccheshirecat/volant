@@ -121,6 +121,9 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	if err := touchFile(consolePath); err != nil {
 		return nil, fmt.Errorf("cloudhypervisor: prepare console file: %w", err)
 	}
+	if err := os.Truncate(consolePath, 0); err != nil {
+		return nil, fmt.Errorf("cloudhypervisor: truncate console file: %w", err)
+	}
 
 	serialMode := fmt.Sprintf("socket=%s", serialPath)
 
@@ -266,6 +269,10 @@ func (i *instance) Stop(ctx context.Context) error {
 	return nil
 }
 
+func (i *instance) cleanupArtifacts() {
+	if i.kernelPath != "" {
+		_ = os.Remove(i.kernelPath)
+	}
 	if i.initramfsPath != "" {
 		_ = os.Remove(i.initramfsPath)
 	}
@@ -278,6 +285,30 @@ func (i *instance) Stop(ctx context.Context) error {
 	if i.consolePath != "" {
 		_ = os.Remove(i.consolePath)
 	}
+}
+
+func removeIfExists(path string) error {
+	if path == "" {
+		return nil
+	}
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func touchFile(path string) error {
+	if path == "" {
+		return fmt.Errorf("touch: empty path")
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 func copyFile(src, dst string) error {
