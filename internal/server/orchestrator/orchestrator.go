@@ -332,6 +332,7 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		Netmask:       netmask,
 		Args:          cloneArgs(kernelArgs),
 		SerialSocket:  serialPath,
+		SerialType:    "tty",
 	}
 
 	if req.Manifest != nil {

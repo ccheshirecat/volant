@@ -129,7 +129,10 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	}
 	spec.SerialSocket = serialPath
 
-	serialMode := fmt.Sprintf("socket=%s", spec.SerialSocket)
+	serialMode := strings.TrimSpace(spec.SerialType)
+	if serialMode == "" {
+		serialMode = "tty"
+	}
 
 	args := []string{
 		"--api-socket", fmt.Sprintf("path=%s", apiSocket),
@@ -137,6 +140,7 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		"--memory", fmt.Sprintf("size=%dM", spec.MemoryMB),
 		"--kernel", kernelCopy,
 		"--serial", serialMode,
+		"--console", "off",
 	}
 	if netArg != "" {
 		args = append(args, "--net", netArg)
