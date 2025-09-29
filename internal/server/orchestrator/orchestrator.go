@@ -89,19 +89,7 @@ func New(params Params) (Engine, error) {
 
 	runtimeDir := params.Runtime
 	if runtimeDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("orchestrator: determine user home: %w", err)
-		}
-		runtimeDir = filepath.Join(home, ".volant", "run")
-	}
-	runtimeDir = filepath.Clean(runtimeDir)
-	if !filepath.IsAbs(runtimeDir) {
-		absRuntime, err := filepath.Abs(runtimeDir)
-		if err != nil {
-			return nil, fmt.Errorf("orchestrator: resolve runtime dir: %w", err)
-		}
-		runtimeDir = absRuntime
+		runtimeDir = filepath.Join(".volant", "run")
 	}
 
 	return &engine{
@@ -306,14 +294,6 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		}
 		serialPath = absSerial
 	}
-	if err := os.MkdirAll(filepath.Dir(serialPath), 0o755); err != nil {
-		e.rollbackCreate(ctx, vmRecord)
-		return nil, fmt.Errorf("orchestrator: ensure serial dir: %w", err)
-	}
-	if err := os.Remove(serialPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		e.rollbackCreate(ctx, vmRecord)
-		return nil, fmt.Errorf("orchestrator: clear serial socket: %w", err)
-	}
 
 	consolePath := filepath.Join(e.runtimeDir, fmt.Sprintf("%s.console", vmRecord.Name))
 	consolePath = filepath.Clean(consolePath)
@@ -324,14 +304,6 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 			return nil, fmt.Errorf("orchestrator: resolve console socket path: %w", absErr)
 		}
 		consolePath = absConsole
-	}
-	if err := os.MkdirAll(filepath.Dir(consolePath), 0o755); err != nil {
-		e.rollbackCreate(ctx, vmRecord)
-		return nil, fmt.Errorf("orchestrator: ensure console dir: %w", err)
-	}
-	if err := os.Remove(consolePath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		e.rollbackCreate(ctx, vmRecord)
-		return nil, fmt.Errorf("orchestrator: clear console socket: %w", err)
 	}
 
 	spec := runtime.LaunchSpec{

@@ -18,6 +18,7 @@ type LaunchSpec struct {
 	RootFSChecksum string
 	SerialSocket   string
 	ConsoleSocket  string
+	SerialType     string
 }
 
 // Instance represents a running hypervisor process.
