@@ -114,7 +114,7 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		consolePath = filepath.Join(l.ConsoleDir, fmt.Sprintf("%s.console", spec.Name))
 	}
 
-	serialMode := fmt.Sprintf("socket,path=%s", serialPath)
+	serialMode := fmt.Sprintf("socket=%s", serialPath)
 
 	args := []string{
 		"--api-socket", fmt.Sprintf("path=%s", apiSocket),
