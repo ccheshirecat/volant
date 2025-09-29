@@ -274,9 +274,8 @@ type vmResponse struct {
 	MACAddress    string     `json:"mac_address"`
 	CPUCores      int        `json:"cpu_cores"`
 	MemoryMB      int        `json:"memory_mb"`
-	KernelCmdline string     `json:"kernel_cmdline,omitempty"`
-	SerialSocket  string     `json:"serial_socket,omitempty"`
-	ConsoleSocket string     `json:"console_socket,omitempty"`
+	KernelCmdline string     `json:"kernel_cmdline"`
+	SerialSocket  string     `json:"serial_socket"`
 	CreatedAt     *time.Time `json:"created_at,omitempty"`
 	UpdatedAt     *time.Time `json:"updated_at,omitempty"`
 }
@@ -297,7 +296,6 @@ func vmToResponse(vm *db.VM) vmResponse {
 		MemoryMB:      vm.MemoryMB,
 		KernelCmdline: vm.KernelCmdline,
 		SerialSocket:  vm.SerialSocket,
-		ConsoleSocket: vm.ConsoleSocket,
 	}
 	if !vm.CreatedAt.IsZero() {
 		t := vm.CreatedAt

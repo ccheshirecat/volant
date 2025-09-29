@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -59,43 +58,16 @@ func resolveConsoleSocket(ctx context.Context, api *client.Client, vmName, socke
 	}
 
 	serialSocket := strings.TrimSpace(vm.SerialSocket)
-	consoleSocket := strings.TrimSpace(vm.ConsoleSocket)
-
-	if serialSocket != "" && strings.HasPrefix(serialSocket, "~") {
-		if home, err := os.UserHomeDir(); err == nil {
-			serialSocket = filepath.Clean(filepath.Join(home, serialSocket[1:]))
-		}
-	}
-	if consoleSocket != "" && strings.HasPrefix(consoleSocket, "~") {
-		if home, err := os.UserHomeDir(); err == nil {
-			consoleSocket = filepath.Clean(filepath.Join(home, consoleSocket[1:]))
-		}
-	}
 
 	override := strings.TrimSpace(socketOverride)
 	if override != "" {
-		mode := "serial"
-		if useConsole {
-			mode = "console"
-		}
-		return override, mode, nil
+		return override, "serial", nil
 	}
 
-	mode := "serial"
-	path := serialSocket
-	if useConsole {
-		mode = "console"
-		path = consoleSocket
-	} else if path == "" && consoleSocket != "" {
-		// Prefer console automatically if serial device is unavailable.
-		mode = "console"
-		path = consoleSocket
+	if strings.TrimSpace(serialSocket) == "" {
+		return "", "", fmt.Errorf("no serial socket available")
 	}
-
-	if strings.TrimSpace(path) == "" {
-		return "", "", fmt.Errorf("no %s socket available", mode)
-	}
-	return path, mode, nil
+	return serialSocket, "serial", nil
 }
 
 func newVMsListCmd() *cobra.Command {
@@ -541,18 +513,13 @@ func newVMsGraphQLCmd() *cobra.Command {
 func newVMsConsoleCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "console <name>",
-		Short: "Attach to a VM serial or console socket",
+		Short: "Attach to a VM serial socket",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			useConsole, err := cmd.Flags().GetBool("console")
-			if err != nil {
-				return err
-			}
 			socketPath, err := cmd.Flags().GetString("socket")
 			if err != nil {
 				return err
 			}
-			mode := "serial"
 
 			api, err := clientFromCmd(cmd)
 			if err != nil {
@@ -561,16 +528,15 @@ func newVMsConsoleCmd() *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
 			defer cancel()
 
-			socketPath, mode, err = resolveConsoleSocket(ctx, api, args[0], socketPath, useConsole)
+			socketPath, _, err = resolveConsoleSocket(ctx, api, args[0], socketPath, false)
 			if err != nil {
 				return err
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Connecting to %s socket: %s\n", mode, socketPath)
+			fmt.Fprintf(cmd.OutOrStdout(), "Connecting to serial socket: %s\n", socketPath)
 			return attachUnixSocket(cmd, socketPath)
 		},
 	}
-	cmd.Flags().Bool("console", false, "Attach to console socket instead of serial")
 	cmd.Flags().String("socket", "", "Override socket path")
 	return cmd
 }

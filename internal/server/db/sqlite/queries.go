@@ -55,12 +55,11 @@ func (r *vmRepository) Create(ctx context.Context, vm *db.VM) (int64, error) {
 	pidVal := nullableInt64(vm.PID)
 	cmdlineVal := nullableString(vm.KernelCmdline)
 	serialVal := nullableString(vm.SerialSocket)
-	consoleVal := nullableString(vm.ConsoleSocket)
 
 	res, err := r.exec.ExecContext(
 		ctx,
-		`INSERT INTO vms (name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket, console_socket)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+		`INSERT INTO vms (name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
 		vm.Name,
 		string(vm.Status),
 		vm.Runtime,
@@ -71,7 +70,6 @@ func (r *vmRepository) Create(ctx context.Context, vm *db.VM) (int64, error) {
 		vm.MemoryMB,
 		cmdlineVal,
 		serialVal,
-		consoleVal,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert vm: %w", err)
@@ -85,7 +83,7 @@ func (r *vmRepository) Create(ctx context.Context, vm *db.VM) (int64, error) {
 }
 
 func (r *vmRepository) GetByName(ctx context.Context, name string) (*db.VM, error) {
-	row := r.exec.QueryRowContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket, console_socket, created_at, updated_at FROM vms WHERE name = ?;`, name)
+	row := r.exec.QueryRowContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket, created_at, updated_at FROM vms WHERE name = ?;`, name)
 	vm, err := scanVM(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -97,7 +95,7 @@ func (r *vmRepository) GetByName(ctx context.Context, name string) (*db.VM, erro
 }
 
 func (r *vmRepository) List(ctx context.Context) ([]db.VM, error) {
-	rows, err := r.exec.QueryContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket, console_socket, created_at, updated_at FROM vms ORDER BY created_at ASC;`)
+	rows, err := r.exec.QueryContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket, created_at, updated_at FROM vms ORDER BY created_at ASC;`)
 	if err != nil {
 		return nil, fmt.Errorf("query vms: %w", err)
 	}
@@ -133,8 +131,8 @@ func (r *vmRepository) UpdateKernelCmdline(ctx context.Context, id int64, cmdlin
 	return nil
 }
 
-func (r *vmRepository) UpdateSockets(ctx context.Context, id int64, serial, console string) error {
-	if _, err := r.exec.ExecContext(ctx, `UPDATE vms SET serial_socket = ?, console_socket = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;`, nullableString(serial), nullableString(console), id); err != nil {
+func (r *vmRepository) UpdateSockets(ctx context.Context, id int64, serial string) error {
+	if _, err := r.exec.ExecContext(ctx, `UPDATE vms SET serial_socket = ?, console_socket = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?;`, nullableString(serial), id); err != nil {
 		return fmt.Errorf("update vm sockets: %w", err)
 	}
 	return nil
@@ -315,7 +313,6 @@ func scanVM(row rowScanner) (db.VM, error) {
 		pid        sql.NullInt64
 		cmdline    sql.NullString
 		serial     sql.NullString
-		console    sql.NullString
 		createdRaw any
 		updatedRaw any
 	)
@@ -332,7 +329,6 @@ func scanVM(row rowScanner) (db.VM, error) {
 		&vm.MemoryMB,
 		&cmdline,
 		&serial,
-		&console,
 		&createdRaw,
 		&updatedRaw,
 	); err != nil {
@@ -347,8 +343,8 @@ func scanVM(row rowScanner) (db.VM, error) {
 		vm.Runtime = runtime.String
 	}
 	if pid.Valid {
-		value := pid.Int64
-		vm.PID = &value
+		val := pid.Int64
+		vm.PID = &val
 	}
 	if cmdline.Valid {
 		vm.KernelCmdline = cmdline.String
@@ -356,20 +352,18 @@ func scanVM(row rowScanner) (db.VM, error) {
 	if serial.Valid {
 		vm.SerialSocket = serial.String
 	}
-	if console.Valid {
-		vm.ConsoleSocket = console.String
+
+	created, err := parseTimestamp(createdRaw)
+	if err != nil {
+		return db.VM{}, fmt.Errorf("parse vm created: %w", err)
+	}
+	updated, err := parseTimestamp(updatedRaw)
+	if err != nil {
+		return db.VM{}, fmt.Errorf("parse vm updated: %w", err)
 	}
 
-	createdAt, err := coerceTime(createdRaw)
-	if err != nil {
-		return db.VM{}, fmt.Errorf("parse vm created_at: %w", err)
-	}
-	updatedAt, err := coerceTime(updatedRaw)
-	if err != nil {
-		return db.VM{}, fmt.Errorf("parse vm updated_at: %w", err)
-	}
-	vm.CreatedAt = createdAt
-	vm.UpdatedAt = updatedAt
+	vm.CreatedAt = created
+	vm.UpdatedAt = updated
 	return vm, nil
 }
 
@@ -502,4 +496,30 @@ func boolToInt(v bool) int {
 		return 1
 	}
 	return 0
+}
+
+func parseTimestamp(value any) (time.Time, error) {
+	switch t := value.(type) {
+	case time.Time:
+		return t, nil
+	case string:
+		for _, layout := range timestampLayouts {
+			parsed, err := time.Parse(layout, t)
+			if err == nil {
+				return parsed, nil
+			}
+		}
+	case []byte:
+		for _, layout := range timestampLayouts {
+			parsed, err := time.Parse(layout, string(t))
+			if err == nil {
+				return parsed, nil
+			}
+		}
+	case int64:
+		return time.Unix(t, 0), nil
+	case float64:
+		return time.Unix(int64(t), 0), nil
+	}
+	return time.Time{}, fmt.Errorf("unsupported timestamp type %T", value)
 }

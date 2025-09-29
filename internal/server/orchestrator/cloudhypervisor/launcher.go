@@ -129,26 +129,6 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	}
 	spec.SerialSocket = serialPath
 
-	consolePath := spec.ConsoleSocket
-	if consolePath == "" {
-		consolePath = filepath.Join(l.ConsoleDir, fmt.Sprintf("%s.console", spec.Name))
-	}
-	consolePath = filepath.Clean(consolePath)
-	if err := os.MkdirAll(filepath.Dir(consolePath), 0o755); err != nil {
-		return nil, fmt.Errorf("cloudhypervisor: ensure console dir: %w", err)
-	}
-	if err := touchFile(consolePath); err != nil {
-		return nil, fmt.Errorf("cloudhypervisor: prepare console file: %w", err)
-	}
-	if err := os.Truncate(consolePath, 0); err != nil {
-		return nil, fmt.Errorf("cloudhypervisor: truncate console file: %w", err)
-	}
-	consolePath, err = filepath.Abs(consolePath)
-	if err != nil {
-		return nil, fmt.Errorf("cloudhypervisor: resolve console path: %w", err)
-	}
-	spec.ConsoleSocket = consolePath
-
 	serialMode := fmt.Sprintf("socket=%s", spec.SerialSocket)
 
 	args := []string{
@@ -157,7 +137,6 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		"--memory", fmt.Sprintf("size=%dM", spec.MemoryMB),
 		"--kernel", kernelCopy,
 		"--serial", serialMode,
-		"--console", fmt.Sprintf("file=%s", consolePath),
 	}
 	if netArg != "" {
 		args = append(args, "--net", netArg)
@@ -234,7 +213,7 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		cmd:           cmd,
 		apiSocket:     apiSocket,
 		serialPath:    serialPath,
-		consolePath:   consolePath,
+		consolePath:   "", // Removed consolePath
 		logFile:       logFile,
 		done:          done,
 		kernelPath:    kernelCopy,

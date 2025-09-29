@@ -30,7 +30,6 @@ type VM struct {
 	MemoryMB      int
 	KernelCmdline string
 	SerialSocket  string
-	ConsoleSocket string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -94,7 +93,7 @@ type VMRepository interface {
 	List(ctx context.Context) ([]VM, error)
 	UpdateRuntimeState(ctx context.Context, id int64, status VMStatus, pid *int64) error
 	UpdateKernelCmdline(ctx context.Context, id int64, cmdline string) error
-	UpdateSockets(ctx context.Context, id int64, serial, console string) error
+	UpdateSockets(ctx context.Context, id int64, serial string) error
 	Delete(ctx context.Context, id int64) error
 }
 

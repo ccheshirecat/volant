@@ -153,7 +153,6 @@ type processHandle struct {
 	instance runtime.Instance
 	tapName  string
 	serial   string
-	console  string
 }
 
 var (
@@ -321,17 +320,6 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		serialPath = absSerial
 	}
 
-	consolePath := filepath.Join(e.runtimeDir, fmt.Sprintf("%s.console", vmRecord.Name))
-	consolePath = filepath.Clean(consolePath)
-	if !filepath.IsAbs(consolePath) {
-		absConsole, absErr := filepath.Abs(consolePath)
-		if absErr != nil {
-			e.rollbackCreate(ctx, vmRecord)
-			return nil, fmt.Errorf("orchestrator: resolve console socket path: %w", absErr)
-		}
-		consolePath = absConsole
-	}
-
 	spec := runtime.LaunchSpec{
 		Name:          vmRecord.Name,
 		CPUCores:      vmRecord.CPUCores,
@@ -344,7 +332,6 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		Netmask:       netmask,
 		Args:          cloneArgs(kernelArgs),
 		SerialSocket:  serialPath,
-		ConsoleSocket: consolePath,
 	}
 
 	if req.Manifest != nil {
@@ -367,7 +354,6 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		return nil, err
 	}
 	vmRecord.SerialSocket = spec.SerialSocket
-	vmRecord.ConsoleSocket = spec.ConsoleSocket
 
 	pid := int64(instance.PID())
 	if err := e.store.WithTx(ctx, func(q db.Queries) error {
@@ -375,7 +361,7 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		if err := repo.UpdateRuntimeState(ctx, insertedID, db.VMStatusRunning, &pid); err != nil {
 			return err
 		}
-		return repo.UpdateSockets(ctx, insertedID, spec.SerialSocket, spec.ConsoleSocket)
+		return repo.UpdateSockets(ctx, insertedID, spec.SerialSocket)
 	}); err != nil {
 		_ = instance.Stop(ctx)
 		_ = e.network.CleanupTap(ctx, tapName)
@@ -383,7 +369,7 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 	}
 
 	e.mu.Lock()
-	handle := processHandle{instance: instance, tapName: tapName, serial: spec.SerialSocket, console: spec.ConsoleSocket}
+	handle := processHandle{instance: instance, tapName: tapName, serial: spec.SerialSocket}
 	e.instances[vmRecord.Name] = handle
 	e.mu.Unlock()
 
