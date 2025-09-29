@@ -57,20 +57,31 @@ func resolveConsoleSocket(ctx context.Context, api *client.Client, vmName, socke
 		return "", "", fmt.Errorf("vm %s not found", vmName)
 	}
 
-	defaultSocket := strings.TrimSpace(vm.SerialSocket)
-	mode := "serial"
-	if useConsole {
-		mode = "console"
-		defaultSocket = strings.TrimSpace(vm.ConsoleSocket)
-	}
+	serialSocket := strings.TrimSpace(vm.SerialSocket)
+	consoleSocket := strings.TrimSpace(vm.ConsoleSocket)
 
 	override := strings.TrimSpace(socketOverride)
-	if defaultSocket == "" && override == "" {
-		return "", "", fmt.Errorf("no %s socket available", mode)
+	if override != "" {
+		mode := "serial"
+		if useConsole {
+			mode = "console"
+		}
+		return override, mode, nil
 	}
-	path := override
-	if path == "" {
-		path = defaultSocket
+
+	mode := "serial"
+	path := serialSocket
+	if useConsole {
+		mode = "console"
+		path = consoleSocket
+	} else if path == "" && consoleSocket != "" {
+		// Prefer console automatically if serial device is unavailable.
+		mode = "console"
+		path = consoleSocket
+	}
+
+	if strings.TrimSpace(path) == "" {
+		return "", "", fmt.Errorf("no %s socket available", mode)
 	}
 	return path, mode, nil
 }

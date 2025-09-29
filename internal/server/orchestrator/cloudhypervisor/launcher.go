@@ -114,13 +114,13 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	if err := os.MkdirAll(filepath.Dir(serialPath), 0o755); err != nil {
 		return nil, fmt.Errorf("cloudhypervisor: ensure serial dir: %w", err)
 	}
-	if err := removeIfExists(serialPath); err != nil {
+	if err := os.Remove(serialPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("cloudhypervisor: prepare serial socket: %w", err)
 	}
-	serialPath, err = filepath.Abs(serialPath)
-	if err != nil {
-		return nil, fmt.Errorf("cloudhypervisor: resolve serial socket path: %w", err)
+	if !filepath.IsAbs(serialPath) {
+		serialPath = filepath.Join(l.RuntimeDir, serialPath)
 	}
+	serialPath = filepath.Clean(serialPath)
 	spec.SerialSocket = serialPath
 
 	consolePath := spec.ConsoleSocket
@@ -131,15 +131,15 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	if err := os.MkdirAll(filepath.Dir(consolePath), 0o755); err != nil {
 		return nil, fmt.Errorf("cloudhypervisor: ensure console dir: %w", err)
 	}
-	if err := touchFile(consolePath); err != nil {
+	if err := os.Remove(consolePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("cloudhypervisor: prepare console file: %w", err)
 	}
-	if err := os.Truncate(consolePath, 0); err != nil {
-		return nil, fmt.Errorf("cloudhypervisor: truncate console file: %w", err)
+	if !filepath.IsAbs(consolePath) {
+		consolePath = filepath.Join(l.RuntimeDir, consolePath)
 	}
-	consolePath, err = filepath.Abs(consolePath)
-	if err != nil {
-		return nil, fmt.Errorf("cloudhypervisor: resolve console path: %w", err)
+	consolePath = filepath.Clean(consolePath)
+	if err := touchFile(consolePath); err != nil {
+		return nil, fmt.Errorf("cloudhypervisor: create console file: %w", err)
 	}
 	spec.ConsoleSocket = consolePath
 
@@ -154,6 +154,13 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		"--console", fmt.Sprintf("file=%s", consolePath),
 	}
 	if netArg != "" {
+		if spec.IPAddress != "" && spec.Netmask != "" {
+			gateway := spec.Gateway
+			if strings.TrimSpace(gateway) == "" {
+				gateway = "0.0.0.0"
+			}
+			netArg = fmt.Sprintf("%s,ip=%s,mask=%s,gateway=%s", netArg, spec.IPAddress, spec.Netmask, gateway)
+		}
 		args = append(args, "--net", netArg)
 	}
 	if initramfsCopy != "" {
