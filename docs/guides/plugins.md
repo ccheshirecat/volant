@@ -7,12 +7,11 @@ description: "Extending the engine with runtime manifests and external runtimes.
 
 Volant treats every specialized workload as a **plugin**. A plugin is defined by a manifest that declares:
 
-- The runtime identifier (e.g., `browser`, `worker`, `inference`)
+- Optional runtime identifier (used for metadata only)
 - Artifact references (root filesystem bundle, optional OCI images, checksums/signatures)
 - Resource hints (CPU, memory)
-- Workload contract (HTTP base URL, entrypoint, environment)
-- Action definitions exposed via the agent
-- Optional OpenAPI references or metadata for discovery
+- Workload contract (entrypoint, HTTP/WebSocket base URLs, environment variables)
+- Optional action helpers or OpenAPI references for discovery
 
 Plugins allow the engine to remain lightweight while enabling purpose-built runtimes to live in separate repositories.
 
@@ -50,26 +49,26 @@ A manifest (`plugin.yaml`/`plugin.json`) typically looks like:
 
 ```json
 {
-  "name": "browser",
-  "version": "1.0.0",
-  "runtime": "browser",
+  "name": "steel-browser",
+  "version": "0.1.0",
+  "runtime": "steel",
   "resources": {
     "cpu_cores": 2,
     "memory_mb": 2048
   },
   "workload": {
     "type": "http",
-    "base_url": "http://127.0.0.1:8080"
-  },
-  "actions": {
-    "navigate": {
-      "description": "Navigate to URL",
-      "method": "POST",
-      "path": "/v1/browser/navigate",
-      "timeout_ms": 60000
+    "entrypoint": [
+      "/app/api/entrypoint.sh",
+      "--no-nginx"
+    ],
+    "base_url": "http://127.0.0.1:3000",
+    "env": {
+      "DOMAIN": "127.0.0.1:3000",
+      "CDP_DOMAIN": "127.0.0.1:9223"
     }
   },
-  "openapi": "https://example.com/browser-openapi.json",
+  "openapi": "https://raw.githubusercontent.com/steel-dev/steel-browser/main/api/openapi/schemas.json",
   "enabled": true,
   "labels": {
     "tier": "reference"
@@ -77,16 +76,16 @@ A manifest (`plugin.yaml`/`plugin.json`) typically looks like:
 }
 ```
 
-The engine never interprets plugin-specific payloads; it simply proxies requests to the agent inside the microVM. Plugin repositories own the runtime implementation, action handlers, and any higher-level workflows.
+The engine never interprets plugin-specific payloads; it launches the declared workload and lets clients discover capabilities through the manifest (e.g., via the OpenAPI spec). If a plugin wants to publish convenience “actions”, it can, but they are optional.
 
 ---
 
 ## Plugin lifecycle
 
 1. **Install** — `volar plugins install --manifest ...` registers the manifest, validates it against the schema, persists it, and adds it to the in-memory registry.
-2. **Enable** — only enabled manifests can service actions. (New installs default to enabled.)
-3. **Launch** — when creating a VM, provide `--plugin=<name>` (runtime is inferred from the manifest). The orchestrator encodes the manifest payload and injects it into the VM kernel cmdline alongside runtime identifiers.
-4. **Action routing** — API requests to `/api/v1/plugins/{plugin}/actions/{action}` resolve to the manifest-defined path inside the agent. CLI helpers wrap popular actions (navigate, screenshot, scrape, exec, GraphQL) using the same proxy.
+2. **Enable** — only enabled manifests can be targeted when creating VMs. (New installs default to enabled.)
+3. **Launch** — when creating a VM, provide `--plugin=<name>`; the orchestrator encodes the manifest payload and injects it via kernel cmdline.
+4. **Interaction** — clients consult the manifest (and its published OpenAPI schema, if present) to call the workload directly. Legacy `/actions` proxies remain for backwards compatibility but are no longer required.
 
 ---
 
@@ -96,7 +95,7 @@ The engine repository focuses on orchestration primitives. Runtime implementatio
 
 - The manifest (`plugin.yaml`/`plugin.json`)
 - Runtime assets (initramfs, kernel overlay, agent extensions)
-- Their own CLI/TUI or documentation for plugin-specific actions
+- Their own CLI/TUI or documentation for workload-specific endpoints/openAPI schemas
 
 The engine stays stable and universal; plugins can iterate independently.
 

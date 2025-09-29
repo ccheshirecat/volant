@@ -168,7 +168,16 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		}
 	}
 	if spec.IPAddress != "" && spec.Netmask != "" && spec.Gateway != "" {
-		cmdline = strings.TrimSpace(cmdline + " " + fmt.Sprintf("ip=%s::%s:%s::eth0", spec.IPAddress, spec.Gateway, spec.Netmask))
+		hasIP := false
+		for _, field := range strings.Fields(cmdline) {
+			if strings.HasPrefix(field, "ip=") {
+				hasIP = true
+				break
+			}
+		}
+		if !hasIP {
+			cmdline = strings.TrimSpace(cmdline + " " + fmt.Sprintf("ip=%s::%s:%s::eth0", spec.IPAddress, spec.Gateway, spec.Netmask))
+		}
 	}
 	args = append(args, "--cmdline", cmdline)
 

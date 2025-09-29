@@ -1,9 +1,12 @@
 package pluginspec
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 )
@@ -93,9 +96,6 @@ func (m Manifest) Validate() error {
 	if m.Resources.MemoryMB <= 0 {
 		return fmt.Errorf("plugin manifest: memory_mb must be > 0")
 	}
-	if len(m.Actions) == 0 {
-		return fmt.Errorf("plugin manifest: at least one action required")
-	}
 	for name, action := range m.Actions {
 		if strings.TrimSpace(action.Method) == "" {
 			return fmt.Errorf("plugin manifest: action %s missing method", name)
@@ -127,6 +127,9 @@ func (w Workload) Validate() error {
 		if _, err := url.Parse(w.BaseURL); err != nil {
 			return fmt.Errorf("plugin manifest: workload.base_url invalid: %w", err)
 		}
+		if len(w.Entrypoint) == 0 || strings.TrimSpace(w.Entrypoint[0]) == "" {
+			return fmt.Errorf("plugin manifest: workload.entrypoint required for http workload")
+		}
 	default:
 		return fmt.Errorf("plugin manifest: workload type %q not supported", w.Type)
 	}
@@ -154,7 +157,15 @@ func Encode(m Manifest) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return base64.RawURLEncoding.EncodeToString(data), nil
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(data); err != nil {
+		return "", err
+	}
+	if err := zw.Close(); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf.Bytes()), nil
 }
 
 // Decode decodes a base64url manifest string into a Manifest.
@@ -164,7 +175,22 @@ func Decode(value string) (Manifest, error) {
 	if err != nil {
 		return manifest, err
 	}
-	if err := json.Unmarshal(decoded, &manifest); err != nil {
+	reader, err := gzip.NewReader(bytes.NewReader(decoded))
+	if err != nil {
+		// Fallback to interpreting the payload as raw JSON (legacy encoding)
+		if err := json.Unmarshal(decoded, &manifest); err != nil {
+			return manifest, err
+		}
+		return manifest, nil
+	}
+	decompressed, err := io.ReadAll(reader)
+	if err != nil {
+		return manifest, err
+	}
+	if err := reader.Close(); err != nil {
+		return manifest, err
+	}
+	if err := json.Unmarshal(decompressed, &manifest); err != nil {
 		return manifest, err
 	}
 	return manifest, nil

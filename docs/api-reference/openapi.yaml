@@ -151,8 +151,8 @@ paths:
       - $ref: '#/components/parameters/PluginName'
       - $ref: '#/components/parameters/ActionName'
     post:
-      summary: Dispatch plugin action to VM
-      description: Resolves a plugin manifest and forwards the action payload to the runtime agent inside the VM.
+      summary: Legacy plugin action proxy (VM scoped)
+      description: Resolves a plugin manifest and forwards the action payload to the runtime agent inside the VM. New plugins prefer calling workload endpoints directly.
       operationId: invokePluginActionScoped
       tags: [plugins]
       requestBody:
@@ -277,8 +277,8 @@ paths:
       - $ref: '#/components/parameters/PluginName'
       - $ref: '#/components/parameters/ActionName'
     post:
-      summary: Dispatch plugin action (unscoped)
-      description: Resolves the specified plugin manifest and proxies the action to the runtime. Useful for runtimes that are not scoped to a specific VM (e.g., pooled services).
+      summary: Legacy plugin action proxy (unscoped)
+      description: Resolves the specified plugin manifest and proxies the payload to the runtime. Useful for older manifests; new plugins should call workload endpoints directly.
       operationId: invokePluginAction
       tags: [plugins]
       requestBody:

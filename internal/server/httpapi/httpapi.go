@@ -366,23 +366,14 @@ func (api *apiServer) createVM(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "runtime not specified and plugin manifest missing runtime"})
 		return
 	}
-	listenAddr := c.Request.Host
-	hostIP := ""
-	port := 0
-	if parsed, err := url.Parse(listenAddr); err == nil {
-		hostIP = parsed.Hostname()
-		if p, convErr := strconv.Atoi(parsed.Port()); convErr == nil {
-			port = p
-		}
-	}
 	vm, err := api.engine.CreateVM(c.Request.Context(), orchestrator.CreateVMRequest{
 		Name:              req.Name,
 		Plugin:            pluginName,
 		Runtime:           req.Runtime,
 		CPUCores:          req.CPUCores,
 		MemoryMB:          req.MemoryMB,
-		APIHost:           hostIP,
-		APIPort:           strconv.Itoa(port),
+		APIHost:           "",
+		APIPort:           "",
 		KernelCmdlineHint: req.KernelCmdline,
 		Manifest:          &manifestCopy,
 	})

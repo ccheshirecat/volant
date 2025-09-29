@@ -35,7 +35,7 @@ For full reference, embed `docs/api/openapi.yaml` in your docs site. Highlights:
 | `GET /ws/v1/vms/{name}/devtools/*` | CDP proxy |
 | `GET /ws/v1/vms/{name}/logs` | WebSocket JSON log stream |
 | `GET /ws/v1/agui` | AG-UI WebSocket events (run state) |
-| `POST /api/v1/vms/{name}/actions/*` | Shortcut action shims (navigate, screenshot, scrape, exec, graphql) |
+| `POST /api/v1/vms/{name}/actions/*` | Legacy manifest action proxy (new plugins prefer direct OpenAPI endpoints) |
 
 ## Environment Variables
 

@@ -15,10 +15,10 @@
 
 2. **In-VM Boot**
    - Kernel executes `/bin/volant-init` which mounts virtual filesystems, parses `ip=` from `/proc/cmdline`, configures `eth0`, and `exec`s `volary`.
-   - Agent decodes the manifest, hydrates workload configuration (HTTP base URL, environment, entrypoint), and exposes REST/WebSocket endpoints defined in the action map. Browser plugins still launch Chrome, but other plugins can implement different runtimes.
+   - Agent decodes the manifest, hydrates the declared workload (entrypoint, environment, base URL), launches the process, and exposes whatever interfaces the manifest describes (REST, WebSocket, DevTools, etc.). No legacy browser assumptions remain.
 
 3. **Task Execution**
-   - CLI/TUI/MCP actions proxy through `volantd` to the agent. Generic endpoints (`/api/v1/plugins/{plugin}/actions/{action}`) translate manifest-defined routes into in-VM HTTP calls, handling base64 payload transport when required.
+   - CLI/TUI/MCP clients call workload endpoints directly based on manifest metadata. Legacy action proxies (`/api/v1/plugins/{plugin}/actions/{action}`) remain for older manifests but are no longer required.
    - Results, logs, and artifacts stream back through the proxy and event bus.
 
 4. **Teardown**
@@ -34,7 +34,6 @@
 - Core tables:
   - `vms(id, name, status, pid, ip_address, cpu_cores, memory_mb, created_at, updated_at)`
   - `ip_allocations(ip_address PRIMARY KEY, vm_id NULLABLE, status, leased_at)`
-  - `workloads(... TBD ...)`
 - `plugins(id, name, version, runtime, manifest_json, enabled, created_at, updated_at)`
 - `Store.WithTx` coordinates transactional workflows so IP leases and VM lifecycle mutations commit atomically.
 
@@ -62,7 +61,7 @@
   - `DELETE /api/v1/vms/:name` destroys a VM and releases its resources.
   - `GET /api/v1/system/status` returns system metrics (VM count, CPU/MEM placeholders).
 - `GET /api/v1/events/vms` streams lifecycle events over Server-Sent Events (SSE) sourced from the internal event bus.
-- Plugin-aware endpoints extend the surface: `/api/v1/plugins` manages manifest lifecycle, `/api/v1/plugins/{plugin}/actions/{action}` proxies runtime calls, and `/api/v1/vms/{name}/actions/{plugin}/{action}` scopes actions to a VM.
+- Plugin-aware endpoints extend the surface: `/api/v1/plugins` manages manifest lifecycle. Historical action proxy endpoints remain for backwards compatibility, but new clients should consume the manifest's published OpenAPI metadata and call workloads directly.
 - Request/response payloads are JSON; future work will introduce authn/z, pagination, and richer error semantics.
 
 ## Eventing & Protocols

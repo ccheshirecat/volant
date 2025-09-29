@@ -76,7 +76,7 @@ volar plugins disable browser
 volar plugins remove browser
 ```
 
-Manifests describe runtime metadata (resources, actions, optional OpenAPI specs). See the [Plugins guide](plugins.md) for authoring details.
+Manifests describe runtime metadata (resources, workload entrypoints, optional OpenAPI specs and helper actions). See the [Plugins guide](plugins.md) for authoring details.
 
 ## `volar browsers`
 

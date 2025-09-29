@@ -51,14 +51,14 @@ volar vms watch
 
 ## 4. Connect to the agent (optional)
 
-Every VM runs the agent (`volary`) on port 8080 inside the microVM. If you have a plugin installed that exposes actions, you can proxy requests via the control plane:
+Every VM runs the agent (`volary`) on port 8080 inside the microVM. Most plugins expose their own HTTP or WebSocket APIs—inspect the manifest to discover the exact endpoints:
 
 ```bash
 volar plugins list
-volar vms actions my-first-vm <plugin> <action> --payload ./payload.json
+volar plugins manifest <plugin> --summary
 ```
 
-(See the plugin documentation for available actions; the engine ships with no runtime-specific actions enabled by default.)
+With that information you can call the workload directly (for example, the Steel browser plugin exposes `/v1/sessions` and other HTTP endpoints on its base URL). Legacy `volar vms actions ...` helpers still exist for older manifests but are no longer required.
 
 ---
 

@@ -25,7 +25,7 @@
 
 Volant turns microVMs into a first-class runtime surface. The project ships a control plane, CLI/TUI, and agent that speak a common plugin manifest so teams can run secure, stateful workloads without stitching together networking, scheduling, and lifecycle plumbing themselves.
 
-Runtime-specific behavior lives in signed manifests and their associated artifacts. The core engine stays lean while plugin authors ship the kernels/initramfs overlays, agents, and action handlers that describe a runtime. Operators decide which manifests to install and must reference one whenever a VM is created.
+Runtime-specific behavior lives in signed manifests and their associated artifacts. The core engine stays lean while plugin authors ship the kernels/initramfs overlays and workload processes their runtime requires. Operators decide which manifests to install and must reference one whenever a VM is created.
 
 ---
 
@@ -34,14 +34,14 @@ Runtime-specific behavior lives in signed manifests and their associated artifac
 - **Control plane (`volantd`)** manages SQLite-backed state, static IP leasing, orchestration, REST/MCP/AG-UI APIs, and the plugin registry.
 - **Agent (`volary`)** boots inside each microVM, hydrates the declared runtime, and mounts plugin-defined HTTP/WebSocket routes.
 - **CLI & TUI (`volar`)** provide a dual-mode operator experience: scriptable Cobra commands and a Bubble Tea dashboard.
-- **Plugins** declare resources, actions, and health probes via manifests—letting browser automation, AI inference, worker pools, or custom stacks share the same engine.
+- **Plugins** declare resources, workloads, and optional OpenAPI/action metadata via manifests—letting browser automation, AI inference, worker pools, or custom stacks share the same engine.
 
 ---
 
 ## Highlights
 
 - 🛡 **Hardware isolation first** – every workload runs inside a Cloud Hypervisor microVM with static network bridging.
-- 🧩 **Plugin contract** – manifests capture runtime requirements, action endpoints, and OpenAPI metadata.
+- 🧩 **Plugin contract** – manifests capture runtime requirements, workload entrypoints, and optional OpenAPI metadata.
 - 🔌 **Universal proxy** – the control plane can forward REST, SSE, or WebSocket traffic to runtime agents without exposing private IPs.
 - 📡 **AI-native APIs** – REST, Model Context Protocol, and AG-UI event streams ship in the box.
 - 🧰 **Operator ergonomics** – one binary installs networking, bootstraps the database, and exposes both CLI and TUI surfaces.
@@ -57,14 +57,14 @@ curl -sSL https://install.volant.cloud | bash
 # Configure the host (bridge networking, NAT, systemd service)
 sudo volar setup
 
-# Install a plugin manifest
-volar plugins install --manifest ./manifests/browser.json
+# Install a plugin manifest (Steel browser)
+volar plugins install --manifest ./manifests/steel-browser.json
 
 # Create a microVM referencing that plugin
-volar vms create demo --plugin browser --cpu 2 --memory 2048
+volar vms create demo --plugin steel-browser --cpu 2 --memory 2048
 
-# Invoke a plugin-defined action (requires the plugin to expose it)
-volar vms navigate demo https://example.com
+# Discover workload endpoints
+volar plugins manifest steel-browser --summary
 ```
 
 Refer to `docs/guides/plugins.md` for manifest structure, validation, and distribution workflows.
@@ -84,12 +84,12 @@ Refer to `docs/guides/plugins.md` for manifest structure, validation, and distri
 
 ## Plugin workflow
 
-1. **Author** a manifest (`schema_version`, `name`, `version`, `runtime`, `rootfs`, resource envelope, workload contract, and action map).
+1. **Author** a manifest (`schema_version`, `name`, `version`, `runtime` optional, `rootfs`, resource envelope, workload contract, optional OpenAPI metadata).
 2. **Package** the runtime artifacts referenced by the manifest (kernel/initramfs, OCI image, minisign signatures, etc.).
 3. **Install** the manifest with `volar plugins install --manifest path/to/manifest.json`; the control plane validates and persists it.
 4. **Enable/disable** with `volar plugins enable <name>` or `volar plugins disable <name>`.
 5. **Launch VMs** by referencing the plugin: `volar vms create <vm> --plugin <name>`. Runtime metadata and the manifest payload are injected into the VM at boot.
-6. **Call actions** via the generic routing layer. The CLI exposes helpers (for example `volar vms navigate`) for well-known actions; bespoke workflows can hit `/api/v1/plugins/{plugin}/actions/{action}` directly or ship their own tooling.
+6. **Interact with the workload** by using the endpoints described in the manifest/OpenAPI document. Legacy `/api/v1/plugins/.../actions/...` proxies remain for older manifests but new plugins should expose standard HTTP or WebSocket surfaces.
 
 The engine persists manifests, enforces enablement state, and resolves action routing so microVMs only run compatible runtimes.
 

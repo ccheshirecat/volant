@@ -10,7 +10,8 @@ import (
 
 const (
 	defaultDBPath        = "~/.volant/state.db"
-	defaultAPIListenAddr = "127.0.0.1:7777"
+	defaultAPIPort       = "7777"
+	defaultAPIListenAddr = "0.0.0.0:" + defaultAPIPort
 	defaultBridgeName    = "vbr0"
 	defaultSubnetCIDR    = "192.168.127.0/24"
 	defaultHostIP        = "192.168.127.1"
@@ -67,11 +68,45 @@ func FromEnv() (ServerConfig, error) {
 		return ServerConfig{}, fmt.Errorf("invalid host ip %q", cfg.HostIP)
 	}
 
+	listenAddr := strings.TrimSpace(cfg.APIListenAddr)
+	if listenAddr == "" {
+		return ServerConfig{}, fmt.Errorf("api listen address required")
+	}
+	listenHost, listenPort, err := net.SplitHostPort(listenAddr)
+	if err != nil {
+		return ServerConfig{}, fmt.Errorf("invalid api listen address %q: %w", listenAddr, err)
+	}
+	if strings.TrimSpace(listenPort) == "" {
+		listenPort = defaultAPIPort
+	}
 	if strings.TrimSpace(cfg.APIAdvertiseAddr) == "" {
-		cfg.APIAdvertiseAddr = cfg.APIListenAddr
+		advHost := cfg.HostIP
+		trimmedHost := strings.TrimSpace(listenHost)
+		if isRoutableAdvertiseHost(trimmedHost) {
+			advHost = trimmedHost
+		}
+		cfg.APIAdvertiseAddr = net.JoinHostPort(advHost, listenPort)
 	}
 
 	return cfg, nil
+}
+
+func isRoutableAdvertiseHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	lower := strings.ToLower(host)
+	switch lower {
+	case "localhost", "0.0.0.0", "::", "[::]":
+		return false
+	}
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = strings.Trim(host, "[]")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return !(ip.IsLoopback() || ip.IsUnspecified())
+	}
+	return true
 }
 
 func getenv(key, fallback string) string {

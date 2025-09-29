@@ -31,9 +31,9 @@ wget -q -P ./bin https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl
 chmod +x ./bin/busybox
 chroot . /bin/busybox --install -s
 ln -sf busybox ./bin/sha256sum >/dev/null 2>&1 || true
-find . -print0 | cpio --null -ov --format=newc > initramfs.cpio
-gzip -f initramfs.cpio
+find . -print0 | cpio --null -ov --format=newc >../initramfs.cpio
+gzip -f ../initramfs.cpio
 popd >/dev/null
 
-mv "$WORKDIR/initramfs.cpio.gz" "$ROOT_DIR/volant-initramfs.cpio.gz"
+mv "$WORKDIR/../initramfs.cpio.gz" "$ROOT_DIR/volant-initramfs.cpio.gz"
 echo "Initramfs written to $ROOT_DIR/volant-initramfs.cpio.gz"

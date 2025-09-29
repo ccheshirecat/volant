@@ -13,19 +13,15 @@ This page explains the engine-level plumbing; consult individual plugin document
 
 ## How the proxy works
 
-When a plugin exposes an action (via its manifest) that returns a proxied URL or starts a long-lived tunnel, the engine:
+When a plugin exposes an interactive endpoint, it documents it in the manifest (either via an `actions` helper or by referencing an OpenAPI/WebSocket schema). The control plane simply forwards requests to the agent running inside the microVM and streams the response back to the caller without ever exposing the microVM’s private IP.
 
-1. Resolves the manifest (`/api/v1/plugins/{plugin}/actions/{action}` or VM-scoped equivalent).
-2. Forwards the request to the agent running inside the microVM.
-3. Streams the response (HTTP/WebSocket/SSE) back to the caller, without ever exposing the microVM’s private IP.
-
-Plugins can register actions such as “open DevTools”, “start remote desktop”, or “expose debugger session”. From the engine perspective, they are just HTTP proxies.
+Plugins can attach helpers such as “open DevTools”, “start remote desktop”, or “expose debugger session”. The engine treats these as transparent HTTP/WebSocket proxies.
 
 ---
 
 ## CLI workflow
 
-The engine CLI provides a generic action surface:
+Legacy builds of the CLI expose a generic action surface:
 
 ```bash
 # Invoke a plugin action against a VM runtime
@@ -37,7 +33,7 @@ volar plugins action <plugin> <action> --payload ./payload.json
 
 The structure of `payload.json` and the semantics of the response are defined by the plugin. Browser plugins, for example, typically return a local URL or begin streaming a proxied DevTools session.
 
-> Tip: Run `volar plugins show <name>` to inspect a manifest and discover available actions.
+> Tip: Run `volar plugins manifest <name> --summary` to inspect a manifest and discover published endpoints. Many plugins now prefer publishing an OpenAPI document rather than individual action helpers.
 
 ---
 
@@ -64,6 +60,6 @@ The base engine intentionally avoids bundling browser tooling so that other runt
 ## Summary
 
 - Interactive capabilities are defined by plugins.
-- The engine proxies requests via `/api/v1/plugins/.../actions/...` and the matching CLI commands.
+- The engine proxies requests defined by the manifest. Legacy `/actions` endpoints remain but newer plugins prefer OpenAPI-documented HTTP/WebSocket interfaces.
 - Use plugin manifests/docs to understand how to surface the runtime-specific UI you need.
 - Browser-centric interactive commands are part of the browser plugin distribution, not the core engine.

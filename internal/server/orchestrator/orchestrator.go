@@ -349,6 +349,9 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 
 	apiHost := strings.TrimSpace(req.APIHost)
 	apiPort := strings.TrimSpace(req.APIPort)
+	if apiPort == "0" {
+		apiPort = ""
+	}
 	if apiHost == "" || apiPort == "" {
 		host, port := e.apiEndpoints()
 		if apiHost == "" {
@@ -357,6 +360,9 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		if apiPort == "" {
 			apiPort = port
 		}
+	}
+	if apiHost == "" {
+		apiHost = e.hostIP.String()
 	}
 	if strings.TrimSpace(apiPort) == "" {
 		apiPort = e.controlPort
@@ -370,12 +376,21 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 	if pluginName != "" {
 		cmdArgs[pluginspec.PluginKey] = pluginName
 	}
-	spec.KernelCmdline = appendKernelArgs(spec.KernelCmdline, cmdArgs)
+	if req.Manifest != nil {
+		encodedManifest, err := pluginspec.Encode(*req.Manifest)
+		if err != nil {
+			e.logger.Error("encode manifest", "vm", req.Name, "error", err)
+			return nil, fmt.Errorf("orchestrator: encode manifest: %w", err)
+		}
+		cmdArgs[pluginspec.CmdlineKey] = encodedManifest
+	}
+	spec.Args = cmdArgs
 
 	if req.Manifest != nil {
 		spec.RootFS = strings.TrimSpace(req.Manifest.RootFS.URL)
 		spec.RootFSChecksum = strings.TrimSpace(req.Manifest.RootFS.Checksum)
 	}
+	e.logger.Info("launch kernel cmdline", "vm", req.Name, "cmdline", spec.KernelCmdline)
 
 	launchCtx := e.launchContext()
 
@@ -746,15 +761,50 @@ func (e *engine) launchContext() context.Context {
 }
 
 func (e *engine) apiEndpoints() (string, string) {
-	host, port, err := net.SplitHostPort(e.controlAdvertiseAddr)
-	if err != nil {
-		host, _, err = net.SplitHostPort(e.controlListenAddr)
-		if err != nil {
-			host = e.controlListenAddr
+	defaultHost := e.hostIP.String()
+	defaultPort := e.controlPort
+	advAddr := strings.TrimSpace(e.controlAdvertiseAddr)
+	if advAddr != "" {
+		if advHost, advPort, err := net.SplitHostPort(advAddr); err == nil {
+			advHost = strings.TrimSpace(advHost)
+			advPort = strings.TrimSpace(advPort)
+			if advPort != "" && advPort != "0" {
+				defaultPort = advPort
+			}
+			if isUsableAdvertiseHost(advHost) {
+				defaultHost = advHost
+			}
+		} else if isUsableAdvertiseHost(advAddr) {
+			defaultHost = advAddr
 		}
 	}
-	if strings.TrimSpace(port) == "" {
-		port = e.controlPort
+	if strings.TrimSpace(defaultPort) == "" || defaultPort == "0" {
+		defaultPort = e.controlPort
 	}
-	return host, port
+	if strings.TrimSpace(defaultHost) == "" {
+		defaultHost = e.hostIP.String()
+	}
+	return defaultHost, defaultPort
+}
+
+func isUsableAdvertiseHost(host string) bool {
+	trimmed := strings.TrimSpace(host)
+	if trimmed == "" {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	switch lower {
+	case "localhost", "0.0.0.0", "::", "[::]", "[::1]", "::1":
+		return false
+	}
+	if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+		trimmed = strings.Trim(trimmed, "[]")
+	}
+	ip := net.ParseIP(trimmed)
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsUnspecified() {
+			return false
+		}
+	}
+	return true
 }
