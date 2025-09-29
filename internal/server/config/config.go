@@ -23,6 +23,7 @@ const (
 type ServerConfig struct {
 	DatabasePath     string
 	APIListenAddr    string
+	APIAdvertiseAddr string
 	BridgeName       string
 	SubnetCIDR       string
 	KernelImagePath  string
@@ -39,6 +40,7 @@ func FromEnv() (ServerConfig, error) {
 	cfg := ServerConfig{
 		DatabasePath:     getenv("VOLANT_DB_PATH", defaultDBPath),
 		APIListenAddr:    getenv("VOLANT_API_LISTEN", defaultAPIListenAddr),
+		APIAdvertiseAddr: getenv("VOLANT_API_ADVERTISE", ""),
 		BridgeName:       getenv("VOLANT_BRIDGE", defaultBridgeName),
 		SubnetCIDR:       getenv("VOLANT_SUBNET", defaultSubnetCIDR),
 		HostIP:           getenv("VOLANT_HOST_IP", defaultHostIP),
@@ -63,6 +65,10 @@ func FromEnv() (ServerConfig, error) {
 
 	if net.ParseIP(cfg.HostIP) == nil {
 		return ServerConfig{}, fmt.Errorf("invalid host ip %q", cfg.HostIP)
+	}
+
+	if strings.TrimSpace(cfg.APIAdvertiseAddr) == "" {
+		cfg.APIAdvertiseAddr = cfg.APIListenAddr
 	}
 
 	return cfg, nil

@@ -8,8 +8,10 @@ description: "Extending the engine with runtime manifests and external runtimes.
 Volant treats every specialized workload as a **plugin**. A plugin is defined by a manifest that declares:
 
 - The runtime identifier (e.g., `browser`, `worker`, `inference`)
+- Artifact references (root filesystem bundle, optional OCI images, checksums/signatures)
 - Resource hints (CPU, memory)
-- Optional action definitions exposed via the agent
+- Workload contract (HTTP base URL, entrypoint, environment)
+- Action definitions exposed via the agent
 - Optional OpenAPI references or metadata for discovery
 
 Plugins allow the engine to remain lightweight while enabling purpose-built runtimes to live in separate repositories.
@@ -27,7 +29,7 @@ volar plugins list
 # Show manifest details
 volar plugins show browser
 
-# Install from local JSON
+# Install from local JSON (manifest must pass schema validation)
 volar plugins install --manifest ./browser.manifest.json
 
 # Enable / disable
@@ -55,6 +57,10 @@ A manifest (`plugin.yaml`/`plugin.json`) typically looks like:
     "cpu_cores": 2,
     "memory_mb": 2048
   },
+  "workload": {
+    "type": "http",
+    "base_url": "http://127.0.0.1:8080"
+  },
   "actions": {
     "navigate": {
       "description": "Navigate to URL",
@@ -64,7 +70,10 @@ A manifest (`plugin.yaml`/`plugin.json`) typically looks like:
     }
   },
   "openapi": "https://example.com/browser-openapi.json",
-  "enabled": true
+  "enabled": true,
+  "labels": {
+    "tier": "reference"
+  }
 }
 ```
 
@@ -74,10 +83,10 @@ The engine never interprets plugin-specific payloads; it simply proxies requests
 
 ## Plugin lifecycle
 
-1. **Install** — `volar plugins install --manifest ...` registers the manifest, persists it, and adds it to the in-memory registry.
+1. **Install** — `volar plugins install --manifest ...` registers the manifest, validates it against the schema, persists it, and adds it to the in-memory registry.
 2. **Enable** — only enabled manifests can service actions. (New installs default to enabled.)
-3. **Runtime selection** — when creating a VM, pass `--runtime=<plugin runtime>` to pick the correct image/initramfs.
-4. **Action routing** — API requests to `/api/v1/plugins/{plugin}/actions/{action}` resolve to the manifest-defined path inside the agent.
+3. **Launch** — when creating a VM, provide `--plugin=<name>` (runtime is inferred from the manifest). The orchestrator encodes the manifest payload and injects it into the VM kernel cmdline alongside runtime identifiers.
+4. **Action routing** — API requests to `/api/v1/plugins/{plugin}/actions/{action}` resolve to the manifest-defined path inside the agent. CLI helpers wrap popular actions (navigate, screenshot, scrape, exec, GraphQL) using the same proxy.
 
 ---
 

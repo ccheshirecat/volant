@@ -59,32 +59,115 @@ static void mount_fs(const char *type, const char *target) {
     }
 }
 
-static bool read_rootfs(char *buf, size_t buf_size) {
+static const char *read_cmdline_value(const char *key) {
+    static char buffer[4096];
     FILE *f = fopen("/proc/cmdline", "r");
     if (!f) {
-        return false;
+        return NULL;
     }
-    char line[4096];
-    if (!fgets(line, sizeof(line), f)) {
+    if (!fgets(buffer, sizeof(buffer), f)) {
         fclose(f);
-        return false;
+        return NULL;
     }
     fclose(f);
 
-    const char *needle = "volant.rootfs=";
-    char *start = strstr(line, needle);
-    if (!start) {
+    size_t key_len = strlen(key);
+    char *token = buffer;
+    while (token != NULL) {
+        while (*token == ' ') {
+            token++;
+        }
+        if (token[0] == '\0') {
+            break;
+        }
+        char *next = strchr(token, ' ');
+        if (next) {
+            *next = '\0';
+        }
+        if (strncmp(token, key, key_len) == 0 && token[key_len] == '=') {
+            return token + key_len + 1;
+        }
+        if (!next) {
+            break;
+        }
+        token = next + 1;
+    }
+    return NULL;
+}
+
+static bool fetch_manifest(const char *host, const char *plugin, const char *dest) {
+    if (!host || !plugin || !dest) {
         return false;
     }
-    start += strlen(needle);
-    char *end = strchr(start, ' ');
-    size_t len = end ? (size_t)(end - start) : strlen(start);
-    if (len >= buf_size) {
-        len = buf_size - 1;
+    char url[512];
+    snprintf(url, sizeof(url), "http://%s/api/v1/plugins/%s/manifest", host, plugin);
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        return false;
     }
-    memcpy(buf, start, len);
-    buf[len] = '\0';
-    return true;
+    if (pid == 0) {
+        execl("/bin/wget", "wget", "-q", "-O", dest, url, NULL);
+        execl("/bin/curl", "curl", "-sSL", "-o", dest, url, NULL);
+        _exit(127);
+    }
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) {
+        return false;
+    }
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+static bool parse_manifest_rootfs(const char *manifest_path, char *url, size_t url_sz, char *checksum, size_t checksum_sz) {
+    if (!manifest_path || !url || url_sz == 0) {
+        return false;
+    }
+    FILE *f = fopen(manifest_path, "r");
+    if (!f) {
+        return false;
+    }
+    bool url_ok = false;
+    bool checksum_ok = false;
+    char line[1024];
+    while (fgets(line, sizeof(line), f)) {
+        if (strstr(line, "\"rootfs\"")) {
+            while (fgets(line, sizeof(line), f)) {
+                if (strstr(line, "\"url\"")) {
+                    char *start = strchr(line, ':');
+                    if (start) {
+                        start++;
+                        while (*start == ' ' || *start == '"') start++;
+                        char *end = start;
+                        while (*end && *end != '"' && *end != '\n') end++;
+                        size_t len = (size_t)(end - start);
+                        if (len >= url_sz) len = url_sz - 1;
+                        memcpy(url, start, len);
+                        url[len] = '\0';
+                        url_ok = true;
+                    }
+                }
+                if (strstr(line, "\"checksum\"")) {
+                    char *start = strchr(line, ':');
+                    if (start) {
+                        start++;
+                        while (*start == ' ' || *start == '"') start++;
+                        char *end = start;
+                        while (*end && *end != '"' && *end != '\n') end++;
+                        size_t len = (size_t)(end - start);
+                        if (checksum && checksum_sz > 0) {
+                            if (len >= checksum_sz) len = checksum_sz - 1;
+                            memcpy(checksum, start, len);
+                            checksum[len] = '\0';
+                        }
+                        checksum_ok = true;
+                    }
+                }
+            }
+        }
+        if (url_ok && checksum_ok) break;
+    }
+    fclose(f);
+    return url_ok;
 }
 
 int main(void) {
@@ -96,37 +179,53 @@ int main(void) {
     ensure_console();
     log_line("booting volant init");
 
-    char rootfs[PATH_MAX];
-    bool have_rootfs = read_rootfs(rootfs, sizeof(rootfs));
-    const char *staging_script = "/scripts/stage-volary.sh";
-    const char *fetch_script = "/scripts/fetch-rootfs.sh";
+    const char *api_host = read_cmdline_value("volant.api_host");
+    const char *api_port = read_cmdline_value("volant.api_port");
+    const char *plugin_name = read_cmdline_value("volant.plugin");
 
-    if (have_rootfs) {
-        log_line("rootfs specified; fetching image");
+    const char *manifest_path = "/run/plugin.json";
+    const char *rootfs_path = "/run/rootfs.img";
+
+    char rootfs_url[512] = {0};
+    char rootfs_checksum[256] = {0};
+    if (api_host && api_port && plugin_name && api_host[0] != '\0' && api_port[0] != '\0') {
+        char endpoint[512];
+        snprintf(endpoint, sizeof(endpoint), "%s:%s", api_host, api_port);
+        log_line("fetching plugin manifest");
+        if (fetch_manifest(endpoint, plugin_name, manifest_path)) {
+            if (!parse_manifest_rootfs(manifest_path, rootfs_url, sizeof(rootfs_url), rootfs_checksum, sizeof(rootfs_checksum))) {
+                log_line("manifest missing rootfs url");
+            }
+        } else {
+            log_line("manifest fetch failed");
+        }
+    } else {
+        log_line("missing volant.api_host/api_port or volant.plugin; skipping manifest fetch");
+    }
+
+    if (rootfs_url[0] != '\0') {
+        log_line("fetching rootfs image");
         mkdir("/sysroot", 0755);
-        mkdir("/root", 0755);
-        char *fetch_args[] = {(char *)fetch_script, rootfs, "/root/rootfs.img", NULL};
-        if (access(fetch_script, X_OK) == 0 && run_command(fetch_args) == 0) {
-            log_line("rootfs fetch complete; attempting mount");
-            char *mount_args[] = {"/bin/mount", "-o", "loop", "/root/rootfs.img", "/sysroot", NULL};
+        char *fetch_args[5] = {"/scripts/fetch-rootfs.sh", rootfs_url, (char *)rootfs_path, NULL, NULL};
+        if (rootfs_checksum[0] != '\0') {
+            fetch_args[3] = rootfs_checksum;
+        }
+        if (access("/scripts/fetch-rootfs.sh", X_OK) == 0 && run_command(fetch_args) == 0) {
+            log_line("rootfs fetched; mounting squashfs");
+            char *mount_args[] = {"/bin/mount", "-t", "squashfs", "-o", "loop", (char *)rootfs_path, "/sysroot", NULL};
             if (run_command(mount_args) == 0) {
-                log_line("rootfs mounted; staging volary");
-                if (access(staging_script, X_OK) == 0) {
-                    char *stage_args[] = {(char *)staging_script, "/sysroot", NULL};
-                    run_command(stage_args);
-                }
                 if (access("/sysroot/usr/local/bin/volary", X_OK) == 0) {
-                    log_line("switching root to external rootfs");
+                    log_line("switching root");
                     execl("/bin/switch_root", "switch_root", "/sysroot", "/usr/local/bin/volary", NULL);
                     perror("switch_root");
                 } else {
-                    log_line("volary missing in mounted rootfs; continuing with initramfs");
+                    log_line("volary missing in rootfs; using initramfs copy");
                 }
             } else {
-                log_line("loop mount failed; continuing with initramfs");
+                log_line("squashfs mount failed");
             }
         } else {
-            log_line("fetch-rootfs script failed; continuing with initramfs");
+            log_line("rootfs fetch failed");
         }
     }
 
@@ -142,7 +241,7 @@ int main(void) {
         perror("exec /bin/volary");
     }
 
-    log_line("volary not found; dropping to rescue shell");
+    log_line("volary not found; dropping to shell");
     execl("/bin/sh", "sh", NULL);
     return 1;
 }

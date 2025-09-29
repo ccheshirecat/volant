@@ -33,29 +33,36 @@ type Engine interface {
 	ListVMs(ctx context.Context) ([]db.VM, error)
 	GetVM(ctx context.Context, name string) (*db.VM, error)
 	Store() db.Store
+	ControlPlaneListenAddr() string
+	ControlPlaneAdvertiseAddr() string
+	HostIP() net.IP
 }
 
 // CreateVMRequest captures the inputs required to instantiate a VM lifecycle.
 type CreateVMRequest struct {
 	Name              string
+	Plugin            string
 	Runtime           string
 	CPUCores          int
 	MemoryMB          int
 	KernelCmdlineHint string
 	Manifest          *pluginspec.Manifest
-	KernelArgs        map[string]string
+	APIHost           string
+	APIPort           string
 }
 
 // Params wires dependencies for the native orchestrator engine.
 type Params struct {
-	Store    db.Store
-	Logger   *slog.Logger
-	Subnet   *net.IPNet
-	HostIP   net.IP
-	Runtime  string
-	Launcher runtime.Launcher
-	Network  network.Manager
-	Bus      eventbus.Bus
+	Store            db.Store
+	Logger           *slog.Logger
+	Subnet           *net.IPNet
+	HostIP           net.IP
+	APIListenAddr    string
+	APIAdvertiseAddr string
+	RuntimeDir       string
+	Launcher         runtime.Launcher
+	Network          network.Manager
+	Bus              eventbus.Bus
 }
 
 // New constructs the production orchestrator engine.
@@ -72,6 +79,18 @@ func New(params Params) (Engine, error) {
 	if params.HostIP == nil {
 		return nil, fmt.Errorf("orchestrator: host IP is required")
 	}
+	listenAddr := strings.TrimSpace(params.APIListenAddr)
+	advertiseAddr := strings.TrimSpace(params.APIAdvertiseAddr)
+	if listenAddr == "" {
+		return nil, fmt.Errorf("orchestrator: API listen address is required")
+	}
+	if advertiseAddr == "" {
+		advertiseAddr = listenAddr
+	}
+	_, advertisePort, err := net.SplitHostPort(advertiseAddr)
+	if err != nil {
+		return nil, fmt.Errorf("orchestrator: parse api advertise addr: %w", err)
+	}
 	if params.Launcher == nil {
 		return nil, fmt.Errorf("orchestrator: launcher is required")
 	}
@@ -87,7 +106,7 @@ func New(params Params) (Engine, error) {
 		return nil, fmt.Errorf("orchestrator: derive ip pool: %w", err)
 	}
 
-	runtimeDir := strings.TrimSpace(params.Runtime)
+	runtimeDir := strings.TrimSpace(params.RuntimeDir)
 	if runtimeDir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -119,29 +138,35 @@ func New(params Params) (Engine, error) {
 	}
 
 	return &engine{
-		store:      params.Store,
-		logger:     params.Logger.With("component", "orchestrator"),
-		subnet:     params.Subnet,
-		hostIP:     params.HostIP,
-		ipPool:     pool,
-		runtimeDir: runtimeDir,
-		launcher:   params.Launcher,
-		network:    params.Network,
-		bus:        params.Bus,
-		instances:  make(map[string]processHandle),
+		store:                params.Store,
+		logger:               params.Logger.With("component", "orchestrator"),
+		subnet:               params.Subnet,
+		hostIP:               params.HostIP,
+		controlListenAddr:    listenAddr,
+		controlAdvertiseAddr: advertiseAddr,
+		controlPort:          advertisePort,
+		ipPool:               pool,
+		runtimeDir:           runtimeDir,
+		launcher:             params.Launcher,
+		network:              params.Network,
+		bus:                  params.Bus,
+		instances:            make(map[string]processHandle),
 	}, nil
 }
 
 type engine struct {
-	store      db.Store
-	logger     *slog.Logger
-	subnet     *net.IPNet
-	hostIP     net.IP
-	ipPool     []string
-	runtimeDir string
-	launcher   runtime.Launcher
-	network    network.Manager
-	bus        eventbus.Bus
+	store                db.Store
+	logger               *slog.Logger
+	subnet               *net.IPNet
+	hostIP               net.IP
+	controlListenAddr    string
+	controlAdvertiseAddr string
+	controlPort          string
+	ipPool               []string
+	runtimeDir           string
+	launcher             runtime.Launcher
+	network              network.Manager
+	bus                  eventbus.Bus
 
 	mu         sync.Mutex
 	instances  map[string]processHandle
@@ -218,25 +243,14 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		return nil, err
 	}
 
-	kernelArgs := cloneArgs(req.KernelArgs)
-
 	var manifestRuntime string
 	if req.Manifest != nil {
 		manifestRuntime = strings.TrimSpace(req.Manifest.Runtime)
-		encoded, err := pluginspec.Encode(*req.Manifest)
-		if err != nil {
-			return nil, fmt.Errorf("orchestrator: encode manifest: %w", err)
-		}
-		if kernelArgs == nil {
-			kernelArgs = make(map[string]string)
-		}
-		kernelArgs[pluginspec.CmdlineKey] = encoded
-		if manifestRuntime != "" {
-			kernelArgs[pluginspec.RuntimeKey] = manifestRuntime
-		}
-		if name := strings.TrimSpace(req.Manifest.Name); name != "" {
-			kernelArgs[pluginspec.PluginKey] = name
-		}
+	}
+
+	pluginName := ""
+	if req.Manifest != nil {
+		pluginName = strings.TrimSpace(req.Manifest.Name)
 	}
 
 	req.Runtime = strings.TrimSpace(req.Runtime)
@@ -272,7 +286,7 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 
 		mac := deriveMAC(req.Name, allocation.IPAddress)
 		baseCmdline := buildKernelCmdline(allocation.IPAddress, e.hostIP.String(), netmask, hostname, req.KernelCmdlineHint)
-		fullCmdline := appendKernelArgs(baseCmdline, kernelArgs)
+		fullCmdline := appendKernelArgs(baseCmdline, map[string]string{})
 
 		vm := &db.VM{
 			Name:          req.Name,
@@ -330,19 +344,26 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		IPAddress:     vmRecord.IPAddress,
 		Gateway:       e.hostIP.String(),
 		Netmask:       netmask,
-		Args:          cloneArgs(kernelArgs),
 		SerialSocket:  serialPath,
 	}
+
+	cmdArgs := map[string]string{
+		pluginspec.RuntimeKey: req.Runtime,
+	}
+	if req.APIHost != "" {
+		cmdArgs[pluginspec.APIHostKey] = req.APIHost
+	}
+	if req.APIPort != "" {
+		cmdArgs[pluginspec.APIPortKey] = req.APIPort
+	}
+	if pluginName != "" {
+		cmdArgs[pluginspec.PluginKey] = pluginName
+	}
+	spec.KernelCmdline = appendKernelArgs(spec.KernelCmdline, cmdArgs)
 
 	if req.Manifest != nil {
 		spec.RootFS = strings.TrimSpace(req.Manifest.RootFS.URL)
 		spec.RootFSChecksum = strings.TrimSpace(req.Manifest.RootFS.Checksum)
-		if spec.RootFS != "" {
-			kernelArgs[pluginspec.RootFSKey] = spec.RootFS
-			if spec.RootFSChecksum != "" {
-				kernelArgs[pluginspec.RootFSChecksumKey] = spec.RootFSChecksum
-			}
-		}
 	}
 
 	launchCtx := e.launchContext()
@@ -455,6 +476,18 @@ func (e *engine) GetVM(ctx context.Context, name string) (*db.VM, error) {
 
 func (e *engine) Store() db.Store {
 	return e.store
+}
+
+func (e *engine) ControlPlaneListenAddr() string {
+	return e.controlListenAddr
+}
+
+func (e *engine) ControlPlaneAdvertiseAddr() string {
+	return e.controlAdvertiseAddr
+}
+
+func (e *engine) HostIP() net.IP {
+	return e.hostIP
 }
 
 func (e *engine) rollbackCreate(ctx context.Context, vm *db.VM) {

@@ -2,6 +2,7 @@ package stub
 
 import (
 	"context"
+	"os"
 
 	"github.com/ccheshirecat/volant/internal/server/db"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator"
@@ -20,3 +21,10 @@ func (Engine) GetVM(ctx context.Context, name string) (*db.VM, error) {
 	return nil, nil
 }
 func (Engine) Store() db.Store { return nil }
+
+func NewStub(params orchestrator.Params) (orchestrator.Engine, error) {
+	params.APIListenAddr = "127.0.0.1:7777"
+	params.APIAdvertiseAddr = "127.0.0.1:7777"
+	params.RuntimeDir = os.TempDir()
+	return orchestrator.New(params)
+}

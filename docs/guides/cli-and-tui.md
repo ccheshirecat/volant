@@ -17,10 +17,10 @@ description: "Using the volar command-line interface and interactive TUI."
 ```bash
 volar --help
 volar vms list
-volar vms create my-vm --cpu 2 --memory 2048
+volar vms create my-vm --plugin browser --cpu 2 --memory 2048
 volar vms delete my-vm
 volar setup --dry-run
-volar browsers stream my-vm
+volar plugins list
 ```
 
 ### Global Flags
@@ -36,7 +36,7 @@ Lifecycle and shortcut automation commands:
 | --- | --- | --- |
 | `list` | List VMs | `volar vms list` |
 | `get <name>` | Show VM details | `volar vms get demo` |
-| `create <name>` | Create VM | `volar vms create demo --cpu 4 --memory 4096 --kernel-cmdline "console=ttyS0"` |
+| `create <name>` | Create VM | `volar vms create demo --plugin browser --cpu 4 --memory 4096 --kernel-cmdline "console=ttyS0"` |
 | `delete <name>` | Destroy VM | `volar vms delete demo` |
 | `navigate <name> <url>` | Open a URL inside the VM’s browser | `volar vms navigate demo https://example.com` |
 | `screenshot <name>` | Capture a screenshot via the agent | `volar vms screenshot demo --full-page --output=demo.png` |
@@ -46,7 +46,7 @@ Lifecycle and shortcut automation commands:
 
 Common flags:
 
-- `create`: `--cpu`, `--memory`, `--kernel-cmdline`
+- `create`: `--plugin` (required), `--cpu`, `--memory`, `--kernel-cmdline`
 - `navigate`, `screenshot`, `scrape`, `exec`, `graphql`: `--timeout` to control agent-side duration (default 60s)
 - `screenshot`: `--full-page`, `--format`, `--output`
 - `scrape`: `--selector`, `--attr`
@@ -80,7 +80,7 @@ Manifests describe runtime metadata (resources, actions, optional OpenAPI specs)
 
 ## `volar browsers`
 
-This command group now serves as a compatibility stub. Browser-specific tooling ships with the browser plugin distribution. Running it from the engine CLI prints guidance on installing the plugin CLI.
+Browser-specific subcommands moved to the browser plugin repository. The engine CLI retains a stub that directs operators to install the plugin CLI and manifests, but routine workflows should use `volar plugins ...` or runtime-specific tooling packaged with the plugin.
 
 ## Interactive TUI
 

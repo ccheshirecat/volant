@@ -24,9 +24,10 @@ What the installer does:
 1. Detects OS + architecture.
 2. Installs prerequisites via the native package manager (prompted unless `--yes`).
 3. Downloads the latest `volar` CLI / `volantd` daemon / `volary` binaries from GitHub releases.
-4. Verifies SHA-256 checksums.
-5. Installs binaries to `/usr/local/bin/`.
-6. Optionally runs `sudo volar setup`.
+4. Fetches the default runtime bundle (kernel, initramfs, manifest) and stores it under `/usr/local/share/volant` for quick-start scenarios.
+5. Verifies SHA-256 checksums.
+6. Installs binaries to `/usr/local/bin/`.
+7. Optionally runs `sudo volar setup`.
 
 > Use `VOLANT_VERSION=v2.0.0` to pin a release, or download `install.sh` manually for review.
 
@@ -51,7 +52,7 @@ volary --help
 
 ## Post-Install: `volar setup`
 
-`volar setup` provisions networking, installs the systemd service, and configures env vars:
+`volar setup` provisions networking, installs the systemd service, and configures env vars. It also seeds the runtime directory with any manifests staged by the installer:
 
 ```
 sudo volar setup \

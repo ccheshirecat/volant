@@ -23,9 +23,9 @@
 
 > **The modular microVM orchestration engine.**
 
-Volant turns microVMs into a first-class runtime surface. The project ships a control plane, CLI/TUI, and agent that speak a common plugin contract so teams can run secure, stateful workloads without stitching together networking, scheduling, and lifecycle plumbing themselves.
+Volant turns microVMs into a first-class runtime surface. The project ships a control plane, CLI/TUI, and agent that speak a common plugin manifest so teams can run secure, stateful workloads without stitching together networking, scheduling, and lifecycle plumbing themselves.
 
-Runtime-specific behavior lives in plugins. The core engine stays lean, plugin authors ship their own kernels/initramfs overlays, and operators choose what to enable.
+Runtime-specific behavior lives in signed manifests and their associated artifacts. The core engine stays lean while plugin authors ship the kernels/initramfs overlays, agents, and action handlers that describe a runtime. Operators decide which manifests to install and must reference one whenever a VM is created.
 
 ---
 
@@ -57,17 +57,17 @@ curl -sSL https://install.volant.cloud | bash
 # Configure the host (bridge networking, NAT, systemd service)
 sudo volar setup
 
-# Create a microVM using the default runtime manifest
-volar vms create demo --cpu 2 --memory 2048
+# Install a plugin manifest
+volar plugins install --manifest ./manifests/browser.json
 
-# Install a plugin (example: browser runtime defined in a separate repo)
-volar plugins install browser --manifest ./manifests/browser.json
+# Create a microVM referencing that plugin
+volar vms create demo --plugin browser --cpu 2 --memory 2048
 
-# Invoke a plugin action against the VM
-volar vms action demo browser navigate --payload '{"url":"https://example.com"}'
+# Invoke a plugin-defined action (requires the plugin to expose it)
+volar vms navigate demo https://example.com
 ```
 
-Refer to `docs/guides/plugins.md` for manifest structure and distribution workflows.
+Refer to `docs/guides/plugins.md` for manifest structure, validation, and distribution workflows.
 
 ---
 
@@ -84,15 +84,12 @@ Refer to `docs/guides/plugins.md` for manifest structure and distribution workfl
 
 ## Plugin workflow
 
-1. **Author** a manifest (`name`, `version`, `runtime`, resource envelope, actions with method/path).
-2. **Package** kernel/initramfs bundles or additional artifacts referenced by the manifest.
-3. **Install** via `volar plugins install <name> --manifest path/to/manifest.json`.
+1. **Author** a manifest (`schema_version`, `name`, `version`, `runtime`, `rootfs`, resource envelope, workload contract, and action map).
+2. **Package** the runtime artifacts referenced by the manifest (kernel/initramfs, OCI image, minisign signatures, etc.).
+3. **Install** the manifest with `volar plugins install --manifest path/to/manifest.json`; the control plane validates and persists it.
 4. **Enable/disable** with `volar plugins enable <name>` or `volar plugins disable <name>`.
-5. **Call actions** using VM-scoped or global endpoints:
-   ```bash
-   volar vms action <vm> <plugin> <action> --payload ./payload.json
-   volar plugins action <plugin> <action> --payload ./payload.json
-   ```
+5. **Launch VMs** by referencing the plugin: `volar vms create <vm> --plugin <name>`. Runtime metadata and the manifest payload are injected into the VM at boot.
+6. **Call actions** via the generic routing layer. The CLI exposes helpers (for example `volar vms navigate`) for well-known actions; bespoke workflows can hit `/api/v1/plugins/{plugin}/actions/{action}` directly or ship their own tooling.
 
 The engine persists manifests, enforces enablement state, and resolves action routing so microVMs only run compatible runtimes.
 

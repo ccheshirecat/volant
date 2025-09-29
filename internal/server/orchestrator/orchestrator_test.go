@@ -26,12 +26,15 @@ func TestEngineCreateAndDestroyVM(t *testing.T) {
 	fakeNetwork := &testNetworkManager{}
 
 	engine, err := New(Params{
-		Store:    store,
-		Logger:   logger,
-		Subnet:   subnet,
-		HostIP:   host,
-		Launcher: fakeLauncher,
-		Network:  fakeNetwork,
+		Store:            store,
+		Logger:           logger,
+		Subnet:           subnet,
+		HostIP:           host,
+		APIListenAddr:    "127.0.0.1:7777",
+		APIAdvertiseAddr: "127.0.0.1:7777",
+		RuntimeDir:       t.TempDir(),
+		Launcher:         fakeLauncher,
+		Network:          fakeNetwork,
 	})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)

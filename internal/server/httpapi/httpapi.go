@@ -82,6 +82,7 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 	v1 := r.Group("/api/v1")
 	{
 		v1.GET("/system/status", api.systemStatus)
+		v1.GET("/system/info", api.systemInfo)
 
 		vms := v1.Group("/vms")
 		{
@@ -98,6 +99,7 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 			pluginsGroup.GET("", api.listPlugins)
 			pluginsGroup.POST("", api.installPlugin)
 			pluginsGroup.GET(":plugin", api.describePlugin)
+			pluginsGroup.GET(":plugin/manifest", api.getPluginManifest)
 			pluginsGroup.DELETE(":plugin", api.removePlugin)
 			pluginsGroup.POST(":plugin/enabled", api.setPluginEnabled)
 			pluginsGroup.POST(":plugin/actions/:action", api.postPluginAction)
@@ -364,13 +366,24 @@ func (api *apiServer) createVM(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "runtime not specified and plugin manifest missing runtime"})
 		return
 	}
+	listenAddr := c.Request.Host
+	hostIP := ""
+	port := 0
+	if parsed, err := url.Parse(listenAddr); err == nil {
+		hostIP = parsed.Hostname()
+		if p, convErr := strconv.Atoi(parsed.Port()); convErr == nil {
+			port = p
+		}
+	}
 	vm, err := api.engine.CreateVM(c.Request.Context(), orchestrator.CreateVMRequest{
 		Name:              req.Name,
+		Plugin:            pluginName,
 		Runtime:           req.Runtime,
 		CPUCores:          req.CPUCores,
 		MemoryMB:          req.MemoryMB,
+		APIHost:           hostIP,
+		APIPort:           strconv.Itoa(port),
 		KernelCmdlineHint: req.KernelCmdline,
-		KernelArgs:        cloneLabelMap(labels),
 		Manifest:          &manifestCopy,
 	})
 	if err != nil {
@@ -452,18 +465,25 @@ func (api *apiServer) streamVMEvents(c *gin.Context) {
 }
 
 func (api *apiServer) systemStatus(c *gin.Context) {
-	vms, err := api.engine.ListVMs(c.Request.Context())
-	if err != nil {
-		api.logger.Error("system status", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch status"})
-		return
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (api *apiServer) systemInfo(c *gin.Context) {
+	listenAddr := ""
+	advertiseAddr := ""
+	hostIP := ""
+	if api.engine != nil {
+		listenAddr = api.engine.ControlPlaneListenAddr()
+		advertiseAddr = api.engine.ControlPlaneAdvertiseAddr()
+		hostIP = api.engine.HostIP().String()
 	}
-	resp := SystemStatusResponse{
-		VMCount: len(vms),
-		CPU:     0.0, // Placeholder; integrate real metrics later
-		MEM:     0.0, // Placeholder
-	}
-	c.JSON(http.StatusOK, resp)
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":             "ok",
+		"api_listen_addr":    listenAddr,
+		"api_advertise_addr": advertiseAddr,
+		"host_ip":            hostIP,
+	})
 }
 
 type SystemStatusResponse struct {
@@ -527,15 +547,17 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 				break
 			}
 			manifestCopy := manifest
-			labels := cloneLabelMap(manifest.Labels)
-			manifestCopy.Labels = labels
+			hostIP := api.engine.HostIP().String()
+			_, portStr, _ := net.SplitHostPort(api.engine.ControlPlaneAdvertiseAddr())
 			vm, e := api.engine.CreateVM(ctx, orchestrator.CreateVMRequest{
-				Name:       name,
-				Runtime:    runtime,
-				CPUCores:   2,
-				MemoryMB:   2048,
-				Manifest:   &manifestCopy,
-				KernelArgs: labels,
+				Name:     name,
+				Plugin:   runtime,
+				Runtime:  runtime,
+				CPUCores: manifest.Resources.CPUCores,
+				MemoryMB: manifest.Resources.MemoryMB,
+				Manifest: &manifestCopy,
+				APIHost:  hostIP,
+				APIPort:  portStr,
 			})
 			if e != nil {
 				err = e
@@ -556,6 +578,51 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 					Message:   "VM created via MCP",
 				})
 			}
+		}
+	case "spawn_vm":
+		name := fmt.Sprintf("agui-%d", time.Now().UnixNano())
+		runtime := "browser"
+		if raw, exists := req.Params["runtime"].(string); exists {
+			runtime = strings.TrimSpace(raw)
+		}
+		manifest, ok := api.plugins.Get(runtime)
+		if !ok || !manifest.Enabled {
+			err = fmt.Errorf("runtime %s unavailable", runtime)
+			break
+		}
+		manifestCopy := manifest
+		labels := cloneLabelMap(manifest.Labels)
+		manifestCopy.Labels = labels
+		hostIP := api.engine.HostIP().String()
+		_, portStr, _ := net.SplitHostPort(api.engine.ControlPlaneAdvertiseAddr())
+		vm, e := api.engine.CreateVM(ctx, orchestrator.CreateVMRequest{
+			Name:     name,
+			Plugin:   runtime,
+			Runtime:  runtime,
+			CPUCores: manifest.Resources.CPUCores,
+			MemoryMB: manifest.Resources.MemoryMB,
+			Manifest: &manifestCopy,
+			APIHost:  hostIP,
+			APIPort:  portStr,
+		})
+		if e != nil {
+			err = e
+		} else {
+			result = map[string]interface{}{
+				"id":         vm.ID,
+				"name":       vm.Name,
+				"status":     vm.Status,
+				"ip_address": vm.IPAddress,
+				"cpu_cores":  vm.CPUCores,
+				"memory_mb":  vm.MemoryMB,
+			}
+			// Emit event for async notification
+			api.bus.Publish(ctx, orchestratorevents.TopicVMEvents, orchestratorevents.VMEvent{
+				Type:      orchestratorevents.TypeVMCreated,
+				Name:      vm.Name,
+				Timestamp: time.Now().UTC(),
+				Message:   "VM created via MCP",
+			})
 		}
 	case "hype.system.get_capabilities":
 		result = map[string]interface{}{
@@ -1472,4 +1539,23 @@ func (api *apiServer) handleManifestAction(ctx context.Context, w http.ResponseW
 	// Placeholder: full implementation forthcoming
 	w.WriteHeader(http.StatusNotImplemented)
 	_, _ = w.Write([]byte("manifest action proxy not implemented"))
+}
+
+func (api *apiServer) getPluginManifest(c *gin.Context) {
+	if api.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "plugin registry unavailable"})
+		return
+	}
+
+	pluginName := c.Param("plugin")
+	manifest, ok := api.plugins.Get(pluginName)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "plugin not found"})
+		return
+	}
+	if !manifest.Enabled {
+		c.JSON(http.StatusConflict, gin.H{"error": "plugin disabled"})
+		return
+	}
+	c.JSON(http.StatusOK, manifest)
 }

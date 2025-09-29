@@ -15,6 +15,10 @@ const (
 	RuntimeKey = "volant.runtime"
 	// PluginKey is the kernel parameter key used to indicate plugin name.
 	PluginKey = "volant.plugin"
+	// APIHostKey is the kernel parameter key for the host API hostname/IP.
+	APIHostKey = "volant.api_host"
+	// APIPortKey is the kernel parameter key for the host API port.
+	APIPortKey = "volant.api_port"
 	// RootFSKey is the kernel parameter key used to provide the plugin rootfs URL.
 	RootFSKey = "volant.rootfs"
 	// RootFSChecksumKey is the kernel parameter key for the rootfs checksum.
@@ -27,9 +31,9 @@ type Manifest struct {
 	Name          string            `json:"name"`
 	Version       string            `json:"version"`
 	Runtime       string            `json:"runtime"`
+	RootFS        RootFS            `json:"rootfs"`
 	Image         string            `json:"image,omitempty"`
 	ImageDigest   string            `json:"image_digest,omitempty"`
-	RootFS        RootFS            `json:"rootfs,omitempty"`
 	Resources     ResourceSpec      `json:"resources"`
 	Actions       map[string]Action `json:"actions"`
 	HealthCheck   HealthCheck       `json:"health_check"`

@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-    echo "usage: fetch-rootfs.sh <source> <destination>" >&2
+    echo "usage: fetch-rootfs.sh <source> <destination> [checksum]" >&2
     exit 1
 }
 
@@ -10,6 +10,10 @@ usage() {
 
 SRC=$1
 DEST=$2
+CHECKSUM=""
+if [ $# -ge 3 ]; then
+    CHECKSUM=$3
+fi
 
 mkdir -p "$(dirname "$DEST")"
 
@@ -38,4 +42,11 @@ case "$SRC" in
 esac
 
 sync "$DEST"
+
+if [ -n "$CHECKSUM" ]; then
+    echo "$CHECKSUM  $DEST" | sha256sum -c - >/dev/null 2>&1 || {
+        echo "fetch-rootfs: checksum verification failed" >&2
+        exit 1
+    }
+fi
 

@@ -60,7 +60,7 @@ func main() {
 		logDir,
 	)
 
-	runtimeRegistry := plugins.NewRegistry()
+	runtimeRegistry := plugins.NewRegistry(store.Queries().Plugins())
 
 	var netManager network.Manager
 	if runtime.GOOS == "linux" {
@@ -73,13 +73,16 @@ func main() {
 	events := memory.New()
 
 	engine, err := orchestrator.New(orchestrator.Params{
-		Store:    store,
-		Logger:   logger,
-		Subnet:   subnet,
-		HostIP:   hostIP,
-		Launcher: launcher,
-		Network:  netManager,
-		Bus:      events,
+		Store:            store,
+		Logger:           logger,
+		Subnet:           subnet,
+		HostIP:           hostIP,
+		APIListenAddr:    cfg.APIListenAddr,
+		APIAdvertiseAddr: cfg.APIAdvertiseAddr,
+		RuntimeDir:       runtimeDir,
+		Launcher:         launcher,
+		Network:          netManager,
+		Bus:              events,
 	})
 	if err != nil {
 		logger.Error("init orchestrator", "error", err)

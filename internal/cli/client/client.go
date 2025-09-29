@@ -65,6 +65,8 @@ type CreateVMRequest struct {
 	CPUCores      int    `json:"cpu_cores"`
 	MemoryMB      int    `json:"memory_mb"`
 	KernelCmdline string `json:"kernel_cmdline,omitempty"`
+	APIHost       string `json:"api_host,omitempty"`
+	APIPort       string `json:"api_port,omitempty"`
 }
 
 const (

@@ -5,7 +5,7 @@ description: Launch and inspect a microVM with the Volant engine.
 
 # Your First VM
 
-This quickstart walks through provisioning a microVM with the Volant engine, inspecting its state, and cleaning it up. It assumes you have already installed the engine (`volar`, `volantd`, `volary`) and run `volar setup` on the host.
+This quickstart walks through provisioning a microVM with the Volant engine, inspecting its state, and cleaning it up. It assumes you have already installed the engine (`volar`, `volantd`, `volary`), run `volar setup` on the host, and installed at least one runtime manifest.
 
 ---
 
@@ -26,10 +26,10 @@ If you prefer scripting, every step below can be executed as a CLI command (`vol
 From the TUI command input (or shell), run:
 
 ```
-vms create my-first-vm --cpu 2 --memory 2048
+vms create my-first-vm --plugin browser --cpu 2 --memory 2048
 ```
 
-`volantd` will lease an IP, prepare a TAP device, boot Cloud Hypervisor, and update the SQLite state. Within a few seconds the VM should show up with a `running` status.
+`volantd` will resolve the `browser` plugin manifest, inject it into the VM’s kernel cmdline, lease an IP, prepare a TAP device, boot Cloud Hypervisor, and update the SQLite state. Within a few seconds the VM should show up with a `running` status.
 
 ---
 

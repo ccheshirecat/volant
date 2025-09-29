@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -57,44 +58,27 @@ func Run(ctx context.Context) error {
 	cfg := loadConfig()
 	logger := log.New(os.Stdout, "volary: ", log.LstdFlags|log.LUTC)
 
-	runtimeName := strings.TrimSpace(cfg.Runtime)
-	if runtimeName == "" {
-		return errors.New("runtime not specified")
-	}
-
 	manifest, err := resolveManifest()
 	if err != nil {
 		return err
 	}
-
-	opts := agentruntime.Options{
-		DefaultTimeout: cfg.DefaultTimeout,
-		Config: map[string]string{
-			"remote_debugging_addr": cfg.RemoteDebuggingAddr,
-			"remote_debugging_port": strconv.Itoa(cfg.RemoteDebuggingPort),
-			"user_data_dir":         cfg.UserDataDir,
-			"exec_path":             cfg.ExecPath,
-		},
+	if manifest == nil {
+		logger.Printf("no manifest received at startup; waiting for configuration")
 	}
-	if manifest != nil {
-		opts.Manifest = manifest
-	}
-
-	runtimeInstance, err := agentruntime.New(ctx, runtimeName, opts)
-	if err != nil {
-		return err
-	}
-	defer runtimeInstance.Shutdown(context.Background())
 
 	app := &App{
 		cfg:      cfg,
-		runtime:  runtimeInstance,
 		timeout:  cfg.DefaultTimeout,
 		log:      logger,
 		started:  time.Now().UTC(),
 		manifest: manifest,
 		client:   &http.Client{Timeout: cfg.DefaultTimeout + 30*time.Second},
 	}
+
+	if err := app.ensureRuntime(ctx); err != nil {
+		logger.Printf("failed to start runtime %q: %v", strings.TrimSpace(cfg.Runtime), err)
+	}
+
 	return app.run(ctx)
 }
 
@@ -182,20 +166,41 @@ func resolveManifest() (*pluginspec.Manifest, error) {
 		return nil, err
 	}
 	fields := strings.Fields(string(data))
+	var pluginName string
+	var apiHost, apiPort string
 	for _, field := range fields {
 		parts := strings.SplitN(field, "=", 2)
 		if len(parts) != 2 {
 			continue
 		}
-		if parts[0] == pluginspec.CmdlineKey {
-			manifest, err := pluginspec.Decode(parts[1])
-			if err != nil {
-				return nil, err
-			}
-			return &manifest, nil
+		switch parts[0] {
+		case pluginspec.APIHostKey:
+			apiHost = parts[1]
+		case pluginspec.APIPortKey:
+			apiPort = parts[1]
+		case pluginspec.PluginKey:
+			pluginName = parts[1]
 		}
 	}
-	return nil, nil
+	if apiHost == "" || apiPort == "" || pluginName == "" {
+		return nil, nil
+	}
+
+	manifestURL := fmt.Sprintf("http://%s:%s/api/v1/plugins/%s/manifest", apiHost, apiPort, pluginName)
+	resp, err := http.Get(manifestURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch manifest: unexpected status %d", resp.StatusCode)
+	}
+
+	var manifest pluginspec.Manifest
+	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
+		return nil, err
+	}
+	return &manifest, nil
 }
 
 func envOrDefault(key, fallback string) string {
@@ -226,6 +231,10 @@ func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 	return fallback
 }
 
+func envValue(key string) string {
+	return strings.TrimSpace(os.Getenv(key))
+}
+
 func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
@@ -243,6 +252,10 @@ func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) mountRuntimeRoutes(r chi.Router) error {
+	if a.runtime == nil {
+		a.log.Printf("runtime not yet configured; skipping runtime routes")
+		return nil
+	}
 	adapter := runtimeRouter{Router: r}
 	if aware, ok := a.runtime.(agentruntime.ManifestAware); ok && a.manifest != nil {
 		return aware.MountRoutesWithManifest(adapter, *a.manifest)
@@ -364,4 +377,67 @@ func respondJSON(w http.ResponseWriter, status int, payload any) {
 
 func errorJSON(w http.ResponseWriter, status int, err error) {
 	respondJSON(w, status, map[string]any{"error": err.Error()})
+}
+
+func (a *App) refreshManifest() error {
+	if a.manifest != nil {
+		return nil
+	}
+
+	host := envValue("volant.api_host")
+	port := envValue("volant.api_port")
+	plugin := envValue("volant.plugin")
+	if host == "" || port == "" || plugin == "" {
+		return nil
+	}
+
+	url := fmt.Sprintf("http://%s:%s/api/v1/plugins/%s/manifest", host, port, plugin)
+	resp, err := a.client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("manifest fetch status %d", resp.StatusCode)
+	}
+
+	var manifest pluginspec.Manifest
+	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
+		return err
+	}
+	a.manifest = &manifest
+	a.log.Printf("manifest fetched for plugin %s", plugin)
+	if err := a.ensureRuntime(context.Background()); err != nil {
+		a.log.Printf("runtime start failed after manifest fetch: %v", err)
+	}
+	return nil
+}
+
+func (a *App) ensureRuntime(ctx context.Context) error {
+	runtimeName := strings.TrimSpace(a.cfg.Runtime)
+	if runtimeName == "" || a.manifest == nil {
+		return nil
+	}
+
+	opts := agentruntime.Options{
+		DefaultTimeout: a.cfg.DefaultTimeout,
+		Config: map[string]string{
+			"remote_debugging_addr": a.cfg.RemoteDebuggingAddr,
+			"remote_debugging_port": strconv.Itoa(a.cfg.RemoteDebuggingPort),
+			"user_data_dir":         a.cfg.UserDataDir,
+			"exec_path":             a.cfg.ExecPath,
+		},
+		Manifest: a.manifest,
+	}
+
+	runtimeInstance, err := agentruntime.New(ctx, runtimeName, opts)
+	if err != nil {
+		return err
+	}
+	if a.runtime != nil {
+		_ = a.runtime.Shutdown(context.Background())
+	}
+	a.runtime = runtimeInstance
+	a.log.Printf("runtime %s started", runtimeName)
+	return nil
 }
