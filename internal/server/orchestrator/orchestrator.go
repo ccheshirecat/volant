@@ -87,9 +87,35 @@ func New(params Params) (Engine, error) {
 		return nil, fmt.Errorf("orchestrator: derive ip pool: %w", err)
 	}
 
-	runtimeDir := params.Runtime
+	runtimeDir := strings.TrimSpace(params.Runtime)
 	if runtimeDir == "" {
-		runtimeDir = filepath.Join(".volant", "run")
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("orchestrator: determine user home: %w", err)
+		}
+		runtimeDir = filepath.Join(home, ".volant", "run")
+	}
+	switch {
+	case runtimeDir == "~":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("orchestrator: expand runtime dir: %w", err)
+		}
+		runtimeDir = home
+	case strings.HasPrefix(runtimeDir, "~/"):
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("orchestrator: expand runtime dir: %w", err)
+		}
+		runtimeDir = filepath.Join(home, runtimeDir[2:])
+	}
+	runtimeDir = filepath.Clean(runtimeDir)
+	if !filepath.IsAbs(runtimeDir) {
+		absRuntime, err := filepath.Abs(runtimeDir)
+		if err != nil {
+			return nil, fmt.Errorf("orchestrator: resolve runtime dir: %w", err)
+		}
+		runtimeDir = absRuntime
 	}
 
 	return &engine{
