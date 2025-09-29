@@ -286,23 +286,24 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 
 	serialPath := filepath.Join(e.runtimeDir, fmt.Sprintf("%s.serial", vmRecord.Name))
 	serialPath = filepath.Clean(serialPath)
-	var err error
 	if !filepath.IsAbs(serialPath) {
-		serialPath, err = filepath.Abs(serialPath)
-		if err != nil {
+		absSerial, absErr := filepath.Abs(serialPath)
+		if absErr != nil {
 			e.rollbackCreate(ctx, vmRecord)
-			return nil, fmt.Errorf("orchestrator: resolve serial socket path: %w", err)
+			return nil, fmt.Errorf("orchestrator: resolve serial socket path: %w", absErr)
 		}
+		serialPath = absSerial
 	}
 
 	consolePath := filepath.Join(e.runtimeDir, fmt.Sprintf("%s.console", vmRecord.Name))
 	consolePath = filepath.Clean(consolePath)
 	if !filepath.IsAbs(consolePath) {
-		consolePath, err = filepath.Abs(consolePath)
-		if err != nil {
+		absConsole, absErr := filepath.Abs(consolePath)
+		if absErr != nil {
 			e.rollbackCreate(ctx, vmRecord)
-			return nil, fmt.Errorf("orchestrator: resolve console socket path: %w", err)
+			return nil, fmt.Errorf("orchestrator: resolve console socket path: %w", absErr)
 		}
+		consolePath = absConsole
 	}
 
 	spec := runtime.LaunchSpec{
