@@ -21,7 +21,7 @@ mkdir -p "$WORKDIR"/{bin,dev,etc,home,mnt,proc,sys,usr/bin,sbin,usr/sbin,usr/loc
 
 cp "$ROOT_DIR/init" "$WORKDIR"
 cp "$ROOT_DIR/volary" "$WORKDIR/bin"
-cp "$ROOT_DIR/volary" "$WORKDIR/usr/local/bin"
+ln -sf ../bin/volary "$WORKDIR/usr/local/bin/volary"
 cp "$ROOT_DIR"/fetch-rootfs.sh "$WORKDIR/scripts"
 cp "$ROOT_DIR"/stage-volary.sh "$WORKDIR/scripts"
 chmod +x "$WORKDIR"/scripts/*
