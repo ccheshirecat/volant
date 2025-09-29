@@ -21,6 +21,7 @@ Core commands:
   vms       Manage microVMs
   plugins   Install/remove plugin manifests
   setup     Helper for host networking/service configuration
+  console   Inspect or attach to VM consoles
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()

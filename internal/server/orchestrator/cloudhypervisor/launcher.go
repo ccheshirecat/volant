@@ -114,13 +114,15 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		consolePath = filepath.Join(l.ConsoleDir, fmt.Sprintf("%s.console", spec.Name))
 	}
 
+	serialMode := fmt.Sprintf("socket,path=%s", serialPath)
+
 	args := []string{
 		"--api-socket", fmt.Sprintf("path=%s", apiSocket),
 		"--cpus", fmt.Sprintf("boot=%d", spec.CPUCores),
 		"--memory", fmt.Sprintf("size=%dM", spec.MemoryMB),
 		"--kernel", kernelCopy,
 		"--net", netArg,
-		"--serial", fmt.Sprintf("pty,workdir=%s", l.ConsoleDir),
+		"--serial", serialMode,
 		"--console", fmt.Sprintf("file=%s", consolePath),
 	}
 	if initramfsCopy != "" {
