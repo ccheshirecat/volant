@@ -120,6 +120,7 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	if err := removeIfExists(serialPath); err != nil {
 		return nil, fmt.Errorf("cloudhypervisor: prepare serial socket: %w", err)
 	}
+	spec.SerialSocket = serialPath
 
 	consolePath := spec.ConsoleSocket
 	if consolePath == "" {
@@ -138,6 +139,7 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	if err := os.Truncate(consolePath, 0); err != nil {
 		return nil, fmt.Errorf("cloudhypervisor: truncate console file: %w", err)
 	}
+	spec.ConsoleSocket = consolePath
 
 	serialMode := fmt.Sprintf("socket=%s", serialPath)
 
