@@ -3,6 +3,7 @@ package cloudhypervisor
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -109,9 +110,16 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	if serialPath == "" {
 		serialPath = filepath.Join(l.ConsoleDir, fmt.Sprintf("%s.serial", spec.Name))
 	}
+	if err := removeIfExists(serialPath); err != nil {
+		return nil, fmt.Errorf("cloudhypervisor: prepare serial socket: %w", err)
+	}
+
 	consolePath := spec.ConsoleSocket
 	if consolePath == "" {
 		consolePath = filepath.Join(l.ConsoleDir, fmt.Sprintf("%s.console", spec.Name))
+	}
+	if err := touchFile(consolePath); err != nil {
+		return nil, fmt.Errorf("cloudhypervisor: prepare console file: %w", err)
 	}
 
 	serialMode := fmt.Sprintf("socket=%s", serialPath)
@@ -121,9 +129,11 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		"--cpus", fmt.Sprintf("boot=%d", spec.CPUCores),
 		"--memory", fmt.Sprintf("size=%dM", spec.MemoryMB),
 		"--kernel", kernelCopy,
-		"--net", netArg,
 		"--serial", serialMode,
 		"--console", fmt.Sprintf("file=%s", consolePath),
+	}
+	if netArg != "" {
+		args = append(args, "--net", netArg)
 	}
 	if initramfsCopy != "" {
 		args = append(args, "--initramfs", initramfsCopy)
@@ -256,10 +266,6 @@ func (i *instance) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (i *instance) cleanupArtifacts() {
-	if i.kernelPath != "" {
-		_ = os.Remove(i.kernelPath)
-	}
 	if i.initramfsPath != "" {
 		_ = os.Remove(i.initramfsPath)
 	}
