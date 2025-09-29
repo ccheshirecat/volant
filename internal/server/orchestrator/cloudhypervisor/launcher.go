@@ -129,10 +129,7 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	}
 	spec.SerialSocket = serialPath
 
-	serialMode := strings.TrimSpace(spec.SerialType)
-	if serialMode == "" {
-		serialMode = "tty"
-	}
+	serialMode := fmt.Sprintf("socket=%s", spec.SerialSocket)
 
 	args := []string{
 		"--api-socket", fmt.Sprintf("path=%s", apiSocket),
