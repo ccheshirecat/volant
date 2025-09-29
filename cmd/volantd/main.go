@@ -79,10 +79,10 @@ func main() {
 		HostIP:           hostIP,
 		APIListenAddr:    cfg.APIListenAddr,
 		APIAdvertiseAddr: cfg.APIAdvertiseAddr,
-		RuntimeDir:       runtimeDir,
 		Launcher:         launcher,
 		Network:          netManager,
 		Bus:              events,
+		RuntimeDir:       runtimeDir,
 	})
 	if err != nil {
 		logger.Error("init orchestrator", "error", err)

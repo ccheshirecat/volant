@@ -347,14 +347,26 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		SerialSocket:  serialPath,
 	}
 
+	advHost := ""
+	advPort := e.controlPort
+	if host, port, err := net.SplitHostPort(e.controlAdvertiseAddr); err == nil {
+		advHost = host
+		advPort = port
+	}
+
+	apiHost := strings.TrimSpace(req.APIHost)
+	if apiHost == "" {
+		apiHost = advHost
+	}
+	apiPort := strings.TrimSpace(req.APIPort)
+	if apiPort == "" {
+		apiPort = advPort
+	}
+
 	cmdArgs := map[string]string{
 		pluginspec.RuntimeKey: req.Runtime,
-	}
-	if req.APIHost != "" {
-		cmdArgs[pluginspec.APIHostKey] = req.APIHost
-	}
-	if req.APIPort != "" {
-		cmdArgs[pluginspec.APIPortKey] = req.APIPort
+		pluginspec.APIHostKey: apiHost,
+		pluginspec.APIPortKey: apiPort,
 	}
 	if pluginName != "" {
 		cmdArgs[pluginspec.PluginKey] = pluginName
