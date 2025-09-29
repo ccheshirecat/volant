@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -59,6 +60,17 @@ func resolveConsoleSocket(ctx context.Context, api *client.Client, vmName, socke
 
 	serialSocket := strings.TrimSpace(vm.SerialSocket)
 	consoleSocket := strings.TrimSpace(vm.ConsoleSocket)
+
+	if serialSocket != "" && strings.HasPrefix(serialSocket, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			serialSocket = filepath.Clean(filepath.Join(home, serialSocket[1:]))
+		}
+	}
+	if consoleSocket != "" && strings.HasPrefix(consoleSocket, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			consoleSocket = filepath.Clean(filepath.Join(home, consoleSocket[1:]))
+		}
+	}
 
 	override := strings.TrimSpace(socketOverride)
 	if override != "" {
