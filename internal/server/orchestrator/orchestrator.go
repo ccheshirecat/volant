@@ -347,20 +347,19 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		SerialSocket:  serialPath,
 	}
 
-	advHost := ""
-	advPort := e.controlPort
-	if host, port, err := net.SplitHostPort(e.controlAdvertiseAddr); err == nil {
-		advHost = host
-		advPort = port
-	}
-
 	apiHost := strings.TrimSpace(req.APIHost)
-	if apiHost == "" {
-		apiHost = advHost
-	}
 	apiPort := strings.TrimSpace(req.APIPort)
-	if apiPort == "" {
-		apiPort = advPort
+	if apiHost == "" || apiPort == "" {
+		host, port := e.apiEndpoints()
+		if apiHost == "" {
+			apiHost = host
+		}
+		if apiPort == "" {
+			apiPort = port
+		}
+	}
+	if strings.TrimSpace(apiPort) == "" {
+		apiPort = e.controlPort
 	}
 
 	cmdArgs := map[string]string{
@@ -744,4 +743,18 @@ func (e *engine) launchContext() context.Context {
 		return e.procCtx
 	}
 	return context.Background()
+}
+
+func (e *engine) apiEndpoints() (string, string) {
+	host, port, err := net.SplitHostPort(e.controlAdvertiseAddr)
+	if err != nil {
+		host, _, err = net.SplitHostPort(e.controlListenAddr)
+		if err != nil {
+			host = e.controlListenAddr
+		}
+	}
+	if strings.TrimSpace(port) == "" {
+		port = e.controlPort
+	}
+	return host, port
 }
