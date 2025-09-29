@@ -136,6 +136,12 @@ int main(void) {
         perror("exec volary");
     }
 
+    if (access("/bin/volary", X_OK) == 0) {
+        log_line("launching volary from /bin");
+        execl("/bin/volary", "volary", NULL);
+        perror("exec /bin/volary");
+    }
+
     log_line("volary not found; dropping to rescue shell");
     execl("/bin/sh", "sh", NULL);
     return 1;

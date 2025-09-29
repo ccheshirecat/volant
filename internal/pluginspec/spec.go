@@ -15,6 +15,10 @@ const (
 	RuntimeKey = "volant.runtime"
 	// PluginKey is the kernel parameter key used to indicate plugin name.
 	PluginKey = "volant.plugin"
+	// RootFSKey is the kernel parameter key used to provide the plugin rootfs URL.
+	RootFSKey = "volant.rootfs"
+	// RootFSChecksumKey is the kernel parameter key for the rootfs checksum.
+	RootFSChecksumKey = "volant.rootfs_checksum"
 )
 
 // Manifest captures the metadata required to register and boot a runtime plugin.

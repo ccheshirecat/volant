@@ -286,14 +286,23 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 
 	serialPath := filepath.Join(e.runtimeDir, fmt.Sprintf("%s.serial", vmRecord.Name))
 	serialPath = filepath.Clean(serialPath)
+	var err error
 	if !filepath.IsAbs(serialPath) {
-		serialPath = filepath.Join(e.runtimeDir, serialPath)
+		serialPath, err = filepath.Abs(serialPath)
+		if err != nil {
+			e.rollbackCreate(ctx, vmRecord)
+			return nil, fmt.Errorf("orchestrator: resolve serial socket path: %w", err)
+		}
 	}
 
 	consolePath := filepath.Join(e.runtimeDir, fmt.Sprintf("%s.console", vmRecord.Name))
 	consolePath = filepath.Clean(consolePath)
 	if !filepath.IsAbs(consolePath) {
-		consolePath = filepath.Join(e.runtimeDir, consolePath)
+		consolePath, err = filepath.Abs(consolePath)
+		if err != nil {
+			e.rollbackCreate(ctx, vmRecord)
+			return nil, fmt.Errorf("orchestrator: resolve console socket path: %w", err)
+		}
 	}
 
 	spec := runtime.LaunchSpec{
@@ -314,6 +323,12 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 	if req.Manifest != nil {
 		spec.RootFS = strings.TrimSpace(req.Manifest.RootFS.URL)
 		spec.RootFSChecksum = strings.TrimSpace(req.Manifest.RootFS.Checksum)
+		if spec.RootFS != "" {
+			kernelArgs[pluginspec.RootFSKey] = spec.RootFS
+			if spec.RootFSChecksum != "" {
+				kernelArgs[pluginspec.RootFSChecksumKey] = spec.RootFSChecksum
+			}
+		}
 	}
 
 	launchCtx := e.launchContext()

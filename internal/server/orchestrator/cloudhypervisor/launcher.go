@@ -111,18 +111,15 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		serialPath = filepath.Join(l.ConsoleDir, fmt.Sprintf("%s.serial", spec.Name))
 	}
 	serialPath = filepath.Clean(serialPath)
-	if !filepath.IsAbs(serialPath) {
-		var err error
-		serialPath, err = filepath.Abs(serialPath)
-		if err != nil {
-			return nil, fmt.Errorf("cloudhypervisor: resolve serial socket path: %w", err)
-		}
-	}
 	if err := os.MkdirAll(filepath.Dir(serialPath), 0o755); err != nil {
 		return nil, fmt.Errorf("cloudhypervisor: ensure serial dir: %w", err)
 	}
 	if err := removeIfExists(serialPath); err != nil {
 		return nil, fmt.Errorf("cloudhypervisor: prepare serial socket: %w", err)
+	}
+	serialPath, err = filepath.Abs(serialPath)
+	if err != nil {
+		return nil, fmt.Errorf("cloudhypervisor: resolve serial socket path: %w", err)
 	}
 	spec.SerialSocket = serialPath
 
@@ -131,13 +128,6 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		consolePath = filepath.Join(l.ConsoleDir, fmt.Sprintf("%s.console", spec.Name))
 	}
 	consolePath = filepath.Clean(consolePath)
-	if !filepath.IsAbs(consolePath) {
-		var err error
-		consolePath, err = filepath.Abs(consolePath)
-		if err != nil {
-			return nil, fmt.Errorf("cloudhypervisor: resolve console path: %w", err)
-		}
-	}
 	if err := os.MkdirAll(filepath.Dir(consolePath), 0o755); err != nil {
 		return nil, fmt.Errorf("cloudhypervisor: ensure console dir: %w", err)
 	}
@@ -146,6 +136,10 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	}
 	if err := os.Truncate(consolePath, 0); err != nil {
 		return nil, fmt.Errorf("cloudhypervisor: truncate console file: %w", err)
+	}
+	consolePath, err = filepath.Abs(consolePath)
+	if err != nil {
+		return nil, fmt.Errorf("cloudhypervisor: resolve console path: %w", err)
 	}
 	spec.ConsoleSocket = consolePath
 
