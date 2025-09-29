@@ -99,6 +99,12 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	}
 
 	netArg := fmt.Sprintf("tap=%s,mac=%s", spec.TapDevice, spec.MACAddress)
+	if ip := strings.TrimSpace(spec.IPAddress); ip != "" {
+		netArg = fmt.Sprintf("%s,ip=%s", netArg, ip)
+	}
+	if mask := strings.TrimSpace(spec.Netmask); mask != "" {
+		netArg = fmt.Sprintf("%s,mask=%s", netArg, mask)
+	}
 	if l.ConsoleDir == "" {
 		l.ConsoleDir = l.RuntimeDir
 	}
