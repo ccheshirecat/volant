@@ -112,7 +112,11 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	}
 	serialPath = filepath.Clean(serialPath)
 	if !filepath.IsAbs(serialPath) {
-		serialPath = filepath.Join(l.ConsoleDir, serialPath)
+		var err error
+		serialPath, err = filepath.Abs(serialPath)
+		if err != nil {
+			return nil, fmt.Errorf("cloudhypervisor: resolve serial socket path: %w", err)
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(serialPath), 0o755); err != nil {
 		return nil, fmt.Errorf("cloudhypervisor: ensure serial dir: %w", err)
@@ -128,7 +132,11 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	}
 	consolePath = filepath.Clean(consolePath)
 	if !filepath.IsAbs(consolePath) {
-		consolePath = filepath.Join(l.ConsoleDir, consolePath)
+		var err error
+		consolePath, err = filepath.Abs(consolePath)
+		if err != nil {
+			return nil, fmt.Errorf("cloudhypervisor: resolve console path: %w", err)
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(consolePath), 0o755); err != nil {
 		return nil, fmt.Errorf("cloudhypervisor: ensure console dir: %w", err)
@@ -141,7 +149,7 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	}
 	spec.ConsoleSocket = consolePath
 
-	serialMode := fmt.Sprintf("socket=%s", serialPath)
+	serialMode := fmt.Sprintf("socket=%s", spec.SerialSocket)
 
 	args := []string{
 		"--api-socket", fmt.Sprintf("path=%s", apiSocket),

@@ -285,7 +285,16 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 	}
 
 	serialPath := filepath.Join(e.runtimeDir, fmt.Sprintf("%s.serial", vmRecord.Name))
+	serialPath = filepath.Clean(serialPath)
+	if !filepath.IsAbs(serialPath) {
+		serialPath = filepath.Join(e.runtimeDir, serialPath)
+	}
+
 	consolePath := filepath.Join(e.runtimeDir, fmt.Sprintf("%s.console", vmRecord.Name))
+	consolePath = filepath.Clean(consolePath)
+	if !filepath.IsAbs(consolePath) {
+		consolePath = filepath.Join(e.runtimeDir, consolePath)
+	}
 
 	spec := runtime.LaunchSpec{
 		Name:          vmRecord.Name,
