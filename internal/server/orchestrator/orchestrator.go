@@ -284,6 +284,9 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		return nil, err
 	}
 
+	serialPath := filepath.Join(e.runtimeDir, fmt.Sprintf("%s.serial", vmRecord.Name))
+	consolePath := filepath.Join(e.runtimeDir, fmt.Sprintf("%s.console", vmRecord.Name))
+
 	spec := runtime.LaunchSpec{
 		Name:          vmRecord.Name,
 		CPUCores:      vmRecord.CPUCores,
@@ -295,8 +298,8 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		Gateway:       e.hostIP.String(),
 		Netmask:       netmask,
 		Args:          cloneArgs(kernelArgs),
-		SerialSocket:  filepath.Join(e.runtimeDir, fmt.Sprintf("%s.serial", vmRecord.Name)),
-		ConsoleSocket: filepath.Join(e.runtimeDir, fmt.Sprintf("%s.console", vmRecord.Name)),
+		SerialSocket:  serialPath,
+		ConsoleSocket: consolePath,
 	}
 
 	if req.Manifest != nil {
