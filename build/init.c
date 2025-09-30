@@ -11,9 +11,49 @@
 #include <sys/sysmacros.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <dirent.h>
 
 static void log_line(const char *msg) {
     dprintf(STDOUT_FILENO, "[INIT] %s\n", msg);
+    FILE *f = fopen("/init.log", "a");
+    if (f) {
+        fprintf(f, "%s\n", msg);
+        fclose(f);
+    }
+}
+
+static void append_to_file(const char *path, const char *msg) {
+    if (path == NULL || msg == NULL) {
+        return;
+    }
+    FILE *f = fopen(path, "a");
+    if (!f) {
+        return;
+    }
+    fprintf(f, "%s\n", msg);
+    fclose(f);
+}
+
+static void log_dev_entries(void) {
+    DIR *dir = opendir("/dev");
+    if (!dir) {
+        log_line("opendir /dev failed");
+        return;
+    }
+    struct dirent *entry;
+    char buffer[256];
+    int count = 0;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.') {
+            continue;
+        }
+        snprintf(buffer, sizeof(buffer), "dev entry: %s", entry->d_name);
+        log_line(buffer);
+        if (++count >= 32) {
+            break;
+        }
+    }
+    closedir(dir);
 }
 
 static int run_command(char *const argv[]) {
@@ -101,32 +141,94 @@ int main(void) {
     const char *staging_script = "/scripts/stage-volary.sh";
     const char *fetch_script = "/scripts/fetch-rootfs.sh";
 
+    bool mounted_rootfs = false;
     if (have_rootfs) {
         log_line("rootfs specified; fetching image");
         mkdir("/sysroot", 0755);
         mkdir("/root", 0755);
         char *fetch_args[] = {(char *)fetch_script, rootfs, "/root/rootfs.img", NULL};
         if (access(fetch_script, X_OK) == 0 && run_command(fetch_args) == 0) {
-            log_line("rootfs fetch complete; attempting mount");
+            log_line("rootfs fetch complete; attempting loop mount");
             char *mount_args[] = {"/bin/mount", "-o", "loop", "/root/rootfs.img", "/sysroot", NULL};
             if (run_command(mount_args) == 0) {
-                log_line("rootfs mounted; staging volary");
-                if (access(staging_script, X_OK) == 0) {
-                    char *stage_args[] = {(char *)staging_script, "/sysroot", NULL};
-                    run_command(stage_args);
-                }
-                if (access("/sysroot/usr/local/bin/volary", X_OK) == 0) {
-                    log_line("switching root to external rootfs");
-                    execl("/bin/switch_root", "switch_root", "/sysroot", "/usr/local/bin/volary", NULL);
-                    perror("switch_root");
-                } else {
-                    log_line("volary missing in mounted rootfs; continuing with initramfs");
-                }
+                mounted_rootfs = true;
+                mkdir("/sysroot/var", 0755);
+                mkdir("/sysroot/var/log", 0755);
+                append_to_file("/sysroot/var/log/volant-init.log", "mounted loop rootfs at /sysroot");
             } else {
-                log_line("loop mount failed; continuing with initramfs");
+                log_line("loop mount failed; will probe attached disks");
             }
         } else {
-            log_line("fetch-rootfs script failed; continuing with initramfs");
+            log_line("fetch-rootfs script failed; will probe attached disks");
+        }
+    }
+
+    log_dev_entries();
+    if (!mounted_rootfs) {
+        const char *candidates[] = {"/dev/vdb", "/dev/vda", "/dev/sdb", "/dev/sda", NULL};
+        mkdir("/sysroot", 0755);
+        for (int attempt = 0; attempt < 5 && !mounted_rootfs; attempt++) {
+            for (int i = 0; candidates[i] != NULL && !mounted_rootfs; i++) {
+                const char *device = candidates[i];
+                if (access(device, F_OK) != 0) {
+                    continue;
+                }
+                char msg[256];
+                snprintf(msg, sizeof(msg), "attempting to mount %s (attempt %d)", device, attempt + 1);
+                log_line(msg);
+                char *mount_args[] = {"/bin/mount", "-t", "ext4", (char *)device, "/sysroot", NULL};
+                if (run_command(mount_args) == 0) {
+                    mounted_rootfs = true;
+                    snprintf(msg, sizeof(msg), "mounted %s to /sysroot", device);
+                    log_line(msg);
+                    mkdir("/sysroot/var", 0755);
+                    mkdir("/sysroot/var/log", 0755);
+                    append_to_file("/sysroot/var/log/volant-init.log", msg);
+                    break;
+                }
+                snprintf(msg, sizeof(msg), "mount %s failed", device);
+                log_line(msg);
+            }
+            if (!mounted_rootfs) {
+                sleep(1);
+            }
+        }
+    }
+
+    if (mounted_rootfs) {
+        log_line("rootfs mounted; staging volary");
+        append_to_file("/sysroot/var/log/volant-init.log", "rootfs mounted; preparing runtime mounts");
+        mkdir("/sysroot/dev", 0755);
+        mkdir("/sysroot/proc", 0555);
+        mkdir("/sysroot/sys", 0555);
+        char *mount_dev_args[] = {"/bin/mount", "-t", "devtmpfs", "devtmpfs", "/sysroot/dev", NULL};
+        if (run_command(mount_dev_args) != 0) {
+            append_to_file("/sysroot/var/log/volant-init.log", "mount devtmpfs failed");
+        }
+        char *mount_proc_args[] = {"/bin/mount", "-t", "proc", "proc", "/sysroot/proc", NULL};
+        if (run_command(mount_proc_args) != 0) {
+            append_to_file("/sysroot/var/log/volant-init.log", "mount proc failed");
+        }
+        char *mount_sys_args[] = {"/bin/mount", "-t", "sysfs", "sysfs", "/sysroot/sys", NULL};
+        if (run_command(mount_sys_args) != 0) {
+            append_to_file("/sysroot/var/log/volant-init.log", "mount sysfs failed");
+        }
+        append_to_file("/sysroot/var/log/volant-init.log", "runtime mounts ready; running stage-volary");
+        if (access(staging_script, X_OK) == 0) {
+            char *stage_args[] = {(char *)staging_script, "/sysroot", NULL};
+            if (run_command(stage_args) != 0) {
+                log_line("stage-volary script failed");
+                append_to_file("/sysroot/var/log/volant-init.log", "stage-volary script failed");
+            }
+        }
+        if (access("/sysroot/usr/local/bin/volary", X_OK) == 0) {
+            log_line("switching root to external rootfs");
+            append_to_file("/sysroot/var/log/volant-init.log", "switching root to external rootfs");
+            execl("/bin/switch_root", "switch_root", "/sysroot", "/usr/local/bin/volary", NULL);
+            perror("switch_root");
+        } else {
+            log_line("volary missing after staging; continuing with initramfs");
+            append_to_file("/sysroot/var/log/volant-init.log", "volary missing after staging; continuing with initramfs");
         }
     }
 

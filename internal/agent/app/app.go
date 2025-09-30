@@ -198,6 +198,7 @@ func resolveManifest() (*pluginspec.Manifest, error) {
 		if err != nil {
 			return nil, fmt.Errorf("decode manifest: %w", err)
 		}
+		manifest.Normalize()
 		return &manifest, nil
 	}
 	if apiHost == "" || apiPort == "" || pluginName == "" {
@@ -218,6 +219,7 @@ func resolveManifest() (*pluginspec.Manifest, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
 		return nil, fmt.Errorf("%w: %v", errManifestFetch, err)
 	}
+	manifest.Normalize()
 	return &manifest, nil
 }
 
@@ -300,6 +302,8 @@ func (a *App) mountManifestRoutes(router chi.Router) error {
 		handler := a.forwardManifestAction(parsedBase, path, routeTimeout, actionName)
 		router.MethodFunc(method, path, handler)
 	}
+
+	a.mountWorkloadPassthrough(router, parsedBase)
 	return nil
 }
 
@@ -349,6 +353,125 @@ func copyHeaders(dst, src http.Header) {
 	for key, values := range src {
 		for _, value := range values {
 			dst.Add(key, value)
+		}
+	}
+}
+
+func ensurePath(env []string, additions []string) []string {
+	const pathKey = "PATH"
+	pathValue := ""
+	pathIndex := -1
+	for i, kv := range env {
+		if strings.HasPrefix(kv, pathKey+"=") {
+			pathValue = kv[len(pathKey)+1:]
+			pathIndex = i
+			break
+		}
+	}
+
+	existing := make(map[string]struct{})
+	parts := []string{}
+	if pathValue != "" {
+		for _, segment := range strings.Split(pathValue, ":") {
+			segment = strings.TrimSpace(segment)
+			if segment == "" {
+				continue
+			}
+			if _, ok := existing[segment]; ok {
+				continue
+			}
+			existing[segment] = struct{}{}
+			parts = append(parts, segment)
+		}
+	}
+	for _, add := range additions {
+		add = strings.TrimSpace(add)
+		if add == "" {
+			continue
+		}
+		if _, ok := existing[add]; ok {
+			continue
+		}
+		existing[add] = struct{}{}
+		parts = append(parts, add)
+	}
+	if len(parts) == 0 {
+		return env
+	}
+	joined := strings.Join(parts, ":")
+	if pathIndex >= 0 {
+		env[pathIndex] = pathKey + "=" + joined
+	} else {
+		env = append(env, pathKey+"="+joined)
+	}
+	return env
+}
+
+func (a *App) mountWorkloadPassthrough(router chi.Router, base *url.URL) {
+	handler := a.forwardWorkload(base, a.timeout, "/v1")
+	methods := []string{
+		http.MethodGet,
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodPatch,
+		http.MethodDelete,
+		http.MethodHead,
+		http.MethodOptions,
+	}
+	for _, method := range methods {
+		router.MethodFunc(method, "/*", handler)
+		router.MethodFunc(method, "/", handler)
+	}
+}
+
+func (a *App) forwardWorkload(base *url.URL, timeout time.Duration, stripPrefix string) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		ctx := req.Context()
+		if timeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+		}
+
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			errorJSON(w, http.StatusBadRequest, err)
+			return
+		}
+		_ = req.Body.Close()
+
+		path := req.URL.Path
+		if stripPrefix != "" {
+			path = strings.TrimPrefix(path, stripPrefix)
+		}
+		if path == "" {
+			path = "/"
+		}
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+
+		rel := &url.URL{Path: path, RawQuery: req.URL.RawQuery}
+		target := base.ResolveReference(rel)
+
+		proxyReq, err := http.NewRequestWithContext(ctx, req.Method, target.String(), bytes.NewReader(body))
+		if err != nil {
+			errorJSON(w, http.StatusBadGateway, err)
+			return
+		}
+		copyHeaders(proxyReq.Header, req.Header)
+
+		resp, err := a.client.Do(proxyReq)
+		if err != nil {
+			errorJSON(w, http.StatusBadGateway, err)
+			return
+		}
+		defer resp.Body.Close()
+
+		copyHeaders(w.Header(), resp.Header)
+		w.WriteHeader(resp.StatusCode)
+		if _, err := io.Copy(w, resp.Body); err != nil {
+			a.log.Printf("workload proxy error: %v", err)
 		}
 	}
 }
@@ -406,10 +529,14 @@ func (a *App) startWorkload() error {
 	cmd := exec.CommandContext(procCtx, manifest.Workload.Entrypoint[0], manifest.Workload.Entrypoint[1:]...)
 
 	env := os.Environ()
+	env = ensurePath(env, []string{"/usr/local/bin", "/usr/bin", "/bin"})
 	for key, value := range manifest.Workload.Env {
 		env = append(env, fmt.Sprintf("%s=%s", key, value))
 	}
 	cmd.Env = env
+	if dir := strings.TrimSpace(manifest.Workload.WorkDir); dir != "" {
+		cmd.Dir = dir
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -595,6 +722,7 @@ func (a *App) refreshManifest() error {
 	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
 		return err
 	}
+	manifest.Normalize()
 	a.manifest = &manifest
 	a.log.Printf("manifest fetched for plugin %s", plugin)
 	if err := a.startWorkload(); err != nil {

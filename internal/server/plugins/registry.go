@@ -23,6 +23,7 @@ func NewRegistry(repo db.PluginRepository) *Registry {
 }
 
 func (r *Registry) Register(manifest pluginspec.Manifest) {
+	manifest.Normalize()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.manifests[manifest.Name] = manifest
@@ -77,6 +78,7 @@ func (r *Registry) Fetch(ctx context.Context, name string) (pluginspec.Manifest,
 	manifest.Name = plugin.Name
 	manifest.Version = plugin.Version
 	manifest.Enabled = plugin.Enabled
+	manifest.Normalize()
 	return manifest, nil
 }
 
@@ -84,6 +86,7 @@ func (r *Registry) Persist(ctx context.Context, manifest pluginspec.Manifest, en
 	if r.backend == nil {
 		return errors.New("registry backend not configured")
 	}
+	manifest.Normalize()
 	if err := manifest.Validate(); err != nil {
 		return err
 	}

@@ -89,6 +89,7 @@ Refer to `docs/guides/plugins.md` for manifest structure, validation, and distri
 3. **Install** the manifest with `volar plugins install --manifest path/to/manifest.json`; the control plane validates and persists it.
 4. **Enable/disable** with `volar plugins enable <name>` or `volar plugins disable <name>`.
 5. **Launch VMs** by referencing the plugin: `volar vms create <vm> --plugin <name>`. Runtime metadata and the manifest payload are injected into the VM at boot.
+   - When a manifest omits `runtime`, Volant records the plugin `name` as the runtime identifier automatically.
 6. **Interact with the workload** by using the endpoints described in the manifest/OpenAPI document. Legacy `/api/v1/plugins/.../actions/...` proxies remain for older manifests but new plugins should expose standard HTTP or WebSocket surfaces.
 
 The engine persists manifests, enforces enablement state, and resolves action routing so microVMs only run compatible runtimes.

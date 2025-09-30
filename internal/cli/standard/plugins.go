@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -125,6 +126,12 @@ func newPluginsInstallCmd() *cobra.Command {
 			if err := json.Unmarshal(data, &manifest); err != nil {
 				return fmt.Errorf("decode manifest: %w", err)
 			}
+			rootfsPath := strings.TrimSpace(manifest.RootFS.URL)
+			if rootfsPath != "" && !strings.HasPrefix(rootfsPath, "http://") && !strings.HasPrefix(rootfsPath, "https://") && !strings.HasPrefix(rootfsPath, "file://") && !filepath.IsAbs(rootfsPath) {
+				resolved := filepath.Join(filepath.Dir(manifestPath), rootfsPath)
+				manifest.RootFS.URL = filepath.Clean(resolved)
+			}
+			manifest.Normalize()
 			if err := manifest.Validate(); err != nil {
 				return err
 			}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"sort"
 	"strings"
 )
 
@@ -38,7 +39,7 @@ type Manifest struct {
 	Image         string            `json:"image,omitempty"`
 	ImageDigest   string            `json:"image_digest,omitempty"`
 	Resources     ResourceSpec      `json:"resources"`
-	Actions       map[string]Action `json:"actions"`
+	Actions       map[string]Action `json:"actions,omitempty"`
 	HealthCheck   HealthCheck       `json:"health_check"`
 	Workload      Workload          `json:"workload"`
 	Enabled       bool              `json:"enabled"`
@@ -77,26 +78,30 @@ type Workload struct {
 	BaseURL    string            `json:"base_url,omitempty"`
 	Entrypoint []string          `json:"entrypoint,omitempty"`
 	Env        map[string]string `json:"env,omitempty"`
+	WorkDir    string            `json:"workdir,omitempty"`
 }
 
 // Validate reports an error when required manifest fields are missing or inconsistent.
 func (m Manifest) Validate() error {
-	if strings.TrimSpace(m.Name) == "" {
+	normalized := m
+	normalized.Normalize()
+
+	if strings.TrimSpace(normalized.Name) == "" {
 		return fmt.Errorf("plugin manifest: name required")
 	}
-	if strings.TrimSpace(m.Version) == "" {
+	if strings.TrimSpace(normalized.Version) == "" {
 		return fmt.Errorf("plugin manifest: version required")
 	}
-	if strings.TrimSpace(m.Runtime) == "" {
+	if strings.TrimSpace(normalized.Runtime) == "" {
 		return fmt.Errorf("plugin manifest: runtime required")
 	}
-	if m.Resources.CPUCores <= 0 {
+	if normalized.Resources.CPUCores <= 0 {
 		return fmt.Errorf("plugin manifest: cpu_cores must be > 0")
 	}
-	if m.Resources.MemoryMB <= 0 {
+	if normalized.Resources.MemoryMB <= 0 {
 		return fmt.Errorf("plugin manifest: memory_mb must be > 0")
 	}
-	for name, action := range m.Actions {
+	for name, action := range normalized.Actions {
 		if strings.TrimSpace(action.Method) == "" {
 			return fmt.Errorf("plugin manifest: action %s missing method", name)
 		}
@@ -104,13 +109,106 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("plugin manifest: action %s missing path", name)
 		}
 	}
-	if err := m.Workload.Validate(); err != nil {
+	if err := normalized.Workload.Validate(); err != nil {
 		return err
 	}
-	if err := m.RootFS.Validate(); err != nil {
+	if err := normalized.RootFS.Validate(); err != nil {
 		return err
 	}
 	return nil
+}
+
+// Normalize trims whitespace, sets sensible defaults, and ensures mandatory labels are present.
+func (m *Manifest) Normalize() {
+	if m == nil {
+		return
+	}
+	m.SchemaVersion = strings.TrimSpace(m.SchemaVersion)
+	m.Name = strings.TrimSpace(m.Name)
+	m.Version = strings.TrimSpace(m.Version)
+	m.Runtime = strings.TrimSpace(m.Runtime)
+	if m.Runtime == "" {
+		m.Runtime = m.Name
+	}
+	m.Image = strings.TrimSpace(m.Image)
+	m.ImageDigest = strings.TrimSpace(m.ImageDigest)
+	m.OpenAPI = strings.TrimSpace(m.OpenAPI)
+	m.RootFS.URL = strings.TrimSpace(m.RootFS.URL)
+	m.RootFS.Checksum = strings.TrimSpace(m.RootFS.Checksum)
+
+	m.Workload.Type = strings.TrimSpace(m.Workload.Type)
+	m.Workload.BaseURL = strings.TrimSpace(m.Workload.BaseURL)
+	m.Workload.WorkDir = strings.TrimSpace(m.Workload.WorkDir)
+	if len(m.Workload.Entrypoint) > 0 {
+		trimmed := make([]string, 0, len(m.Workload.Entrypoint))
+		for _, arg := range m.Workload.Entrypoint {
+			value := strings.TrimSpace(arg)
+			if value != "" {
+				trimmed = append(trimmed, value)
+			}
+		}
+		m.Workload.Entrypoint = trimmed
+	}
+	if len(m.Workload.Env) > 0 {
+		for key, value := range m.Workload.Env {
+			trimmedKey := strings.TrimSpace(key)
+			trimmedValue := strings.TrimSpace(value)
+			if trimmedKey == "" {
+				delete(m.Workload.Env, key)
+				continue
+			}
+			if trimmedKey != key || trimmedValue != value {
+				delete(m.Workload.Env, key)
+				m.Workload.Env[trimmedKey] = trimmedValue
+			} else {
+				m.Workload.Env[key] = trimmedValue
+			}
+		}
+	}
+
+	if len(m.Actions) > 0 {
+		for name, action := range m.Actions {
+			trimmedName := strings.TrimSpace(name)
+			if trimmedName == "" {
+				delete(m.Actions, name)
+				continue
+			}
+			action.Description = strings.TrimSpace(action.Description)
+			action.Method = strings.TrimSpace(action.Method)
+			action.Path = strings.TrimSpace(action.Path)
+			m.Actions[trimmedName] = action
+			if trimmedName != name {
+				delete(m.Actions, name)
+			}
+		}
+		if len(m.Actions) == 0 {
+			m.Actions = nil
+		}
+	}
+
+	if m.Labels == nil {
+		m.Labels = make(map[string]string)
+	}
+	if m.Name != "" {
+		m.Labels["volant.plugin"] = m.Name
+	}
+	if m.Runtime != "" {
+		m.Labels["volant.runtime"] = m.Runtime
+	}
+	if len(m.Labels) == 0 {
+		m.Labels = nil
+	} else {
+		normalized := make(map[string]string, len(m.Labels))
+		keys := make([]string, 0, len(m.Labels))
+		for key := range m.Labels {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			normalized[key] = strings.TrimSpace(m.Labels[key])
+		}
+		m.Labels = normalized
+	}
 }
 
 // Validate ensures the workload entry is coherent.

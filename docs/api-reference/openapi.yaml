@@ -432,7 +432,7 @@ components:
           type: string
         runtime:
           type: string
-          description: Optional runtime/plugin identifier. Defaults to `browser` if omitted.
+          description: Optional runtime/plugin identifier. Defaults to the plugin name when omitted.
         cpu_cores:
           type: integer
           minimum: 1
@@ -484,7 +484,7 @@ components:
             type: string
     PluginManifest:
       type: object
-      required: [name, version, runtime]
+      required: [name, version]
       properties:
         name:
           type: string
@@ -492,6 +492,7 @@ components:
           type: string
         runtime:
           type: string
+          description: Optional runtime identifier; defaults to the plugin name when omitted.
         enabled:
           type: boolean
           default: true

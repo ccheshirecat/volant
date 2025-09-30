@@ -244,16 +244,20 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 	}
 
 	var manifestRuntime string
-	if req.Manifest != nil {
-		manifestRuntime = strings.TrimSpace(req.Manifest.Runtime)
-	}
-
 	pluginName := ""
 	if req.Manifest != nil {
+		req.Manifest.Normalize()
+		manifestRuntime = strings.TrimSpace(req.Manifest.Runtime)
 		pluginName = strings.TrimSpace(req.Manifest.Name)
 	}
 
 	req.Runtime = strings.TrimSpace(req.Runtime)
+	if req.Runtime == "" {
+		req.Runtime = manifestRuntime
+	}
+	if req.Runtime == "" {
+		req.Runtime = pluginName
+	}
 	if req.Runtime == "" {
 		return nil, fmt.Errorf("orchestrator: runtime required")
 	}

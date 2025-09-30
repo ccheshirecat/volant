@@ -181,11 +181,15 @@ func newVMsCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			manifest.Normalize()
 			if manifest.Labels == nil {
 				manifest.Labels = map[string]string{}
 			}
 			if runtimeName == "" {
 				runtimeName = manifest.Runtime
+			}
+			if strings.TrimSpace(runtimeName) == "" {
+				runtimeName = manifest.Name
 			}
 			if strings.TrimSpace(runtimeName) == "" {
 				return fmt.Errorf("plugin %s does not define a runtime", pluginName)

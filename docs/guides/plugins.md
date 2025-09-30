@@ -7,7 +7,7 @@ description: "Extending the engine with runtime manifests and external runtimes.
 
 Volant treats every specialized workload as a **plugin**. A plugin is defined by a manifest that declares:
 
-- Optional runtime identifier (used for metadata only)
+- Optional runtime identifier (used for metadata only; defaults to the plugin name when omitted)
 - Artifact references (root filesystem bundle, optional OCI images, checksums/signatures)
 - Resource hints (CPU, memory)
 - Workload contract (entrypoint, HTTP/WebSocket base URLs, environment variables)
@@ -75,6 +75,8 @@ A manifest (`plugin.yaml`/`plugin.json`) typically looks like:
   }
 }
 ```
+
+If you omit the `runtime` field, Volant automatically treats the plugin `name` as its runtime identifier.
 
 The engine never interprets plugin-specific payloads; it launches the declared workload and lets clients discover capabilities through the manifest (e.g., via the OpenAPI spec). If a plugin wants to publish convenience “actions”, it can, but they are optional.
 

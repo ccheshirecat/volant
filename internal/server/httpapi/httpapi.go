@@ -142,6 +142,7 @@ func loadStoredPlugins(engine orchestrator.Engine, logger *slog.Logger, registry
 				manifest = pluginspec.Manifest{Name: entry.Name, Version: entry.Version}
 			}
 			manifest.Enabled = entry.Enabled
+			manifest.Normalize()
 			registry.Register(manifest)
 		}
 		return nil
@@ -359,8 +360,12 @@ func (api *apiServer) createVM(c *gin.Context) {
 	labels := cloneLabelMap(manifest.Labels)
 	manifestCopy := manifest
 	manifestCopy.Labels = labels
+	manifestCopy.Normalize()
 	if strings.TrimSpace(req.Runtime) == "" {
 		req.Runtime = manifestCopy.Runtime
+	}
+	if strings.TrimSpace(req.Runtime) == "" {
+		req.Runtime = manifestCopy.Name
 	}
 	if strings.TrimSpace(req.Runtime) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "runtime not specified and plugin manifest missing runtime"})
@@ -1375,6 +1380,7 @@ func (api *apiServer) installPlugin(c *gin.Context) {
 		return
 	}
 
+	manifest.Normalize()
 	if err := manifest.Validate(); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
