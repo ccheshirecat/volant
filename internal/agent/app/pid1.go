@@ -25,12 +25,36 @@ const (
 var bootstrapOnce sync.Once
 
 func (a *App) bootstrapPID1() error {
+	// If we are not PID 1, we are not the init process. Do nothing.
+	if os.Getpid() != 1 {
+		a.log.Printf("pid=%d; skipping pid1 bootstrap", os.Getpid())
+		return nil
+	}
+
+	// THE FINAL FIX: Check if we are in Stage 2 (already pivoted)
+	if len(os.Args) > 1 && os.Args[1] == "stage2" {
+		a.log.Printf("PID 1, Stage 2: bootstrap complete. Starting workload.")
+
+		// Mount essential filesystems in Stage 2 - this is where they're actually needed!
+		if err := mountEssential(); err != nil {
+			// If this fails, we can't continue. Log it and halt.
+			a.log.Printf("FATAL: Stage 2 mount essentials failed: %v", err)
+			// A simple way to halt without panicking the kernel is to sleep forever.
+			select {}
+		}
+
+		// Now start the ongoing duties.
+		go reapZombies()
+		go handleSignals(a)
+
+		// Return nil to signal that bootstrapping is done and the app can run.
+		return nil
+	}
+
+	// If we're here, it means it's Stage 1. Run the full pivot logic.
+	// We keep the sync.Once just in case, but the logic above prevents re-entry.
 	var bootstrapErr error
 	bootstrapOnce.Do(func() {
-		if os.Getpid() != 1 {
-			a.log.Printf("pid=%d; skipping pid1 bootstrap", os.Getpid())
-			return
-		}
 		bootstrapErr = a.bootstrapPID1Inner()
 	})
 	return bootstrapErr
@@ -62,22 +86,27 @@ func (a *App) bootstrapPID1Inner() error {
 	}
 
 	if err := copySelfToRoot(); err != nil {
-		a.log.Printf("pid1 bootstrap warning: copy self failed: %v", err)
+		return fmt.Errorf("pid1 bootstrap error: copy self failed: %w", err)
 	}
 
 	if err := pivotRoot(); err != nil {
 		return err
 	}
 
-	if err := mountEssential(); err != nil {
-		return fmt.Errorf("mount essentials: %w", err)
+	// DON'T mount essentials here - Stage 2 will do it!
+	// The Stage 1 process is about to be replaced by exec anyway.
+
+	// Re-execute self in new rootfs with "stage2" flag
+	a.log.Printf("Re-executing self in new rootfs for Stage 2...")
+	// Pass "stage2" as the first argument to the new process
+	err := syscall.Exec("/sbin/init", []string{"/sbin/init", "stage2"}, os.Environ())
+
+	// This line should never be reached if exec succeeds
+	if err != nil {
+		return fmt.Errorf("re-exec of /sbin/init failed: %w", err)
 	}
 
-	go reapZombies()
-	go handleSignals(a)
-
-	a.log.Printf("pid1 bootstrap complete")
-	return nil
+	return nil // Unreachable
 }
 
 func mountInitial() error {

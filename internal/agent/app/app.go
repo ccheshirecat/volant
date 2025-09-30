@@ -70,6 +70,11 @@ func Run(ctx context.Context) error {
 		if errors.Is(err, errManifestFetch) {
 			logger.Printf("manifest fetch failed: %v", err)
 		} else {
+			if os.Getpid() == 1 {
+				logger.Printf("fatal: resolveManifest failed in pid1: %v", err)
+				logger.Printf("pid1 cannot exit; halting")
+				select {}
+			}
 			return err
 		}
 	}
@@ -91,11 +96,32 @@ func Run(ctx context.Context) error {
 		logger.Printf("pid1 bootstrap failed: %v", err)
 	}
 
-	if err := app.startWorkload(); err != nil {
-		logger.Printf("workload start failed: %v", err)
+	if manifest != nil {
+		app.manifest = manifest
 	}
 
-	return app.run(ctx)
+	if app.manifest != nil {
+		if err := app.startWorkload(); app.handleFatal(err, "start workload") {
+			if os.Getpid() == 1 {
+				logger.Printf("fatal: startWorkload failed in pid1: %v", err)
+				logger.Printf("pid1 cannot exit; halting")
+				select {}
+			}
+			return err
+		}
+	} else {
+		app.log.Printf("manifest absent; workload deferred")
+	}
+
+	if err := app.run(ctx); err != nil {
+		if os.Getpid() == 1 {
+			logger.Printf("fatal: app.run failed in pid1: %v", err)
+			logger.Printf("pid1 cannot exit; halting")
+			select {}
+		}
+		return err
+	}
+	return nil
 }
 
 func (a *App) run(ctx context.Context) error {
@@ -134,13 +160,16 @@ func (a *App) run(ctx context.Context) error {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			a.log.Printf("shutdown error: %v", err)
+		if err := server.Shutdown(shutdownCtx); a.handleFatal(err, "shutdown server") {
+			return err
 		}
 		return ctx.Err()
 	case err := <-errCh:
-		return err
+		if a.handleFatal(err, "serve http") {
+			return err
+		}
 	}
+	return nil
 }
 
 func loadConfig() Config {
@@ -225,6 +254,22 @@ func resolveManifest() (*pluginspec.Manifest, error) {
 	}
 	manifest.Normalize()
 	return &manifest, nil
+}
+
+func (a *App) pid1() bool {
+	return os.Getpid() == 1
+}
+
+func (a *App) handleFatal(err error, context string) bool {
+	if err == nil {
+		return false
+	}
+	if a.pid1() {
+		a.log.Printf("fatal error in pid1 (%s): %v", context, err)
+		a.log.Printf("pid1 cannot exit; halting")
+		select {}
+	}
+	return true
 }
 
 func envOrDefault(key, fallback string) string {

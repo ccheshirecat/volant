@@ -2,20 +2,30 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "$0")" && pwd)
-PROJECT_ROOT=$(cd "$ROOT_DIR/.." && pwd)
 
 # Build volary with CGO disabled
-pushd "$PROJECT_ROOT" >/dev/null
-CGO_ENABLED=0 go build -ldflags "-s -w" -o "$ROOT_DIR/volary" ./cmd/volary
-popd >/dev/null
+CGO_ENABLED=0 go build -ldflags "-s -w" -o "$ROOT_DIR/volary" ../cmd/volary
 
 # Prepare staging directory
 WORKDIR=/tmp/initramfs
 rm -rf "$WORKDIR"
-mkdir -p "$WORKDIR"
+mkdir -p "$WORKDIR"/{bin,sbin,etc,proc,sys,dev,usr/bin,usr/sbin}
+
+# 1. Install our Go binary as the init process
 cp "$ROOT_DIR/volary" "$WORKDIR/init"
 chmod 0755 "$WORKDIR/init"
 
+cd "$WORKDIR"
+# 2. Install busybox to provide switch_root and a rescue shell
+pushd "$WORKDIR" >/dev/null
+wget -q -O ./bin/busybox https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox
+chmod +x ./bin/busybox
+
+# 3. Create the necessary symlinks for busybox commands (like switch_root)
+./bin/busybox --install -s ./bin
+popd >/dev/null
+
+# 4. Create the final initramfs archive
 pushd "$WORKDIR" >/dev/null
 find . -print0 | cpio --null -ov --format=newc | gzip -9 > "$ROOT_DIR/volant-initramfs.cpio.gz"
 popd >/dev/null
