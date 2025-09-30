@@ -43,6 +43,16 @@ func (a *App) bootstrapPID1() error {
 			select {}
 		}
 
+		a.log.Printf("PID 1, Stage 2: Reinforcing mounts for child processes...")
+		if err := unix.Mount("/proc", "/proc", "", unix.MS_BIND|unix.MS_REC, ""); err != nil && !errors.Is(err, unix.EBUSY) {
+			a.log.Printf("FATAL: Stage 2 reinforcing /proc mount failed: %v", err)
+			select {}
+		}
+		if err := unix.Mount("/sys", "/sys", "", unix.MS_BIND|unix.MS_REC, ""); err != nil && !errors.Is(err, unix.EBUSY) {
+			a.log.Printf("FATAL: Stage 2 reinforcing /sys mount failed: %v", err)
+			select {}
+		}
+
 		// Now start the ongoing duties.
 		go reapZombies()
 		go handleSignals(a)
@@ -89,21 +99,13 @@ func (a *App) bootstrapPID1Inner() error {
 		return fmt.Errorf("pid1 bootstrap error: copy self failed: %w", err)
 	}
 
-	if err := pivotRoot(); err != nil {
-		return err
-	}
-
-	// DON'T mount essentials here - Stage 2 will do it!
-	// The Stage 1 process is about to be replaced by exec anyway.
-
-	// Re-execute self in new rootfs with "stage2" flag
-	a.log.Printf("Re-executing self in new rootfs for Stage 2...")
-	// Pass "stage2" as the first argument to the new process
-	err := syscall.Exec("/sbin/init", []string{"/sbin/init", "stage2"}, os.Environ())
+	// Re-execute via switch_root so it performs pivot + exec safely
+	a.log.Printf("Handing off to switch_root to pivot and re-execute for Stage 2...")
+	err := syscall.Exec("/bin/busybox", []string{"/bin/busybox", "switch_root", rootMountPoint, "/usr/local/bin/volary", "stage2"}, os.Environ())
 
 	// This line should never be reached if exec succeeds
 	if err != nil {
-		return fmt.Errorf("re-exec of /sbin/init failed: %w", err)
+		return fmt.Errorf("switch_root exec failed: %w", err)
 	}
 
 	return nil // Unreachable
@@ -201,7 +203,7 @@ func copySelfToRoot() error {
 	}
 	defer src.Close()
 
-	destPath := filepath.Join(rootMountPoint, "sbin", "init")
+	destPath := filepath.Join(rootMountPoint, "usr", "local", "bin", "volary")
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return err
 	}
@@ -217,27 +219,11 @@ func copySelfToRoot() error {
 	if err := dest.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, destPath)
-}
-
-func pivotRoot() error {
-	if err := os.MkdirAll(filepath.Join(rootMountPoint, oldRootPivotName), 0o755); err != nil {
+	if err := os.Rename(tmpPath, destPath); err != nil {
 		return err
 	}
-	if err := os.Chdir(rootMountPoint); err != nil {
-		return err
-	}
-	if err := unix.PivotRoot(".", filepath.Join(".", oldRootPivotName)); err != nil {
-		return fmt.Errorf("pivot_root: %w", err)
-	}
-	if err := os.Chdir("/"); err != nil {
-		return err
-	}
-	oldRoot := filepath.Join("/", oldRootPivotName)
-	if err := unix.Unmount(oldRoot, unix.MNT_DETACH); err != nil {
-		return fmt.Errorf("unmount old root: %w", err)
-	}
-	return os.RemoveAll(oldRoot)
+	syscall.Sync()
+	return nil
 }
 
 func mountEssential() error {
@@ -247,14 +233,23 @@ func mountEssential() error {
 		fs     string
 		flags  uintptr
 		data   string
+		perm   os.FileMode
 	}{
-		{"proc", "/proc", "proc", 0, ""},
-		{"sysfs", "/sys", "sysfs", 0, ""},
-		{"devtmpfs", "/dev", "devtmpfs", 0, "mode=0755"},
+		{"proc", "/proc", "proc", 0, "", 0o755},
+		{"sysfs", "/sys", "sysfs", 0, "", 0o755},
+		{"devtmpfs", "/dev", "devtmpfs", 0, "mode=0755", 0o755},
+		{"shm", "/dev/shm", "tmpfs", 0, "mode=1777", 0o1777},
+		{"run", "/run", "tmpfs", 0, "", 0o755},
+		{"tmp", "/tmp", "tmpfs", 0, "", 0o1777},
 	}
 	for _, m := range mounts {
-		if err := os.MkdirAll(m.target, 0o755); err != nil {
+		if err := os.MkdirAll(m.target, m.perm); err != nil {
 			return err
+		}
+		if m.perm == 0o1777 {
+			if err := os.Chmod(m.target, m.perm); err != nil {
+				return err
+			}
 		}
 		if err := unix.Mount(m.source, m.target, m.fs, m.flags, m.data); err != nil && !errors.Is(err, unix.EBUSY) {
 			return fmt.Errorf("mount %s on %s: %w", m.source, m.target, err)
