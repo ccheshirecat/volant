@@ -1,63 +1,85 @@
 # Image Pipeline
 
-The image build flow produces two artifacts consumed by the orchestrator:
+Volant now ships a single kernel artifact that already contains our initramfs and the `volary` agent. The orchestrator no longer expects plugins to bring their own kernel or initrd – they only supply a root filesystem bundle and the HTTP surface they want to expose. This document walks through the artifacts we produce, how the host hydrates plugin images, and what the in-VM bootstrap does with them.
 
-- `vmlinuz-x86_64` – downloaded from the Cloud Hypervisor kernel release (default URL baked into the script).
-- `volant-initramfs.cpio.gz` – initramfs containing Chrome headless + `volary` and the custom C init.
+## Artifact Layout
+- `bzImage-x86_64` – Cloud Hypervisor compatible kernel with the embedded initramfs (`build/artifacts/bzImage-x86_64`). `volantd` points at this by default via `~/.volant/kernel/bzImage` (see `internal/server/config/config.go`).
+- `checksums.txt` – SHA256 digests for release validation.
+- `Image-arm64` / `vmlinux-x86_64` – optional debug builds retained for developers, but the control plane only needs the bzImage.
 
-## Requirements
-- Docker (tested with Docker Desktop on macOS/Linux).
-- `volary` binary built at `bin/volary` (handled automatically via Makefile).
-- For GHCR pulls (chromedp/headless-shell): If you encounter 403 Forbidden, run `docker login ghcr.io` with a GitHub personal access token (read:packages scope for anonymous rate limits).
+Release automation generates these artifacts and the installer drops them in the runtime directory. Local rebuilds are still possible with `build/bake.sh` if you are iterating on the initramfs, but routine plugin authors never touch the kernel.
 
-## Top-Level Makefile Integration
-The build is now fully integrated into the top-level `Makefile` via the `build-images` target. This provides a reproducible, single-command workflow with dependency management, artifact verification, and checksum generation.
+## Host Boot Flow
+1. **Manifest install** – When a plugin manifest is registered, it is persisted and cached by the engine (`internal/server/plugins/registry.go`). The manifest declares a `rootfs` URL, checksum, resource envelope, and action map.
+2. **Create VM** – On `createVM`, the orchestrator resolves the manifest and assembles a `LaunchSpec` (`internal/server/orchestrator/orchestrator.go:241`). Core kernel args always include the IP lease and the identifiers `volant.runtime`, `volant.plugin`, `volant.api_host`, and `volant.api_port` so the agent can crawl back to the control plane.
+3. **Rootfs hydration** – `cloudhypervisor.Launcher` streams the declared `rootfs.url` into the runtime directory before boot (`internal/server/orchestrator/cloudhypervisor/launcher.go:76`). HTTP(S), `file://`, and absolute paths are supported. If `rootfs.checksum` is present, it is verified as a `sha256` (with or without the `sha256:` prefix).
+4. **Launching Cloud Hypervisor** – The launcher stages a per-VM copy of the bzImage and attaches the fetched rootfs as a writable virtio disk. No separate `--initramfs` flag is required because the initramfs is already baked into the kernel.
+5. **In-VM init** – Our tiny C init (`build/init.c`) configures the console, brings up `/dev`, `/proc`, `/sys`, and `/run`, and then hydrates the runtime. If a rootfs image was declared it is mounted (loopback or squashfs depending on the build), `stage-volary.sh` copies the agent into `/usr/local/bin`, and control pivots into the plugin filesystem via `switch_root`. Should mounting fail, the initramfs copy of `volary` is used as a safe fallback.
+6. **Agent startup** – `volary` reads the kernel command line, fetches the manifest over HTTP, and starts the runtime-specific router (`internal/agent/app/app.go:170-420`). The registered actions are exposed under `/api/v1/plugins/{plugin}/actions/{action}` and must correspond to OpenAPI metadata advertised by the manifest.
 
-### Steps
-1. Run the integrated build:
-   ```
-   make build-images
-   ```
-2. This target:
-   - Builds the `volary` binary (dependency on `build-agent`).
-   - Creates `build/artifacts/` directory if needed.
-   - Executes `./build/images/build-initramfs.sh bin/volary` (passes agent path).
-   - Moves outputs (`volant-initramfs.cpio.gz`, `vmlinuz-x86_64`) to `build/artifacts/`.
-   - Generates `checksums.txt` with SHA256 sums in the artifacts dir.
-   - Verifies files exist (fails build if missing).
-3. Artifacts are ready in `build/artifacts/` for orchestrator consumption.
-
-### Build Workflow Diagram
 ```mermaid
 graph TD
-    A[make build-images] --> B[build-agent: Compile volary binary]
-    B --> C[Docker build: chromedp/headless-shell base + volant-init C binary + agent copy]
-    C --> D[Export container FS to cpio archive]
-    D --> E[Gzip compress to volant-initramfs.cpio.gz]
-    E --> F[Download/verify vmlinuz kernel from CH release]
-    F --> G[Move to build/artifacts/]
-    G --> H[Generate SHA256 checksums.txt]
-    H --> I[Verify artifacts exist]
-    I --> J[Success: Artifacts ready]
+    A[Manifest installed] --> B[Create VM request]
+    B --> C[Resolve manifest & rootfs metadata]
+    C --> D[Stream rootfs to runtime dir & verify checksum]
+    D --> E[Launch Cloud Hypervisor with bzImage + virtio disk]
+    E --> F[Init mounts rootfs & stages volary]
+    F --> G[Agent exposes manifest-defined routes]
 ```
 
-## Script Details
-The underlying `./build/images/build-initramfs.sh` script:
-- Builds the Docker context under `build/images/` which compiles a statically linked `volant-init` (C) and copies `volar  -agent` into the Chromedp headless-shell base image.
-- Exports the container filesystem and packages it into a gzip-compressed `cpio` archive suitable for use as an initramfs.
-- Downloads the default Cloud Hypervisor kernel (`vmlinuz-x86_64`) if not already present.
+## Manifest Responsibilities
+Plugin authors now focus on their runtime filesystem and HTTP contract. A minimal manifest looks like:
 
-## Customization
-- Override environment variables:
-  - `IMAGE_TAG` – Docker image tag used for intermediate build.
-  - `INITRAMFS_NAME` – output filename for the initramfs.
-  - `KERNEL_URL` – alternate kernel download URL.
-- Provide a custom agent path as the first argument to the script (handled by Makefile).
+```json
+{
+  "schema_version": "2024-09",
+  "name": "browser",
+  "version": "2.0.0",
+  "runtime": "browser",
+  "resources": { "cpu_cores": 2, "memory_mb": 2048 },
+  "rootfs": {
+    "url": "https://artifacts.example.com/browser/rootfs.squashfs",
+    "checksum": "sha256:2d4f41..."
+  },
+  "workload": {
+    "type": "http",
+    "base_url": "http://127.0.0.1:8080"
+  },
+  "actions": {
+    "navigate": {
+      "description": "Navigate to URL",
+      "method": "POST",
+      "path": "/v1/browser/navigate",
+      "timeout_ms": 60000
+    }
+  },
+  "openapi": "https://artifacts.example.com/browser/openapi.json",
+  "labels": { "tier": "reference" }
+}
+```
+
+- `rootfs.url` accepts HTTP(S), `file://`, or absolute host paths. Leaving it blank boots straight into the initramfs, which is useful for debugging but not for production runtimes.
+- `rootfs.checksum` is optional but recommended. Provide a bare SHA256 or prefix it with `sha256:`.
+- `actions` must point at real HTTP endpoints inside the VM. The control plane proxies requests verbatim, so the manifest’s OpenAPI document should describe the same surface.
+
+## Rootfs Expectations
+- Include the binaries, assets, and services your runtime needs. At minimum, provide the HTTP routes declared in the manifest.
+- Placing `volary` in the image is optional; `stage-volary.sh` copies the embedded agent into `/usr/local/bin` before the switch_root happens.
+- Network is preconfigured by the kernel parameters, so services can bind to `0.0.0.0` or `127.0.0.1` immediately.
+- SquashFS images work well for read-only runtimes, but writable formats (ext4 raw disks) are also supported because the disk is attached as a standard virtio-blk device.
+
+## Building Rootfs Images
+The Volant repo no longer bundles image-build scripts, but the companion [`fsify`](https://github.com/ccheshirecat/fsify) tool converts OCI/Docker images into bootable filesystem artifacts (squashfs, ext4, raw disks). A typical workflow is:
+
+```bash
+# Convert an OCI image to a squashfs rootfs and publish it
+fsify convert oci://ghcr.io/acme/browser:2.0 --format squashfs --output ./rootfs.squashfs
+sha256sum ./rootfs.squashfs
+```
+
+Upload the resulting artifact to your distribution channel, record the SHA256 in the manifest, and the engine takes care of staging it for each VM.
 
 ## Troubleshooting
-- **Docker GHCR 403 Forbidden**: Public images on GitHub Container Registry require authentication for higher rate limits. Create a GitHub PAT (classic, with `read:packages`), then `docker login ghcr.io -u USERNAME -p PAT`.
-- **No Docker**: The script requires Docker; consider alternatives like Podman for rootless builds in future.
-- **Agent Build Fails**: Ensure Go modules are tidy (`make tidy`) and dependencies are met.
-
-## Future Work
-- Support arm64 kernels and multi-arch builds.
+- **Rootfs fetch failures** – Verify the URL is reachable from the host and the checksum matches. Errors are surfaced from `cloudhypervisor.Launcher` before boot.
+- **Manifest fetch failures inside the VM** – Ensure `volant.api_host`, `volant.api_port`, and `volant.plugin` were set. The control plane automatically injects them, but custom kernel flags can accidentally shadow them.
+- **Agent fallback** – If your image does not contain `volary`, the initramfs copy will run instead. Check the serial log (`~/.volant/logs/<vm>.log`) for mount errors.
