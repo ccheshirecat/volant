@@ -65,62 +65,53 @@ func Run(ctx context.Context) error {
 	cfg := loadConfig()
 	logger := log.New(os.Stdout, "volary: ", log.LstdFlags|log.LUTC)
 
+	app := &App{
+		cfg:     cfg,
+		timeout: cfg.DefaultTimeout,
+		log:     logger,
+		started: time.Now().UTC(),
+		client:  &http.Client{Timeout: cfg.DefaultTimeout + 30*time.Second},
+		ctx:     ctx,
+	}
+
+	if err := app.bootstrapPID1(); err != nil {
+		logger.Printf("fatal: pid1 bootstrap stage1 failed: %v", err)
+		return err
+	}
+
 	manifest, err := resolveManifest()
 	if err != nil {
 		if errors.Is(err, errManifestFetch) {
 			logger.Printf("manifest fetch failed: %v", err)
 		} else {
-			if os.Getpid() == 1 {
-				logger.Printf("fatal: resolveManifest failed in pid1: %v", err)
-				logger.Printf("pid1 cannot exit; halting")
-				select {}
+			if app.handleFatal(err, "resolve manifest") {
+				return err
 			}
-			return err
 		}
 	}
-	if manifest == nil {
-		logger.Printf("no manifest received at startup; waiting for configuration")
-	}
-
-	app := &App{
-		cfg:      cfg,
-		timeout:  cfg.DefaultTimeout,
-		log:      logger,
-		started:  time.Now().UTC(),
-		manifest: manifest,
-		client:   &http.Client{Timeout: cfg.DefaultTimeout + 30*time.Second},
-		ctx:      ctx,
-	}
-
-	if err := app.bootstrapPID1(); err != nil {
-		logger.Printf("pid1 bootstrap failed: %v", err)
-	}
-
 	if manifest != nil {
 		app.manifest = manifest
+	} else {
+		logger.Printf("no manifest received at startup; waiting for configuration")
 	}
 
 	if app.manifest != nil {
 		if err := app.startWorkload(); app.handleFatal(err, "start workload") {
-			if os.Getpid() == 1 {
-				logger.Printf("fatal: startWorkload failed in pid1: %v", err)
-				logger.Printf("pid1 cannot exit; halting")
-				select {}
-			}
 			return err
 		}
 	} else {
 		app.log.Printf("manifest absent; workload deferred")
 	}
 
-	if err := app.run(ctx); err != nil {
-		if os.Getpid() == 1 {
-			logger.Printf("fatal: app.run failed in pid1: %v", err)
-			logger.Printf("pid1 cannot exit; halting")
-			select {}
-		}
+	if err := app.run(ctx); app.handleFatal(err, "api server") {
 		return err
 	}
+
+	if app.pid1() {
+		app.log.Printf("fatal: run loop exited in pid1; halting")
+		select {}
+	}
+
 	return nil
 }
 
