@@ -373,9 +373,11 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 	}
 
 	cmdArgs := map[string]string{
-		pluginspec.RuntimeKey: req.Runtime,
-		pluginspec.APIHostKey: apiHost,
-		pluginspec.APIPortKey: apiPort,
+		pluginspec.RuntimeKey:      req.Runtime,
+		pluginspec.APIHostKey:      apiHost,
+		pluginspec.APIPortKey:      apiPort,
+		pluginspec.RootFSDeviceKey: "vda",
+		pluginspec.RootFSFSTypeKey: "ext4",
 	}
 	if pluginName != "" {
 		cmdArgs[pluginspec.PluginKey] = pluginName

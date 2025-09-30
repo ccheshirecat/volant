@@ -27,6 +27,10 @@ const (
 	RootFSKey = "volant.rootfs"
 	// RootFSChecksumKey is the kernel parameter key for the rootfs checksum.
 	RootFSChecksumKey = "volant.rootfs_checksum"
+	// RootFSDeviceKey indicates the block device name for the root filesystem inside the guest.
+	RootFSDeviceKey = "volant.rootfs_device"
+	// RootFSFSTypeKey indicates the filesystem type for the root filesystem device.
+	RootFSFSTypeKey = "volant.rootfs_fstype"
 )
 
 // Manifest captures the metadata required to register and boot a runtime plugin.

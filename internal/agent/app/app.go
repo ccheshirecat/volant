@@ -87,6 +87,10 @@ func Run(ctx context.Context) error {
 		ctx:      ctx,
 	}
 
+	if err := app.bootstrapPID1(); err != nil {
+		logger.Printf("pid1 bootstrap failed: %v", err)
+	}
+
 	if err := app.startWorkload(); err != nil {
 		logger.Printf("workload start failed: %v", err)
 	}
