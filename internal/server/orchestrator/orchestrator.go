@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +40,11 @@ type Engine interface {
 	StartVM(ctx context.Context, name string) (*db.VM, error)
 	StopVM(ctx context.Context, name string) (*db.VM, error)
 	RestartVM(ctx context.Context, name string) (*db.VM, error)
+	CreateDeployment(ctx context.Context, req CreateDeploymentRequest) (*Deployment, error)
+	ListDeployments(ctx context.Context) ([]Deployment, error)
+	GetDeployment(ctx context.Context, name string) (*Deployment, error)
+	ScaleDeployment(ctx context.Context, name string, replicas int) (*Deployment, error)
+	DeleteDeployment(ctx context.Context, name string) error
 	Store() db.Store
 	ControlPlaneListenAddr() string
 	ControlPlaneAdvertiseAddr() string
@@ -57,6 +63,24 @@ type CreateVMRequest struct {
 	APIHost           string
 	APIPort           string
 	Config            *vmconfig.Config
+	GroupID           *int64
+}
+
+// Deployment represents a managed group of VM replicas.
+type Deployment struct {
+	Name            string
+	DesiredReplicas int
+	ReadyReplicas   int
+	Config          vmconfig.Config
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// CreateDeploymentRequest defines the inputs required to create a deployment.
+type CreateDeploymentRequest struct {
+	Name     string
+	Replicas int
+	Config   vmconfig.Config
 }
 
 // Params wires dependencies for the native orchestrator engine.
@@ -193,6 +217,10 @@ var (
 	ErrVMExists = errors.New("orchestrator: vm already exists")
 	// ErrVMNotFound indicates the requested VM does not exist.
 	ErrVMNotFound = errors.New("orchestrator: vm not found")
+	// ErrDeploymentExists indicates a deployment with the same name already exists.
+	ErrDeploymentExists = errors.New("orchestrator: deployment already exists")
+	// ErrDeploymentNotFound indicates the requested deployment does not exist.
+	ErrDeploymentNotFound = errors.New("orchestrator: deployment not found")
 )
 
 func (e *engine) Start(ctx context.Context) error {
@@ -309,6 +337,7 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 			CPUCores:      req.CPUCores,
 			MemoryMB:      req.MemoryMB,
 			KernelCmdline: fullCmdline,
+			GroupID:       req.GroupID,
 		}
 
 		id, err := vmRepo.Create(ctx, vm)
@@ -492,6 +521,11 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 }
 
 func (e *engine) DestroyVM(ctx context.Context, name string) error {
+	_, err := e.destroyVM(ctx, name, true)
+	return err
+}
+
+func (e *engine) destroyVM(ctx context.Context, name string, reconcile bool) (*db.VM, error) {
 	var vmRecord *db.VM
 	err := e.store.WithTx(ctx, func(q db.Queries) error {
 		vmRepo := q.VirtualMachines()
@@ -502,16 +536,7 @@ func (e *engine) DestroyVM(ctx context.Context, name string) error {
 		if vm == nil {
 			return fmt.Errorf("%w: %s", ErrVMNotFound, name)
 		}
-		vmRecord = &db.VM{
-			ID:            vm.ID,
-			Name:          vm.Name,
-			Status:        vm.Status,
-			IPAddress:     vm.IPAddress,
-			MACAddress:    vm.MACAddress,
-			CPUCores:      vm.CPUCores,
-			MemoryMB:      vm.MemoryMB,
-			KernelCmdline: vm.KernelCmdline,
-		}
+		vmRecord = vm
 		if err := vmRepo.Delete(ctx, vm.ID); err != nil {
 			return err
 		}
@@ -521,7 +546,7 @@ func (e *engine) DestroyVM(ctx context.Context, name string) error {
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	e.mu.Lock()
@@ -552,7 +577,13 @@ func (e *engine) DestroyVM(ctx context.Context, name string) error {
 
 	e.publishEvent(ctx, orchestratorevents.TypeVMDeleted, orchestratorevents.VMStatusStopped, vmRecord, "vm deleted")
 
-	return nil
+	if reconcile && vmRecord != nil && vmRecord.GroupID != nil {
+		if _, recErr := e.reconcileDeploymentByID(ctx, *vmRecord.GroupID); recErr != nil {
+			e.logger.Error("reconcile deployment after vm delete", "vm", name, "error", recErr)
+		}
+	}
+
+	return vmRecord, nil
 }
 
 func (e *engine) ListVMs(ctx context.Context) ([]db.VM, error) {
@@ -900,6 +931,149 @@ func (e *engine) RestartVM(ctx context.Context, name string) (*db.VM, error) {
 	return e.StartVM(ctx, name)
 }
 
+func (e *engine) CreateDeployment(ctx context.Context, req CreateDeploymentRequest) (*Deployment, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, fmt.Errorf("orchestrator: deployment name required")
+	}
+	if req.Replicas < 0 {
+		return nil, fmt.Errorf("orchestrator: replicas must be >= 0")
+	}
+
+	config, err := normalizeDeploymentConfig(req.Config)
+	if err != nil {
+		return nil, err
+	}
+	configPayload, err := vmconfig.Marshal(config)
+	if err != nil {
+		return nil, err
+	}
+
+	var groupID int64
+	if err := e.store.WithTx(ctx, func(q db.Queries) error {
+		repo := q.VMGroups()
+		existing, err := repo.GetByName(ctx, name)
+		if err != nil {
+			return err
+		}
+		if existing != nil {
+			return fmt.Errorf("%w: %s", ErrDeploymentExists, name)
+		}
+		group := db.VMGroup{
+			Name:       name,
+			ConfigJSON: configPayload,
+			Replicas:   req.Replicas,
+		}
+		id, err := repo.Create(ctx, &group)
+		if err != nil {
+			return err
+		}
+		groupID = id
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return e.reconcileDeploymentByID(ctx, groupID)
+}
+
+func (e *engine) ListDeployments(ctx context.Context) ([]Deployment, error) {
+	groups, err := e.store.Queries().VMGroups().List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Deployment, 0, len(groups))
+	for _, group := range groups {
+		deployment, err := e.buildDeployment(ctx, group)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, deployment)
+	}
+	return result, nil
+}
+
+func (e *engine) GetDeployment(ctx context.Context, name string) (*Deployment, error) {
+	group, err := e.store.Queries().VMGroups().GetByName(ctx, strings.TrimSpace(name))
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, fmt.Errorf("%w: %s", ErrDeploymentNotFound, name)
+	}
+	deployment, err := e.buildDeployment(ctx, *group)
+	if err != nil {
+		return nil, err
+	}
+	return &deployment, nil
+}
+
+func (e *engine) ScaleDeployment(ctx context.Context, name string, replicas int) (*Deployment, error) {
+	if replicas < 0 {
+		return nil, fmt.Errorf("orchestrator: replicas must be >= 0")
+	}
+
+	var groupID int64
+	if err := e.store.WithTx(ctx, func(q db.Queries) error {
+		repo := q.VMGroups()
+		group, err := repo.GetByName(ctx, strings.TrimSpace(name))
+		if err != nil {
+			return err
+		}
+		if group == nil {
+			return fmt.Errorf("%w: %s", ErrDeploymentNotFound, name)
+		}
+		if err := repo.UpdateReplicas(ctx, group.ID, replicas); err != nil {
+			return err
+		}
+		groupID = group.ID
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return e.reconcileDeploymentByID(ctx, groupID)
+}
+
+func (e *engine) DeleteDeployment(ctx context.Context, name string) error {
+	var (
+		group   *db.VMGroup
+		vmNames []string
+	)
+
+	if err := e.store.WithTx(ctx, func(q db.Queries) error {
+		repo := q.VMGroups()
+		found, err := repo.GetByName(ctx, strings.TrimSpace(name))
+		if err != nil {
+			return err
+		}
+		if found == nil {
+			return fmt.Errorf("%w: %s", ErrDeploymentNotFound, name)
+		}
+		group = found
+		vms, err := q.VirtualMachines().ListByGroupID(ctx, group.ID)
+		if err != nil {
+			return err
+		}
+		for _, vm := range vms {
+			vmNames = append(vmNames, vm.Name)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	for _, vmName := range vmNames {
+		if _, err := e.destroyVM(ctx, vmName, false); err != nil {
+			e.logger.Error("delete deployment vm", "deployment", name, "vm", vmName, "error", err)
+		}
+	}
+
+	return e.store.WithTx(ctx, func(q db.Queries) error {
+		return q.VMGroups().Delete(ctx, group.ID)
+	})
+}
+
 func (e *engine) Store() db.Store {
 	return e.store
 }
@@ -987,6 +1161,12 @@ func (e *engine) monitorInstance(name string, handle processHandle) {
 			}
 			e.publishEvent(ctx, orchestratorevents.TypeVMCrashed, orchestratorevents.VMStatusCrashed, vmRecord, exitErr.Error())
 		} else {
+
+			if vmRecord != nil && vmRecord.GroupID != nil {
+				if _, err := e.reconcileDeploymentByID(ctx, *vmRecord.GroupID); err != nil {
+					e.logger.Error("reconcile deployment after vm exit", "vm", name, "error", err)
+				}
+			}
 			e.logger.Info("vm exited", "vm", name)
 			if vmRecord != nil {
 				vmRecord.Status = db.VMStatusStopped
@@ -1018,6 +1198,165 @@ func (e *engine) publishEvent(ctx context.Context, typ string, status orchestrat
 	if err := e.bus.Publish(ctx, orchestratorevents.TopicVMEvents, event); err != nil {
 		e.logger.Error("publish vm event", "type", typ, "vm", vm.Name, "error", err)
 	}
+}
+
+func (e *engine) reconcileDeploymentByID(ctx context.Context, groupID int64) (*Deployment, error) {
+	group, err := e.store.Queries().VMGroups().GetByID(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, fmt.Errorf("%w: id=%d", ErrDeploymentNotFound, groupID)
+	}
+	deployment, err := e.reconcileDeployment(ctx, *group)
+	if err != nil {
+		return nil, err
+	}
+	return &deployment, nil
+}
+
+func (e *engine) reconcileDeployment(ctx context.Context, group db.VMGroup) (Deployment, error) {
+	config, err := vmconfig.Unmarshal(group.ConfigJSON)
+	if err != nil {
+		return Deployment{}, err
+	}
+	if config.Manifest == nil {
+		return Deployment{}, fmt.Errorf("deployment %s missing manifest", group.Name)
+	}
+
+	vmRepo := e.store.Queries().VirtualMachines()
+	vms, err := vmRepo.ListByGroupID(ctx, group.ID)
+	if err != nil {
+		return Deployment{}, err
+	}
+
+	current := len(vms)
+	desired := group.Replicas
+
+	if current > desired {
+		sort.Slice(vms, func(i, j int) bool {
+			iIdx, _ := parseReplicaIndex(group.Name, vms[i].Name)
+			jIdx, _ := parseReplicaIndex(group.Name, vms[j].Name)
+			return iIdx > jIdx
+		})
+		for i := desired; i < current; i++ {
+			if _, err := e.destroyVM(ctx, vms[i].Name, false); err != nil {
+				e.logger.Error("scale down deployment", "deployment", group.Name, "vm", vms[i].Name, "error", err)
+			}
+		}
+		vms, err = vmRepo.ListByGroupID(ctx, group.ID)
+		if err != nil {
+			return Deployment{}, err
+		}
+	}
+
+	if desired > len(vms) {
+		existing := make(map[int]bool, len(vms))
+		for _, vm := range vms {
+			if idx, ok := parseReplicaIndex(group.Name, vm.Name); ok {
+				existing[idx] = true
+			}
+		}
+		groupID := group.ID
+		for i := 1; len(existing) < desired; i++ {
+			if existing[i] {
+				continue
+			}
+			vmName := replicaName(group.Name, i)
+			manifestCopy := *config.Manifest
+			manifestCopy.Normalize()
+			cfgClone := config.Clone()
+			cfgClone.Normalize()
+			request := CreateVMRequest{
+				Name:              vmName,
+				Plugin:            cfgClone.Plugin,
+				Runtime:           cfgClone.Runtime,
+				CPUCores:          cfgClone.Resources.CPUCores,
+				MemoryMB:          cfgClone.Resources.MemoryMB,
+				KernelCmdlineHint: cfgClone.KernelCmdline,
+				Manifest:          &manifestCopy,
+				APIHost:           cfgClone.API.Host,
+				APIPort:           cfgClone.API.Port,
+				Config:            &cfgClone,
+			}
+			request.GroupID = &groupID
+			if _, err := e.CreateVM(ctx, request); err != nil {
+				e.logger.Error("scale up deployment", "deployment", group.Name, "vm", vmName, "error", err)
+				break
+			} else {
+				existing[i] = true
+			}
+		}
+		vms, err = vmRepo.ListByGroupID(ctx, group.ID)
+		if err != nil {
+			return Deployment{}, err
+		}
+	}
+
+	deployment, err := e.buildDeployment(ctx, group)
+	if err != nil {
+		return Deployment{}, err
+	}
+	return deployment, nil
+}
+
+func (e *engine) buildDeployment(ctx context.Context, group db.VMGroup) (Deployment, error) {
+	config, err := vmconfig.Unmarshal(group.ConfigJSON)
+	if err != nil {
+		return Deployment{}, err
+	}
+	vms, err := e.store.Queries().VirtualMachines().ListByGroupID(ctx, group.ID)
+	if err != nil {
+		return Deployment{}, err
+	}
+	ready := 0
+	for _, vm := range vms {
+		if vm.Status == db.VMStatusRunning {
+			ready++
+		}
+	}
+	return Deployment{
+		Name:            group.Name,
+		DesiredReplicas: group.Replicas,
+		ReadyReplicas:   ready,
+		Config:          config,
+		CreatedAt:       group.CreatedAt,
+		UpdatedAt:       group.UpdatedAt,
+	}, nil
+}
+
+func normalizeDeploymentConfig(cfg vmconfig.Config) (vmconfig.Config, error) {
+	clone := cfg.Clone()
+	clone.Normalize()
+	if strings.TrimSpace(clone.Plugin) == "" && clone.Manifest != nil {
+		clone.Plugin = strings.TrimSpace(clone.Manifest.Name)
+	}
+	if err := clone.Validate(); err != nil {
+		return vmconfig.Config{}, err
+	}
+	return clone, nil
+}
+
+func replicaName(base string, index int) string {
+	return fmt.Sprintf("%s-%d", base, index)
+}
+
+func parseReplicaIndex(base, name string) (int, bool) {
+	if !strings.HasPrefix(name, base) {
+		return 0, false
+	}
+	suffix := strings.TrimPrefix(name, base)
+	if suffix == "" {
+		return 0, false
+	}
+	if !strings.HasPrefix(suffix, "-") {
+		return 0, false
+	}
+	idx, err := strconv.Atoi(suffix[1:])
+	if err != nil || idx <= 0 {
+		return 0, false
+	}
+	return idx, true
 }
 
 func validateCreateRequest(req CreateVMRequest) error {

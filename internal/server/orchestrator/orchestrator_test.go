@@ -13,6 +13,7 @@ import (
 	"github.com/ccheshirecat/volant/internal/server/db/sqlite"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator/network"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator/runtime"
+	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
 )
 
 func TestEngineCreateAndDestroyVM(t *testing.T) {
@@ -95,6 +96,86 @@ func TestEngineCreateAndDestroyVM(t *testing.T) {
 
 	if !fakeNetwork.cleaned {
 		t.Fatalf("expected network cleanup")
+	}
+}
+
+func TestDeploymentScaling(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	defer func() { _ = store.Close(ctx) }()
+
+	subnet, host := testSubnet(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	fakeLauncher := &testLauncher{}
+	fakeNetwork := &testNetworkManager{}
+
+	engine, err := New(Params{
+		Store:            store,
+		Logger:           logger,
+		Subnet:           subnet,
+		HostIP:           host,
+		APIListenAddr:    "127.0.0.1:7777",
+		APIAdvertiseAddr: "127.0.0.1:7777",
+		RuntimeDir:       t.TempDir(),
+		Launcher:         fakeLauncher,
+		Network:          fakeNetwork,
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	if err := engine.Start(ctx); err != nil {
+		t.Fatalf("engine start: %v", err)
+	}
+
+	config := vmconfig.Config{
+		Plugin:  "browser",
+		Runtime: "browser",
+		Resources: vmconfig.Resources{
+			CPUCores: 1,
+			MemoryMB: 512,
+		},
+		Manifest: &pluginspec.Manifest{Name: "browser", Runtime: "browser"},
+	}
+
+	deployment, err := engine.CreateDeployment(ctx, CreateDeploymentRequest{
+		Name:     "demo",
+		Replicas: 2,
+		Config:   config,
+	})
+	if err != nil {
+		t.Fatalf("create deployment: %v", err)
+	}
+	if deployment.DesiredReplicas != 2 {
+		t.Fatalf("expected desired replicas 2, got %d", deployment.DesiredReplicas)
+	}
+	if len(fakeLauncher.calls) != 2 {
+		t.Fatalf("expected 2 launch calls, got %d", len(fakeLauncher.calls))
+	}
+
+	deployment, err = engine.ScaleDeployment(ctx, "demo", 3)
+	if err != nil {
+		t.Fatalf("scale deployment up: %v", err)
+	}
+	if deployment.DesiredReplicas != 3 {
+		t.Fatalf("expected desired replicas 3, got %d", deployment.DesiredReplicas)
+	}
+
+	deployment, err = engine.ScaleDeployment(ctx, "demo", 1)
+	if err != nil {
+		t.Fatalf("scale deployment down: %v", err)
+	}
+	if deployment.DesiredReplicas != 1 {
+		t.Fatalf("expected desired replicas 1, got %d", deployment.DesiredReplicas)
+	}
+
+	if err := engine.DeleteDeployment(ctx, "demo"); err != nil {
+		t.Fatalf("delete deployment: %v", err)
+	}
+
+	if _, err := engine.GetDeployment(ctx, "demo"); err == nil {
+		t.Fatalf("expected error fetching deleted deployment")
 	}
 }
 

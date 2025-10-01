@@ -72,6 +72,23 @@ type CreateVMRequest struct {
 	Config        *vmconfig.Config `json:"config,omitempty"`
 }
 
+// Deployment represents a VM deployment group.
+type Deployment struct {
+	Name            string          `json:"name"`
+	DesiredReplicas int             `json:"desired_replicas"`
+	ReadyReplicas   int             `json:"ready_replicas"`
+	Config          vmconfig.Config `json:"config"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+}
+
+// CreateDeploymentRequest captures deployment creation inputs.
+type CreateDeploymentRequest struct {
+	Name     string          `json:"name"`
+	Replicas int             `json:"replicas"`
+	Config   vmconfig.Config `json:"config"`
+}
+
 const (
 	VMEventTypeCreated = orchestratorevents.TypeVMCreated
 	VMEventTypeRunning = orchestratorevents.TypeVMRunning
@@ -300,6 +317,66 @@ func (c *Client) RestartVM(ctx context.Context, name string) (*VM, error) {
 		return nil, err
 	}
 	return &vm, nil
+}
+
+func (c *Client) CreateDeployment(ctx context.Context, payload CreateDeploymentRequest) (*Deployment, error) {
+	req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/deployments", payload)
+	if err != nil {
+		return nil, err
+	}
+	var deployment Deployment
+	if err := c.do(req, &deployment); err != nil {
+		return nil, err
+	}
+	return &deployment, nil
+}
+
+func (c *Client) ListDeployments(ctx context.Context) ([]Deployment, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, "/api/v1/deployments", nil)
+	if err != nil {
+		return nil, err
+	}
+	var deployments []Deployment
+	if err := c.do(req, &deployments); err != nil {
+		return nil, err
+	}
+	return deployments, nil
+}
+
+func (c *Client) GetDeployment(ctx context.Context, name string) (*Deployment, error) {
+	path := "/api/v1/deployments/" + url.PathEscape(name)
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var deployment Deployment
+	if err := c.do(req, &deployment); err != nil {
+		return nil, err
+	}
+	return &deployment, nil
+}
+
+func (c *Client) DeleteDeployment(ctx context.Context, name string) error {
+	path := "/api/v1/deployments/" + url.PathEscape(name)
+	req, err := c.newRequest(ctx, http.MethodDelete, path, nil)
+	if err != nil {
+		return err
+	}
+	return c.do(req, nil)
+}
+
+func (c *Client) ScaleDeployment(ctx context.Context, name string, replicas int) (*Deployment, error) {
+	path := "/api/v1/deployments/" + url.PathEscape(name)
+	payload := map[string]int{"replicas": replicas}
+	req, err := c.newRequest(ctx, http.MethodPatch, path, payload)
+	if err != nil {
+		return nil, err
+	}
+	var deployment Deployment
+	if err := c.do(req, &deployment); err != nil {
+		return nil, err
+	}
+	return &deployment, nil
 }
 
 func (c *Client) DeleteVM(ctx context.Context, name string) error {

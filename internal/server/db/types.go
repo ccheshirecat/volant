@@ -30,8 +30,19 @@ type VM struct {
 	MemoryMB      int
 	KernelCmdline string
 	SerialSocket  string
+	GroupID       *int64
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+}
+
+// VMGroup represents a deployment/group of VMs managed together.
+type VMGroup struct {
+	ID         int64
+	Name       string
+	ConfigJSON []byte
+	Replicas   int
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // VMConfig captures the serialized configuration stored for a VM.
@@ -102,6 +113,7 @@ type Queries interface {
 	IPAllocations() IPRepository
 	Plugins() PluginRepository
 	VMConfigs() VMConfigRepository
+	VMGroups() VMGroupRepository
 }
 
 // VMRepository manages CRUD and lifecycle updates for VMs.
@@ -109,6 +121,7 @@ type VMRepository interface {
 	Create(ctx context.Context, vm *VM) (int64, error)
 	GetByName(ctx context.Context, name string) (*VM, error)
 	List(ctx context.Context) ([]VM, error)
+	ListByGroupID(ctx context.Context, groupID int64) ([]VM, error)
 	UpdateRuntimeState(ctx context.Context, id int64, status VMStatus, pid *int64) error
 	UpdateKernelCmdline(ctx context.Context, id int64, cmdline string) error
 	UpdateSockets(ctx context.Context, id int64, serial string) error
@@ -121,6 +134,17 @@ type VMConfigRepository interface {
 	GetCurrent(ctx context.Context, vmID int64) (*VMConfig, error)
 	Upsert(ctx context.Context, vmID int64, payload []byte) (*VMConfig, error)
 	History(ctx context.Context, vmID int64, limit int) ([]VMConfigHistoryEntry, error)
+}
+
+// VMGroupRepository manages VM deployment groups.
+type VMGroupRepository interface {
+	Create(ctx context.Context, group *VMGroup) (int64, error)
+	Update(ctx context.Context, id int64, configJSON []byte, replicas int) error
+	UpdateReplicas(ctx context.Context, id int64, replicas int) error
+	Delete(ctx context.Context, id int64) error
+	GetByName(ctx context.Context, name string) (*VMGroup, error)
+	GetByID(ctx context.Context, id int64) (*VMGroup, error)
+	List(ctx context.Context) ([]VMGroup, error)
 }
 
 // IPRepository manages deterministic IP allocation.
