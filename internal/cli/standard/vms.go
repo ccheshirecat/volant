@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ccheshirecat/volant/internal/cli/client"
+	"golang.org/x/term"
 )
 
 func encodeAsJSON(out io.Writer, payload interface{}) error {
@@ -551,6 +552,16 @@ func attachUnixSocket(cmd *cobra.Command, socketPath string) error {
 		return fmt.Errorf("connect unix socket: %w", err)
 	}
 	defer conn.Close()
+
+	stdinFd := int(os.Stdin.Fd())
+	if term.IsTerminal(stdinFd) {
+		state, rawErr := term.MakeRaw(stdinFd)
+		if rawErr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: failed to set raw mode: %v\n", rawErr)
+		} else {
+			defer term.Restore(stdinFd, state)
+		}
+	}
 
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()

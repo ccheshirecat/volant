@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -32,6 +33,11 @@ const (
 	defaultRemotePortKey  = "volant_AGENT_REMOTE_DEBUGGING_PORT"
 	defaultUserDataDirKey = "volant_AGENT_USER_DATA_DIR"
 	defaultExecPathKey    = "volant_AGENT_EXEC_PATH"
+	shellEnabledEnvKey    = "volant_AGENT_ENABLE_SHELL"
+	shellCommandEnvKey    = "volant_AGENT_SHELL"
+	shellArgsEnvKey       = "volant_AGENT_SHELL_ARGS"
+	shellTTYEnvKey        = "volant_AGENT_SHELL_TTY"
+	defaultShellTTY       = "/dev/ttyS0"
 )
 
 type Config struct {
@@ -41,6 +47,9 @@ type Config struct {
 	UserDataDir         string
 	ExecPath            string
 	DefaultTimeout      time.Duration
+	EnableShell         bool
+	ShellCommand        []string
+	ShellTTY            string
 }
 
 type App struct {
@@ -57,26 +66,44 @@ type App struct {
 	workloadDone   chan error
 	workloadCancel context.CancelFunc
 	workloadSpec   string
+	shellMu        sync.Mutex
+	shellCancel    context.CancelFunc
+	shellDone      chan struct{}
 }
 
 var errManifestFetch = errors.New("manifest fetch failed")
 
 func Run(ctx context.Context) error {
+	var bootLog *log.Logger
+	consoleFile, consoleErr := os.OpenFile("/dev/console", os.O_WRONLY, 0)
+	if consoleErr != nil {
+		bootLog = log.New(os.Stdout, "volary-boot: ", log.LstdFlags|log.LUTC)
+		bootLog.Printf("warning: could not open /dev/console: %v", consoleErr)
+	} else {
+		bootLog = log.New(consoleFile, "volary-boot: ", log.LstdFlags|log.LUTC)
+	}
+
 	cfg := loadConfig()
 	logger := log.New(os.Stdout, "volary: ", log.LstdFlags|log.LUTC)
 
 	app := &App{
 		cfg:     cfg,
 		timeout: cfg.DefaultTimeout,
-		log:     logger,
+		log:     bootLog,
 		started: time.Now().UTC(),
 		client:  &http.Client{Timeout: cfg.DefaultTimeout + 30*time.Second},
 		ctx:     ctx,
 	}
 
+	defer app.stopShell()
+
 	if err := app.bootstrapPID1(); err != nil {
 		logger.Printf("fatal: pid1 bootstrap stage1 failed: %v", err)
 		return err
+	}
+
+	if err := app.startShell(); err != nil {
+		app.log.Printf("debug shell start failed: %v", err)
 	}
 
 	manifest, err := resolveManifest()
@@ -163,6 +190,157 @@ func (a *App) run(ctx context.Context) error {
 	return nil
 }
 
+func (a *App) startShell() error {
+	if !a.cfg.EnableShell {
+		return nil
+	}
+	if len(a.cfg.ShellCommand) == 0 {
+		return fmt.Errorf("shell command not configured")
+	}
+
+	a.shellMu.Lock()
+	if a.shellCancel != nil {
+		a.shellMu.Unlock()
+		return nil
+	}
+	baseCtx := a.ctx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	shellCtx, cancel := context.WithCancel(baseCtx)
+	done := make(chan struct{})
+	a.shellCancel = cancel
+	a.shellDone = done
+	a.shellMu.Unlock()
+
+	go a.shellLoop(shellCtx, done)
+	return nil
+}
+
+func (a *App) stopShell() {
+	a.shellMu.Lock()
+	cancel := a.shellCancel
+	done := a.shellDone
+	a.shellCancel = nil
+	a.shellDone = nil
+	a.shellMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			a.log.Printf("shell shutdown timed out")
+		}
+	}
+}
+
+func (a *App) shellLoop(ctx context.Context, done chan struct{}) {
+	defer close(done)
+
+	backoff := time.Second
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		err := a.launchShell(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
+				a.log.Printf("debug shell stopped: %v", err)
+			} else {
+				a.log.Printf("debug shell exited: %v", err)
+			}
+		} else {
+			a.log.Printf("debug shell exited")
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+
+		if err == nil {
+			backoff = time.Second
+		} else if backoff < 10*time.Second {
+			backoff *= 2
+			if backoff > 10*time.Second {
+				backoff = 10 * time.Second
+			}
+		}
+	}
+}
+
+func (a *App) launchShell(ctx context.Context) error {
+	ttyPath := strings.TrimSpace(a.cfg.ShellTTY)
+	if ttyPath == "" {
+		ttyPath = defaultShellTTY
+	}
+
+	args := a.cfg.ShellCommand
+	if len(args) == 0 {
+		return errors.New("shell command not configured")
+	}
+
+	tty, err := os.OpenFile(ttyPath, os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("open shell tty %s: %w", ttyPath, err)
+	}
+	defer tty.Close()
+
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Dir = "/"
+	env := ensurePath(os.Environ(), []string{"/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"})
+	env = append(env, "TERM=linux")
+	cmd.Env = env
+	cmd.Stdout = tty
+	cmd.Stderr = tty
+	cmd.Stdin = tty
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid:  true,
+		Setctty: true,
+		Ctty:    int(tty.Fd()),
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start shell: %w", err)
+	}
+	a.log.Printf("debug shell started on %s (pid=%d)", ttyPath, cmd.Process.Pid)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- cmd.Wait()
+	}()
+
+	select {
+	case <-ctx.Done():
+		pgid, pgErr := syscall.Getpgid(cmd.Process.Pid)
+		if pgErr == nil {
+			_ = syscall.Kill(-pgid, syscall.SIGTERM)
+		} else {
+			_ = cmd.Process.Signal(syscall.SIGTERM)
+		}
+		select {
+		case err := <-errCh:
+			return err
+		case <-time.After(5 * time.Second):
+			if pgErr == nil {
+				_ = syscall.Kill(-pgid, syscall.SIGKILL)
+			} else {
+				_ = cmd.Process.Kill()
+			}
+			return <-errCh
+		}
+	case err := <-errCh:
+		return err
+	}
+}
+
 func loadConfig() Config {
 	listen := envOrDefault(defaultListenEnvKey, defaultListenAddr)
 	remoteAddr := os.Getenv(defaultRemoteAddrKey)
@@ -172,6 +350,18 @@ func loadConfig() Config {
 
 	defaultTimeout := parseDurationEnv(defaultTimeoutEnvKey, 0)
 
+	enableShell := envBoolOrDefault(shellEnabledEnvKey, true)
+	shellTTY := envOrDefault(shellTTYEnvKey, defaultShellTTY)
+	shellPath := strings.TrimSpace(os.Getenv(shellCommandEnvKey))
+	if shellPath == "" {
+		shellPath = "/bin/sh"
+	}
+	shellArgsRaw := strings.TrimSpace(os.Getenv(shellArgsEnvKey))
+	shellCommand := []string{shellPath}
+	if shellArgsRaw != "" {
+		shellCommand = append(shellCommand, strings.Fields(shellArgsRaw)...)
+	}
+
 	return Config{
 		ListenAddr:          listen,
 		RemoteDebuggingAddr: remoteAddr,
@@ -179,6 +369,9 @@ func loadConfig() Config {
 		UserDataDir:         userDataDir,
 		ExecPath:            execPath,
 		DefaultTimeout:      defaultTimeout,
+		EnableShell:         enableShell,
+		ShellCommand:        shellCommand,
+		ShellTTY:            shellTTY,
 	}
 }
 
@@ -277,6 +470,21 @@ func envIntOrDefault(key string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+func envBoolOrDefault(key string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	switch strings.ToLower(value) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func parseDurationEnv(key string, fallback time.Duration) time.Duration {
@@ -567,6 +775,7 @@ func (a *App) startWorkload() error {
 	}
 	procCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(procCtx, manifest.Workload.Entrypoint[0], manifest.Workload.Entrypoint[1:]...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	env := os.Environ()
 	env = ensurePath(env, []string{"/usr/local/bin", "/usr/bin", "/bin"})
@@ -647,11 +856,34 @@ func (a *App) stopWorkload() {
 		cancel()
 	}
 
+	var (
+		pgid    int
+		pgidErr error
+	)
+	if cmd != nil && cmd.Process != nil {
+		pgid, pgidErr = syscall.Getpgid(cmd.Process.Pid)
+		if pgidErr == nil {
+			if killErr := syscall.Kill(-pgid, syscall.SIGTERM); killErr != nil && !errors.Is(killErr, syscall.ESRCH) {
+				a.log.Printf("workload process group kill error: %v", killErr)
+			}
+		} else if !errors.Is(pgidErr, syscall.ESRCH) {
+			a.log.Printf("workload getpgid error: %v", pgidErr)
+		}
+	}
+
 	if done != nil {
 		select {
 		case <-done:
 		case <-time.After(10 * time.Second):
 			a.log.Printf("workload process shutdown timed out")
+			if pgidErr == nil && pgid != 0 {
+				if killErr := syscall.Kill(-pgid, syscall.SIGKILL); killErr != nil && !errors.Is(killErr, syscall.ESRCH) {
+					a.log.Printf("workload process group kill error: %v", killErr)
+				}
+			}
+			if cmd != nil && cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
 		}
 	}
 
@@ -671,9 +903,12 @@ func (a *App) waitForHealth(parent context.Context, base *url.URL, hc pluginspec
 		return nil
 	}
 
+	const minHealthTimeout = 2 * time.Minute
 	timeout := time.Duration(hc.Timeout) * time.Millisecond
 	if timeout <= 0 {
-		timeout = 30 * time.Second
+		timeout = minHealthTimeout
+	} else if timeout < minHealthTimeout {
+		timeout = minHealthTimeout
 	}
 
 	ctx, cancel := context.WithTimeout(parent, timeout)

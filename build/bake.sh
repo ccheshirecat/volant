@@ -12,7 +12,9 @@ rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR"/{bin,sbin,etc,proc,sys,dev,usr/bin,usr/sbin}
 
 # 1. Install our Go binary as the init process
-cp "$ROOT_DIR/volary" "$WORKDIR/init"
+gcc -static -s "$ROOT_DIR/init.c" -o "$WORKDIR/init"
+
+cp "$ROOT_DIR/volary" "$WORKDIR/bin/volary"
 chmod 0755 "$WORKDIR/init"
 
 cd "$WORKDIR"

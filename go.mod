@@ -12,6 +12,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/spf13/cobra v1.8.1
 	golang.org/x/sys v0.34.0
+	golang.org/x/term v0.20.0
 )
 
 require (
