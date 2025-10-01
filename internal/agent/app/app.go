@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	pty "github.com/creack/pty"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
@@ -287,6 +288,18 @@ func (a *App) launchShell(ctx context.Context) error {
 		return errors.New("shell command not configured")
 	}
 
+	if err := a.launchShellDirect(ctx, ttyPath, args); err != nil {
+		if !isSetcttyError(err) {
+			return err
+		}
+		a.log.Printf("debug shell direct mode failed: %v; falling back to PTY bridge", err)
+		return a.launchShellPTY(ctx, ttyPath, args)
+	}
+
+	return nil
+}
+
+func (a *App) launchShellDirect(ctx context.Context, ttyPath string, args []string) error {
 	tty, err := os.OpenFile(ttyPath, os.O_RDWR, 0)
 	if err != nil {
 		return fmt.Errorf("open shell tty %s: %w", ttyPath, err)
@@ -317,6 +330,52 @@ func (a *App) launchShell(ctx context.Context) error {
 		errCh <- cmd.Wait()
 	}()
 
+	return a.waitShellProcess(ctx, cmd, errCh)
+}
+
+func (a *App) launchShellPTY(ctx context.Context, ttyPath string, args []string) error {
+	serial, err := os.OpenFile(ttyPath, os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("open shell tty %s: %w", ttyPath, err)
+	}
+	defer serial.Close()
+
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Dir = "/"
+	env := ensurePath(os.Environ(), []string{"/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"})
+	env = append(env, "TERM=linux")
+	cmd.Env = env
+
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		return fmt.Errorf("start shell pty: %w", err)
+	}
+	defer ptmx.Close()
+
+	a.log.Printf("debug shell started on %s via PTY bridge (pid=%d)", ttyPath, cmd.Process.Pid)
+
+	bridgeDone := make(chan shellPipeResult, 2)
+	go pipeShell(serial, ptmx, "pty->tty", bridgeDone)
+	go pipeShell(ptmx, serial, "tty->pty", bridgeDone)
+
+	go func() {
+		for i := 0; i < 2; i++ {
+			res := <-bridgeDone
+			if res.err != nil && !errors.Is(res.err, io.EOF) {
+				a.log.Printf("debug shell bridge %s error: %v", res.dir, res.err)
+			}
+		}
+	}()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- cmd.Wait()
+	}()
+
+	return a.waitShellProcess(ctx, cmd, errCh)
+}
+
+func (a *App) waitShellProcess(ctx context.Context, cmd *exec.Cmd, errCh <-chan error) error {
 	select {
 	case <-ctx.Done():
 		pgid, pgErr := syscall.Getpgid(cmd.Process.Pid)
@@ -341,6 +400,26 @@ func (a *App) launchShell(ctx context.Context) error {
 	}
 }
 
+type shellPipeResult struct {
+	dir string
+	err error
+}
+
+func pipeShell(dst io.Writer, src io.Reader, dir string, ch chan<- shellPipeResult) {
+	_, err := io.Copy(dst, src)
+	ch <- shellPipeResult{dir: dir, err: err}
+}
+
+func isSetcttyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, syscall.EINVAL) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "Setctty") || strings.Contains(msg, "Ctty not valid")
+}
 func loadConfig() Config {
 	listen := envOrDefault(defaultListenEnvKey, defaultListenAddr)
 	remoteAddr := os.Getenv(defaultRemoteAddrKey)

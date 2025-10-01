@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -41,6 +42,10 @@ func (a *App) bootstrapPID1() error {
 			a.log.Printf("FATAL: Stage 2 mount essentials failed: %v", err)
 			// A simple way to halt without panicking the kernel is to sleep forever.
 			select {}
+		}
+
+		if err := ensureConsoleTTY(a.log); err != nil {
+			a.log.Printf("warning: console setup failed: %v", err)
 		}
 
 		a.log.Printf("PID 1, Stage 2: Reinforcing mounts for child processes...")
@@ -238,6 +243,7 @@ func mountEssential() error {
 		{"proc", "/proc", "proc", 0, "", 0o755},
 		{"sysfs", "/sys", "sysfs", 0, "", 0o755},
 		{"devtmpfs", "/dev", "devtmpfs", 0, "mode=0755", 0o755},
+		{"devpts", "/dev/pts", "devpts", 0, "mode=0620,gid=5", 0o755},
 		{"shm", "/dev/shm", "tmpfs", 0, "mode=1777", 0o1777},
 		{"run", "/run", "tmpfs", 0, "", 0o755},
 		{"tmp", "/tmp", "tmpfs", 0, "", 0o1777},
@@ -262,6 +268,45 @@ func reapZombies() {
 	for {
 		_, _ = syscall.Wait4(-1, nil, 0, nil)
 	}
+}
+
+func ensureConsoleTTY(logger *log.Logger) error {
+	const consoleTTY = "/dev/ttyS0"
+
+	if _, err := os.Lstat("/dev/console"); err != nil {
+		if os.IsNotExist(err) {
+			if err := os.Symlink("ttyS0", "/dev/console"); err != nil && !os.IsExist(err) {
+				return fmt.Errorf("create /dev/console symlink: %w", err)
+			}
+		} else {
+			return fmt.Errorf("stat /dev/console: %w", err)
+		}
+	}
+
+	tty, err := os.OpenFile(consoleTTY, os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", consoleTTY, err)
+	}
+	defer tty.Close()
+
+	if err := unix.IoctlSetPointerInt(int(tty.Fd()), unix.TIOCSCTTY, 0); err != nil {
+		if errno, ok := err.(syscall.Errno); ok {
+			if errno != syscall.EPERM && errno != syscall.EINVAL {
+				return fmt.Errorf("set controlling tty: %w", err)
+			}
+		} else {
+			return fmt.Errorf("set controlling tty: %w", err)
+		}
+	}
+
+	for _, fd := range []int{0, 1, 2} {
+		if err := unix.Dup2(int(tty.Fd()), fd); err != nil {
+			return fmt.Errorf("dup2 tty to fd %d: %w", fd, err)
+		}
+	}
+
+	logger.Printf("console %s configured as controlling terminal", consoleTTY)
+	return nil
 }
 
 func handleSignals(a *App) {
