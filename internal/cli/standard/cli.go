@@ -34,6 +34,7 @@ Core commands:
 	cmd.AddCommand(newVMsCmd())
 	cmd.AddCommand(newPluginsCmd())
 	cmd.AddCommand(newSetupCmd())
+	cmd.AddCommand(newDeploymentsCmd())
 	return cmd
 }
 

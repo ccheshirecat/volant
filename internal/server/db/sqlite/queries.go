@@ -45,6 +45,10 @@ func (q *queries) VMConfigs() db.VMConfigRepository {
 	return &vmConfigRepository{exec: q.exec}
 }
 
+func (q *queries) VMGroups() db.VMGroupRepository {
+	return &vmGroupRepository{exec: q.exec}
+}
+
 type vmRepository struct {
 	exec executor
 }
@@ -59,11 +63,12 @@ func (r *vmRepository) Create(ctx context.Context, vm *db.VM) (int64, error) {
 	pidVal := nullableInt64(vm.PID)
 	cmdlineVal := nullableString(vm.KernelCmdline)
 	serialVal := nullableString(vm.SerialSocket)
+	groupVal := nullableInt64(vm.GroupID)
 
 	res, err := r.exec.ExecContext(
 		ctx,
-		`INSERT INTO vms (name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+		`INSERT INTO vms (name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket, group_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
 		vm.Name,
 		string(vm.Status),
 		vm.Runtime,
@@ -74,6 +79,7 @@ func (r *vmRepository) Create(ctx context.Context, vm *db.VM) (int64, error) {
 		vm.MemoryMB,
 		cmdlineVal,
 		serialVal,
+		groupVal,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert vm: %w", err)
@@ -87,7 +93,7 @@ func (r *vmRepository) Create(ctx context.Context, vm *db.VM) (int64, error) {
 }
 
 func (r *vmRepository) GetByName(ctx context.Context, name string) (*db.VM, error) {
-	row := r.exec.QueryRowContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket, created_at, updated_at FROM vms WHERE name = ?;`, name)
+	row := r.exec.QueryRowContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket, group_id, created_at, updated_at FROM vms WHERE name = ?;`, name)
 	vm, err := scanVM(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -99,7 +105,7 @@ func (r *vmRepository) GetByName(ctx context.Context, name string) (*db.VM, erro
 }
 
 func (r *vmRepository) List(ctx context.Context) ([]db.VM, error) {
-	rows, err := r.exec.QueryContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket, created_at, updated_at FROM vms ORDER BY created_at ASC;`)
+	rows, err := r.exec.QueryContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket, group_id, created_at, updated_at FROM vms ORDER BY created_at ASC;`)
 	if err != nil {
 		return nil, fmt.Errorf("query vms: %w", err)
 	}
@@ -116,6 +122,27 @@ func (r *vmRepository) List(ctx context.Context) ([]db.VM, error) {
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate vms: %w", err)
+	}
+	return result, nil
+}
+
+func (r *vmRepository) ListByGroupID(ctx context.Context, groupID int64) ([]db.VM, error) {
+	rows, err := r.exec.QueryContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket, group_id, created_at, updated_at FROM vms WHERE group_id = ? ORDER BY name ASC;`, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("query vms by group: %w", err)
+	}
+	defer rows.Close()
+
+	var result []db.VM
+	for rows.Next() {
+		vm, err := scanVM(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, vm)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate vms by group: %w", err)
 	}
 	return result, nil
 }
@@ -241,6 +268,12 @@ type pluginRepository struct {
 
 var _ db.PluginRepository = (*pluginRepository)(nil)
 
+type vmGroupRepository struct {
+	exec executor
+}
+
+var _ db.VMGroupRepository = (*vmGroupRepository)(nil)
+
 type vmConfigRepository struct {
 	exec executor
 }
@@ -320,6 +353,84 @@ func (r *pluginRepository) Delete(ctx context.Context, name string) error {
 		return fmt.Errorf("delete plugin rows: %w", err)
 	}
 	return nil
+}
+
+func (r *vmGroupRepository) Create(ctx context.Context, group *db.VMGroup) (int64, error) {
+	res, err := r.exec.ExecContext(ctx, `INSERT INTO vm_groups (name, config_json, replicas) VALUES (?, ?, ?);`, group.Name, string(group.ConfigJSON), group.Replicas)
+	if err != nil {
+		return 0, fmt.Errorf("insert vm group: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("vm group last insert id: %w", err)
+	}
+	return id, nil
+}
+
+func (r *vmGroupRepository) Update(ctx context.Context, id int64, configJSON []byte, replicas int) error {
+	if _, err := r.exec.ExecContext(ctx, `UPDATE vm_groups SET config_json = ?, replicas = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;`, string(configJSON), replicas, id); err != nil {
+		return fmt.Errorf("update vm group: %w", err)
+	}
+	return nil
+}
+
+func (r *vmGroupRepository) UpdateReplicas(ctx context.Context, id int64, replicas int) error {
+	if _, err := r.exec.ExecContext(ctx, `UPDATE vm_groups SET replicas = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;`, replicas, id); err != nil {
+		return fmt.Errorf("update vm group replicas: %w", err)
+	}
+	return nil
+}
+
+func (r *vmGroupRepository) Delete(ctx context.Context, id int64) error {
+	if _, err := r.exec.ExecContext(ctx, `DELETE FROM vm_groups WHERE id = ?;`, id); err != nil {
+		return fmt.Errorf("delete vm group: %w", err)
+	}
+	return nil
+}
+
+func (r *vmGroupRepository) GetByName(ctx context.Context, name string) (*db.VMGroup, error) {
+	row := r.exec.QueryRowContext(ctx, `SELECT id, name, config_json, replicas, created_at, updated_at FROM vm_groups WHERE name = ?;`, name)
+	group, err := scanVMGroup(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &group, nil
+}
+
+func (r *vmGroupRepository) GetByID(ctx context.Context, id int64) (*db.VMGroup, error) {
+	row := r.exec.QueryRowContext(ctx, `SELECT id, name, config_json, replicas, created_at, updated_at FROM vm_groups WHERE id = ?;`, id)
+	group, err := scanVMGroup(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &group, nil
+}
+
+func (r *vmGroupRepository) List(ctx context.Context) ([]db.VMGroup, error) {
+	rows, err := r.exec.QueryContext(ctx, `SELECT id, name, config_json, replicas, created_at, updated_at FROM vm_groups ORDER BY name ASC;`)
+	if err != nil {
+		return nil, fmt.Errorf("list vm groups: %w", err)
+	}
+	defer rows.Close()
+
+	var result []db.VMGroup
+	for rows.Next() {
+		group, err := scanVMGroup(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, group)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate vm groups: %w", err)
+	}
+	return result, nil
 }
 
 func (r *vmConfigRepository) GetCurrent(ctx context.Context, vmID int64) (*db.VMConfig, error) {
@@ -404,6 +515,7 @@ func scanVM(row rowScanner) (db.VM, error) {
 		pid        sql.NullInt64
 		cmdline    sql.NullString
 		serial     sql.NullString
+		groupID    sql.NullInt64
 		createdRaw any
 		updatedRaw any
 	)
@@ -420,6 +532,7 @@ func scanVM(row rowScanner) (db.VM, error) {
 		&vm.MemoryMB,
 		&cmdline,
 		&serial,
+		&groupID,
 		&createdRaw,
 		&updatedRaw,
 	); err != nil {
@@ -442,6 +555,10 @@ func scanVM(row rowScanner) (db.VM, error) {
 	}
 	if serial.Valid {
 		vm.SerialSocket = serial.String
+	}
+	if groupID.Valid {
+		gid := groupID.Int64
+		vm.GroupID = &gid
 	}
 
 	created, err := parseTimestamp(createdRaw)
@@ -516,6 +633,31 @@ func scanPlugin(row rowScanner) (db.Plugin, error) {
 	plugin.InstalledAt, _ = parseTimeField(installed)
 	plugin.UpdatedAt, _ = parseTimeField(updated)
 	return plugin, nil
+}
+
+func scanVMGroup(row rowScanner) (db.VMGroup, error) {
+	var (
+		group      db.VMGroup
+		configText string
+		createdRaw any
+		updatedRaw any
+	)
+
+	if err := row.Scan(&group.ID, &group.Name, &configText, &group.Replicas, &createdRaw, &updatedRaw); err != nil {
+		return db.VMGroup{}, err
+	}
+	group.ConfigJSON = []byte(configText)
+	created, err := parseTimestamp(createdRaw)
+	if err != nil {
+		return db.VMGroup{}, fmt.Errorf("parse vm group created: %w", err)
+	}
+	updated, err := parseTimestamp(updatedRaw)
+	if err != nil {
+		return db.VMGroup{}, fmt.Errorf("parse vm group updated: %w", err)
+	}
+	group.CreatedAt = created
+	group.UpdatedAt = updated
+	return group, nil
 }
 
 func scanVMConfig(row rowScanner) (db.VMConfig, error) {

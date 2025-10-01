@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"time"
 
@@ -416,7 +417,7 @@ func newVMsRestartCmd() *cobra.Command {
 func newVMsScaleCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "scale <name>",
-		Short: "Update CPU and memory allocation for a microVM",
+		Short: "Update microVM resources or scale deployments",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cpuVal, err := cmd.Flags().GetInt("cpu")
@@ -431,8 +432,12 @@ func newVMsScaleCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if cpuVal <= 0 && memVal <= 0 {
-				return fmt.Errorf("specify --cpu and/or --memory to update")
+			replicasVal, err := cmd.Flags().GetInt("replicas")
+			if err != nil {
+				return err
+			}
+			if cpuVal <= 0 && memVal <= 0 && replicasVal < 0 {
+				return fmt.Errorf("specify --cpu/--memory or --replicas to update")
 			}
 
 			api, err := clientFromCmd(cmd)
@@ -442,36 +447,40 @@ func newVMsScaleCmd() *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
-			var resPatch vmconfig.ResourcesPatch
-			setPatch := false
-			if cpuVal > 0 {
-				cpuCopy := cpuVal
-				resPatch.CPUCores = &cpuCopy
-				setPatch = true
-			}
-			if memVal > 0 {
-				memCopy := memVal
-				resPatch.MemoryMB = &memCopy
-				setPatch = true
-			}
-			if !setPatch {
-				return fmt.Errorf("no resources to update")
+			if cpuVal > 0 || memVal > 0 {
+				var resPatch vmconfig.ResourcesPatch
+				if cpuVal > 0 {
+					cpuCopy := cpuVal
+					resPatch.CPUCores = &cpuCopy
+				}
+				if memVal > 0 {
+					memCopy := memVal
+					resPatch.MemoryMB = &memCopy
+				}
+
+				patch := vmconfig.Patch{Resources: &resPatch}
+				updated, err := api.UpdateVMConfig(ctx, args[0], patch)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "VM %s updated: CPU=%d cores, Memory=%d MB (config version %d)\n",
+					args[0], updated.Config.Resources.CPUCores, updated.Config.Resources.MemoryMB, updated.Version)
+				if restart {
+					restartCtx, cancelRestart := context.WithTimeout(cmd.Context(), 60*time.Second)
+					defer cancelRestart()
+					if _, err := api.RestartVM(restartCtx, args[0]); err != nil {
+						return fmt.Errorf("config updated but restart failed: %w", err)
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "VM %s restarted to apply resource changes\n", args[0])
+				}
 			}
 
-			patch := vmconfig.Patch{Resources: &resPatch}
-			updated, err := api.UpdateVMConfig(ctx, args[0], patch)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "VM %s updated: CPU=%d cores, Memory=%d MB (config version %d)\n",
-				args[0], updated.Config.Resources.CPUCores, updated.Config.Resources.MemoryMB, updated.Version)
-			if restart {
-				restartCtx, cancelRestart := context.WithTimeout(cmd.Context(), 60*time.Second)
-				defer cancelRestart()
-				if _, err := api.RestartVM(restartCtx, args[0]); err != nil {
-					return fmt.Errorf("config updated but restart failed: %w", err)
+			if replicasVal >= 0 {
+				deployment, err := api.ScaleDeployment(ctx, args[0], replicasVal)
+				if err != nil {
+					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "VM %s restarted to apply resource changes\n", args[0])
+				fmt.Fprintf(cmd.OutOrStdout(), "Deployment %s scaled to %d replicas (ready %d)\n", deployment.Name, deployment.DesiredReplicas, deployment.ReadyReplicas)
 			}
 			return nil
 		},
@@ -479,6 +488,7 @@ func newVMsScaleCmd() *cobra.Command {
 	cmd.Flags().Int("cpu", -1, "Target number of virtual CPU cores")
 	cmd.Flags().Int("memory", -1, "Target memory in MB")
 	cmd.Flags().Bool("restart", false, "Restart the VM after updating resources")
+	cmd.Flags().Int("replicas", -1, "Scale deployment replica count")
 	return cmd
 }
 
@@ -616,6 +626,184 @@ func newVMsConfigHistoryCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Int("limit", 0, "Limit the number of history entries returned")
+	return cmd
+}
+
+func newDeploymentsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "deployments",
+		Short: "Manage VM deployments",
+	}
+	cmd.AddCommand(newDeploymentsListCmd())
+	cmd.AddCommand(newDeploymentsCreateCmd())
+	cmd.AddCommand(newDeploymentsGetCmd())
+	cmd.AddCommand(newDeploymentsDeleteCmd())
+	cmd.AddCommand(newDeploymentsScaleCmd())
+	return cmd
+}
+
+func newDeploymentsListCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List deployments",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
+			defer cancel()
+
+			deployments, err := api.ListDeployments(ctx)
+			if err != nil {
+				return err
+			}
+			if len(deployments) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "No deployments found")
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-10s %-10s\n", "NAME", "DESIRED", "READY")
+			for _, dep := range deployments {
+				fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-10d %-10d\n", dep.Name, dep.DesiredReplicas, dep.ReadyReplicas)
+			}
+			return nil
+		},
+	}
+	return cmd
+}
+
+func newDeploymentsCreateCmd() *cobra.Command {
+	var configPath string
+	var replicas int
+	cmd := &cobra.Command{
+		Use:   "create <name>",
+		Short: "Create a deployment",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(configPath) == "" {
+				return fmt.Errorf("--config is required")
+			}
+			data, err := os.ReadFile(configPath)
+			if err != nil {
+				return err
+			}
+			var cfg vmconfig.Config
+			if err := json.Unmarshal(data, &cfg); err != nil {
+				var envelope struct {
+					Config vmconfig.Config `json:"config"`
+				}
+				if err2 := json.Unmarshal(data, &envelope); err2 != nil {
+					return fmt.Errorf("parse config file: %w", err)
+				}
+				cfg = envelope.Config
+			}
+
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+
+			deployment, err := api.CreateDeployment(ctx, client.CreateDeploymentRequest{
+				Name:     args[0],
+				Replicas: replicas,
+				Config:   cfg,
+			})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Deployment %s created with %d replicas\n", deployment.Name, deployment.DesiredReplicas)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&configPath, "config", "", "Path to deployment config JSON file")
+	cmd.Flags().IntVar(&replicas, "replicas", 1, "Number of replicas to launch")
+	return cmd
+}
+
+func newDeploymentsGetCmd() *cobra.Command {
+	var outputPath string
+	cmd := &cobra.Command{
+		Use:   "get <name>",
+		Short: "Show deployment details",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
+			defer cancel()
+
+			deployment, err := api.GetDeployment(ctx, args[0])
+			if err != nil {
+				return err
+			}
+
+			data, err := json.MarshalIndent(deployment, "", "  ")
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(outputPath) != "" {
+				return os.WriteFile(outputPath, data, 0o644)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), string(data))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&outputPath, "output", "", "Write deployment details to file")
+	return cmd
+}
+
+func newDeploymentsDeleteCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete <name>",
+		Short: "Delete a deployment",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+
+			if err := api.DeleteDeployment(ctx, args[0]); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Deployment %s deleted\n", args[0])
+			return nil
+		},
+	}
+	return cmd
+}
+
+func newDeploymentsScaleCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "scale <name> <replicas>",
+		Short: "Scale deployment replicas",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			replicas, err := strconv.Atoi(args[1])
+			if err != nil || replicas < 0 {
+				return fmt.Errorf("replicas must be a non-negative integer")
+			}
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+
+			deployment, err := api.ScaleDeployment(ctx, args[0], replicas)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Deployment %s scaled to %d replicas (ready %d)\n", deployment.Name, deployment.DesiredReplicas, deployment.ReadyReplicas)
+			return nil
+		},
+	}
 	return cmd
 }
 

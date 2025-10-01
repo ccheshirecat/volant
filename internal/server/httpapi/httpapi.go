@@ -101,6 +101,15 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 			vms.POST(":name/actions/:plugin/:action", api.postVMPluginAction)
 		}
 
+		deployments := v1.Group("/deployments")
+		{
+			deployments.GET("", api.listDeployments)
+			deployments.POST("", api.createDeployment)
+			deployments.GET(":name", api.getDeployment)
+			deployments.PATCH(":name", api.patchDeployment)
+			deployments.DELETE(":name", api.deleteDeployment)
+		}
+
 		pluginsGroup := v1.Group("/plugins")
 		{
 			pluginsGroup.GET("", api.listPlugins)
@@ -265,6 +274,25 @@ type graphqlActionRequest struct {
 	Variables map[string]interface{} `json:"variables"`
 }
 
+type createDeploymentRequest struct {
+	Name     string          `json:"name" binding:"required"`
+	Replicas int             `json:"replicas"`
+	Config   vmconfig.Config `json:"config" binding:"required"`
+}
+
+type patchDeploymentRequest struct {
+	Replicas *int `json:"replicas" binding:"required"`
+}
+
+type deploymentResponse struct {
+	Name            string          `json:"name"`
+	DesiredReplicas int             `json:"desired_replicas"`
+	ReadyReplicas   int             `json:"ready_replicas"`
+	Config          vmconfig.Config `json:"config"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+}
+
 type createVMRequest struct {
 	Name          string           `json:"name" binding:"required"`
 	Plugin        string           `json:"plugin"`
@@ -321,6 +349,17 @@ func vmToResponse(vm *db.VM) vmResponse {
 	return resp
 }
 
+func deploymentToResponse(dep orchestrator.Deployment) deploymentResponse {
+	return deploymentResponse{
+		Name:            dep.Name,
+		DesiredReplicas: dep.DesiredReplicas,
+		ReadyReplicas:   dep.ReadyReplicas,
+		Config:          dep.Config,
+		CreatedAt:       dep.CreatedAt,
+		UpdatedAt:       dep.UpdatedAt,
+	}
+}
+
 func (api *apiServer) listVMs(c *gin.Context) {
 	vms, err := api.engine.ListVMs(c.Request.Context())
 	if err != nil {
@@ -332,6 +371,20 @@ func (api *apiServer) listVMs(c *gin.Context) {
 	for i := range vms {
 		vm := vms[i]
 		resp = append(resp, vmToResponse(&vm))
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (api *apiServer) listDeployments(c *gin.Context) {
+	deployments, err := api.engine.ListDeployments(c.Request.Context())
+	if err != nil {
+		api.logger.Error("list deployments", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
+		return
+	}
+	resp := make([]deploymentResponse, 0, len(deployments))
+	for _, d := range deployments {
+		resp = append(resp, deploymentToResponse(d))
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -476,6 +529,25 @@ func (api *apiServer) createVM(c *gin.Context) {
 	c.JSON(http.StatusCreated, vmToResponse(vm))
 }
 
+func (api *apiServer) createDeployment(c *gin.Context) {
+	var req createDeploymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	deployment, err := api.engine.CreateDeployment(c.Request.Context(), orchestrator.CreateDeploymentRequest{
+		Name:     req.Name,
+		Replicas: req.Replicas,
+		Config:   req.Config,
+	})
+	if err != nil {
+		api.logger.Error("create deployment", "deployment", req.Name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, deploymentToResponse(*deployment))
+}
+
 func (api *apiServer) getVMConfig(c *gin.Context) {
 	name := c.Param("name")
 	config, err := api.engine.GetVMConfig(c.Request.Context(), name)
@@ -564,6 +636,47 @@ func (api *apiServer) deleteVM(c *gin.Context) {
 	name := c.Param("name")
 	if err := api.engine.DestroyVM(c.Request.Context(), name); err != nil {
 		api.logger.Error("destroy vm", "vm", name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (api *apiServer) getDeployment(c *gin.Context) {
+	name := c.Param("name")
+	deployment, err := api.engine.GetDeployment(c.Request.Context(), name)
+	if err != nil {
+		api.logger.Error("get deployment", "deployment", name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, deploymentToResponse(*deployment))
+}
+
+func (api *apiServer) patchDeployment(c *gin.Context) {
+	name := c.Param("name")
+	var req patchDeploymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Replicas == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "replicas field required"})
+		return
+	}
+	deployment, err := api.engine.ScaleDeployment(c.Request.Context(), name, *req.Replicas)
+	if err != nil {
+		api.logger.Error("scale deployment", "deployment", name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, deploymentToResponse(*deployment))
+}
+
+func (api *apiServer) deleteDeployment(c *gin.Context) {
+	name := c.Param("name")
+	if err := api.engine.DeleteDeployment(c.Request.Context(), name); err != nil {
+		api.logger.Error("delete deployment", "deployment", name, "error", err)
 		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
 		return
 	}
@@ -1402,6 +1515,10 @@ func statusFromError(err error) int {
 	case errors.Is(err, orchestrator.ErrVMNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, orchestrator.ErrVMExists):
+		return http.StatusConflict
+	case errors.Is(err, orchestrator.ErrDeploymentNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, orchestrator.ErrDeploymentExists):
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError
