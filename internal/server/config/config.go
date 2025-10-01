@@ -17,7 +17,7 @@ const (
 	defaultHostIP        = "192.168.127.1"
 	defaultRuntimeDir    = "~/.volant/run"
 	defaultLogDir        = "~/.volant/logs"
-	defaultKernelPath    = "~/.volant/kernel/bzImage"
+	defaultKernelPath    = "kernel/bzImage"
 )
 
 // ServerConfig captures the runtime configuration required by the daemon.
