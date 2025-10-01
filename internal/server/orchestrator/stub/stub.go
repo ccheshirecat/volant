@@ -6,6 +6,7 @@ import (
 
 	"github.com/ccheshirecat/volant/internal/server/db"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator"
+	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
 )
 
 type Engine struct{}
@@ -18,6 +19,24 @@ func (Engine) CreateVM(ctx context.Context, req orchestrator.CreateVMRequest) (*
 func (Engine) DestroyVM(ctx context.Context, name string) error { return nil }
 func (Engine) ListVMs(ctx context.Context) ([]db.VM, error)     { return nil, nil }
 func (Engine) GetVM(ctx context.Context, name string) (*db.VM, error) {
+	return nil, nil
+}
+func (Engine) GetVMConfig(ctx context.Context, name string) (*vmconfig.Versioned, error) {
+	return nil, nil
+}
+func (Engine) UpdateVMConfig(ctx context.Context, name string, patch vmconfig.Patch) (*vmconfig.Versioned, error) {
+	return nil, nil
+}
+func (Engine) GetVMConfigHistory(ctx context.Context, name string, limit int) ([]vmconfig.HistoryEntry, error) {
+	return nil, nil
+}
+func (Engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
+	return nil, nil
+}
+func (Engine) StopVM(ctx context.Context, name string) (*db.VM, error) {
+	return nil, nil
+}
+func (Engine) RestartVM(ctx context.Context, name string) (*db.VM, error) {
 	return nil, nil
 }
 func (Engine) Store() db.Store { return nil }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 
 	"github.com/ccheshirecat/volant/internal/pluginspec"
 	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
+	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
 )
 
 // Client wraps REST access to the volantd API.
@@ -59,14 +61,15 @@ type VM struct {
 
 // CreateVMRequest contains creation parameters.
 type CreateVMRequest struct {
-	Name          string `json:"name"`
-	Plugin        string `json:"plugin"`
-	Runtime       string `json:"runtime,omitempty"`
-	CPUCores      int    `json:"cpu_cores"`
-	MemoryMB      int    `json:"memory_mb"`
-	KernelCmdline string `json:"kernel_cmdline,omitempty"`
-	APIHost       string `json:"api_host,omitempty"`
-	APIPort       string `json:"api_port,omitempty"`
+	Name          string           `json:"name"`
+	Plugin        string           `json:"plugin"`
+	Runtime       string           `json:"runtime,omitempty"`
+	CPUCores      int              `json:"cpu_cores"`
+	MemoryMB      int              `json:"memory_mb"`
+	KernelCmdline string           `json:"kernel_cmdline,omitempty"`
+	APIHost       string           `json:"api_host,omitempty"`
+	APIPort       string           `json:"api_port,omitempty"`
+	Config        *vmconfig.Config `json:"config,omitempty"`
 }
 
 const (
@@ -191,6 +194,104 @@ func (c *Client) GetVM(ctx context.Context, name string) (*VM, error) {
 
 func (c *Client) CreateVM(ctx context.Context, payload CreateVMRequest) (*VM, error) {
 	req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/vms", payload)
+	if err != nil {
+		return nil, err
+	}
+	var vm VM
+	if err := c.do(req, &vm); err != nil {
+		return nil, err
+	}
+	return &vm, nil
+}
+
+func (c *Client) GetVMConfig(ctx context.Context, name string) (*vmconfig.Versioned, error) {
+	path := "/api/v1/vms/" + url.PathEscape(name) + "/config"
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var config vmconfig.Versioned
+	if err := c.do(req, &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+func (c *Client) UpdateVMConfig(ctx context.Context, name string, patch vmconfig.Patch) (*vmconfig.Versioned, error) {
+	path := "/api/v1/vms/" + url.PathEscape(name) + "/config"
+	req, err := c.newRequest(ctx, http.MethodPatch, path, patch)
+	if err != nil {
+		return nil, err
+	}
+	var config vmconfig.Versioned
+	if err := c.do(req, &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+func (c *Client) UpdateVMConfigRaw(ctx context.Context, name string, raw []byte) (*vmconfig.Versioned, error) {
+	path := "/api/v1/vms/" + url.PathEscape(name) + "/config"
+	var payload any
+	if len(raw) > 0 {
+		payload = json.RawMessage(raw)
+	}
+	req, err := c.newRequest(ctx, http.MethodPatch, path, payload)
+	if err != nil {
+		return nil, err
+	}
+	var config vmconfig.Versioned
+	if err := c.do(req, &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+func (c *Client) GetVMConfigHistory(ctx context.Context, name string, limit int) ([]vmconfig.HistoryEntry, error) {
+	path := "/api/v1/vms/" + url.PathEscape(name) + "/config/history"
+	if limit > 0 {
+		path = path + "?limit=" + strconv.Itoa(limit)
+	}
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var entries []vmconfig.HistoryEntry
+	if err := c.do(req, &entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func (c *Client) StartVM(ctx context.Context, name string) (*VM, error) {
+	path := "/api/v1/vms/" + url.PathEscape(name) + "/start"
+	req, err := c.newRequest(ctx, http.MethodPost, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var vm VM
+	if err := c.do(req, &vm); err != nil {
+		return nil, err
+	}
+	return &vm, nil
+}
+
+func (c *Client) StopVM(ctx context.Context, name string) (*VM, error) {
+	path := "/api/v1/vms/" + url.PathEscape(name) + "/stop"
+	req, err := c.newRequest(ctx, http.MethodPost, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var vm VM
+	if err := c.do(req, &vm); err != nil {
+		return nil, err
+	}
+	return &vm, nil
+}
+
+func (c *Client) RestartVM(ctx context.Context, name string) (*VM, error) {
+	path := "/api/v1/vms/" + url.PathEscape(name) + "/restart"
+	req, err := c.newRequest(ctx, http.MethodPost, path, nil)
 	if err != nil {
 		return nil, err
 	}

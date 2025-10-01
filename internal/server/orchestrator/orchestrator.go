@@ -21,6 +21,7 @@ import (
 	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator/network"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator/runtime"
+	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
 )
 
 // Engine represents the VM orchestration core.
@@ -32,6 +33,12 @@ type Engine interface {
 	DestroyVM(ctx context.Context, name string) error
 	ListVMs(ctx context.Context) ([]db.VM, error)
 	GetVM(ctx context.Context, name string) (*db.VM, error)
+	GetVMConfig(ctx context.Context, name string) (*vmconfig.Versioned, error)
+	UpdateVMConfig(ctx context.Context, name string, patch vmconfig.Patch) (*vmconfig.Versioned, error)
+	GetVMConfigHistory(ctx context.Context, name string, limit int) ([]vmconfig.HistoryEntry, error)
+	StartVM(ctx context.Context, name string) (*db.VM, error)
+	StopVM(ctx context.Context, name string) (*db.VM, error)
+	RestartVM(ctx context.Context, name string) (*db.VM, error)
 	Store() db.Store
 	ControlPlaneListenAddr() string
 	ControlPlaneAdvertiseAddr() string
@@ -49,6 +56,7 @@ type CreateVMRequest struct {
 	Manifest          *pluginspec.Manifest
 	APIHost           string
 	APIPort           string
+	Config            *vmconfig.Config
 }
 
 // Params wires dependencies for the native orchestrator engine.
@@ -321,6 +329,76 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 
 	e.publishEvent(ctx, orchestratorevents.TypeVMCreated, orchestratorevents.VMStatusStarting, vmRecord, "vm record created")
 
+	apiHost := strings.TrimSpace(req.APIHost)
+	apiPort := strings.TrimSpace(req.APIPort)
+	if apiPort == "0" {
+		apiPort = ""
+	}
+	if apiHost == "" || apiPort == "" {
+		host, port := e.apiEndpoints()
+		if apiHost == "" {
+			apiHost = host
+		}
+		if apiPort == "" {
+			apiPort = port
+		}
+	}
+	if apiHost == "" {
+		apiHost = e.hostIP.String()
+	}
+	if strings.TrimSpace(apiPort) == "" {
+		apiPort = e.controlPort
+	}
+
+	var manifestForConfig *pluginspec.Manifest
+	if req.Manifest != nil {
+		manifestCopy := *req.Manifest
+		manifestCopy.Normalize()
+		manifestForConfig = &manifestCopy
+	}
+
+	configToStore := vmconfig.Config{}
+	if req.Config != nil {
+		configToStore = req.Config.Clone()
+	}
+	configToStore.Plugin = pluginName
+	configToStore.Runtime = req.Runtime
+	extraCmdline := strings.TrimSpace(req.KernelCmdlineHint)
+	if extraCmdline == "" && req.Config != nil {
+		extraCmdline = strings.TrimSpace(req.Config.KernelCmdline)
+	}
+	configToStore.KernelCmdline = extraCmdline
+	configToStore.Resources = vmconfig.Resources{
+		CPUCores: vmRecord.CPUCores,
+		MemoryMB: vmRecord.MemoryMB,
+	}
+	configToStore.API = vmconfig.API{
+		Host: apiHost,
+		Port: apiPort,
+	}
+	if configToStore.Manifest == nil && manifestForConfig != nil {
+		manifestCopy := *manifestForConfig
+		configToStore.Manifest = &manifestCopy
+	} else if configToStore.Manifest != nil {
+		manifestCopy := *configToStore.Manifest
+		manifestCopy.Normalize()
+		configToStore.Manifest = &manifestCopy
+	}
+
+	configPayload, err := vmconfig.Marshal(configToStore)
+	if err != nil {
+		e.rollbackCreate(ctx, vmRecord)
+		return nil, err
+	}
+
+	if err := e.store.WithTx(ctx, func(q db.Queries) error {
+		_, upsertErr := q.VMConfigs().Upsert(ctx, vmRecord.ID, configPayload)
+		return upsertErr
+	}); err != nil {
+		e.rollbackCreate(ctx, vmRecord)
+		return nil, err
+	}
+
 	tapName, err := e.network.PrepareTap(ctx, vmRecord.Name, vmRecord.MACAddress)
 	if err != nil {
 		e.rollbackCreate(ctx, vmRecord)
@@ -349,27 +427,6 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		Gateway:       e.hostIP.String(),
 		Netmask:       netmask,
 		SerialSocket:  serialPath,
-	}
-
-	apiHost := strings.TrimSpace(req.APIHost)
-	apiPort := strings.TrimSpace(req.APIPort)
-	if apiPort == "0" {
-		apiPort = ""
-	}
-	if apiHost == "" || apiPort == "" {
-		host, port := e.apiEndpoints()
-		if apiHost == "" {
-			apiHost = host
-		}
-		if apiPort == "" {
-			apiPort = port
-		}
-	}
-	if apiHost == "" {
-		apiHost = e.hostIP.String()
-	}
-	if strings.TrimSpace(apiPort) == "" {
-		apiPort = e.controlPort
 	}
 
 	cmdArgs := map[string]string{
@@ -504,6 +561,343 @@ func (e *engine) ListVMs(ctx context.Context) ([]db.VM, error) {
 
 func (e *engine) GetVM(ctx context.Context, name string) (*db.VM, error) {
 	return e.store.Queries().VirtualMachines().GetByName(ctx, name)
+}
+
+func (e *engine) GetVMConfig(ctx context.Context, name string) (*vmconfig.Versioned, error) {
+	queries := e.store.Queries()
+	vm, err := queries.VirtualMachines().GetByName(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if vm == nil {
+		return nil, fmt.Errorf("%w: %s", ErrVMNotFound, name)
+	}
+	record, err := queries.VMConfigs().GetCurrent(ctx, vm.ID)
+	if err != nil {
+		return nil, err
+	}
+	if record == nil {
+		return nil, fmt.Errorf("orchestrator: configuration for vm %s not found", name)
+	}
+	versioned, err := vmconfig.FromDB(*record)
+	if err != nil {
+		return nil, err
+	}
+	return &versioned, nil
+}
+
+func (e *engine) GetVMConfigHistory(ctx context.Context, name string, limit int) ([]vmconfig.HistoryEntry, error) {
+	queries := e.store.Queries()
+	vm, err := queries.VirtualMachines().GetByName(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if vm == nil {
+		return nil, fmt.Errorf("%w: %s", ErrVMNotFound, name)
+	}
+	rows, err := queries.VMConfigs().History(ctx, vm.ID, limit)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]vmconfig.HistoryEntry, 0, len(rows))
+	for _, entry := range rows {
+		history, convErr := vmconfig.FromHistory(entry)
+		if convErr != nil {
+			return nil, convErr
+		}
+		result = append(result, history)
+	}
+	return result, nil
+}
+
+func (e *engine) UpdateVMConfig(ctx context.Context, name string, patch vmconfig.Patch) (*vmconfig.Versioned, error) {
+	var updated vmconfig.Versioned
+
+	err := e.store.WithTx(ctx, func(q db.Queries) error {
+		vmRepo := q.VirtualMachines()
+		vm, err := vmRepo.GetByName(ctx, name)
+		if err != nil {
+			return err
+		}
+		if vm == nil {
+			return fmt.Errorf("%w: %s", ErrVMNotFound, name)
+		}
+		record, err := q.VMConfigs().GetCurrent(ctx, vm.ID)
+		if err != nil {
+			return err
+		}
+		if record == nil {
+			return fmt.Errorf("orchestrator: configuration for vm %s not found", name)
+		}
+		current, err := vmconfig.FromDB(*record)
+		if err != nil {
+			return err
+		}
+		merged, err := patch.Apply(current.Config)
+		if err != nil {
+			return err
+		}
+		extraCmdline := strings.TrimSpace(merged.KernelCmdline)
+		finalCmdline := buildKernelCmdline(vm.IPAddress, e.hostIP.String(), formatNetmask(e.subnet.Mask), sanitizeHostname(vm.Name), extraCmdline)
+		merged.KernelCmdline = extraCmdline
+		payload, err := vmconfig.Marshal(merged)
+		if err != nil {
+			return err
+		}
+		if err := vmRepo.UpdateSpec(ctx, vm.ID, merged.Runtime, merged.Resources.CPUCores, merged.Resources.MemoryMB, finalCmdline); err != nil {
+			return err
+		}
+		vm.KernelCmdline = finalCmdline
+		newRecord, err := q.VMConfigs().Upsert(ctx, vm.ID, payload)
+		if err != nil {
+			return err
+		}
+		versioned, err := vmconfig.FromDB(*newRecord)
+		if err != nil {
+			return err
+		}
+		updated = versioned
+		vm.Runtime = merged.Runtime
+		vm.CPUCores = merged.Resources.CPUCores
+		vm.MemoryMB = merged.Resources.MemoryMB
+		vm.KernelCmdline = finalCmdline
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &updated, nil
+}
+
+func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
+	e.mu.Lock()
+	if _, exists := e.instances[name]; exists {
+		e.mu.Unlock()
+		return nil, fmt.Errorf("orchestrator: vm %s already running", name)
+	}
+	e.mu.Unlock()
+
+	var (
+		vmRecord *db.VM
+		cfg      vmconfig.Config
+	)
+
+	err := e.store.WithTx(ctx, func(q db.Queries) error {
+		vmRepo := q.VirtualMachines()
+		vm, err := vmRepo.GetByName(ctx, name)
+		if err != nil {
+			return err
+		}
+		if vm == nil {
+			return fmt.Errorf("%w: %s", ErrVMNotFound, name)
+		}
+		record, err := q.VMConfigs().GetCurrent(ctx, vm.ID)
+		if err != nil {
+			return err
+		}
+		if record == nil {
+			return fmt.Errorf("orchestrator: configuration for vm %s not found", name)
+		}
+		versioned, err := vmconfig.FromDB(*record)
+		if err != nil {
+			return err
+		}
+		cfg = versioned.Config.Clone()
+		if err := vmRepo.UpdateRuntimeState(ctx, vm.ID, db.VMStatusStarting, nil); err != nil {
+			return err
+		}
+		vmRecord = vm
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	apiHost := strings.TrimSpace(cfg.API.Host)
+	apiPort := strings.TrimSpace(cfg.API.Port)
+	if apiPort == "0" {
+		apiPort = ""
+	}
+	if apiHost == "" || apiPort == "" {
+		host, port := e.apiEndpoints()
+		if apiHost == "" {
+			apiHost = host
+		}
+		if apiPort == "" {
+			apiPort = port
+		}
+	}
+	if apiHost == "" {
+		apiHost = e.hostIP.String()
+	}
+	if strings.TrimSpace(apiPort) == "" {
+		apiPort = e.controlPort
+	}
+
+	tapName, err := e.network.PrepareTap(ctx, vmRecord.Name, vmRecord.MACAddress)
+	if err != nil {
+		e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+		return nil, err
+	}
+
+	serialPath := filepath.Join(e.runtimeDir, fmt.Sprintf("%s.serial", vmRecord.Name))
+	serialPath = filepath.Clean(serialPath)
+	if !filepath.IsAbs(serialPath) {
+		absSerial, absErr := filepath.Abs(serialPath)
+		if absErr != nil {
+			e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+			_ = e.network.CleanupTap(ctx, tapName)
+			return nil, fmt.Errorf("orchestrator: resolve serial socket path: %w", absErr)
+		}
+		serialPath = absSerial
+	}
+
+	manifest := cfg.Manifest
+	if manifest == nil {
+		_ = e.network.CleanupTap(ctx, tapName)
+		e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+		return nil, fmt.Errorf("orchestrator: manifest missing in configuration for vm %s", name)
+	}
+
+	netmask := formatNetmask(e.subnet.Mask)
+	spec := runtime.LaunchSpec{
+		Name:          vmRecord.Name,
+		CPUCores:      cfg.Resources.CPUCores,
+		MemoryMB:      cfg.Resources.MemoryMB,
+		KernelCmdline: vmRecord.KernelCmdline,
+		TapDevice:     tapName,
+		MACAddress:    vmRecord.MACAddress,
+		IPAddress:     vmRecord.IPAddress,
+		Gateway:       e.hostIP.String(),
+		Netmask:       netmask,
+		SerialSocket:  serialPath,
+	}
+
+	cmdArgs := map[string]string{
+		pluginspec.RuntimeKey:      cfg.Runtime,
+		pluginspec.APIHostKey:      apiHost,
+		pluginspec.APIPortKey:      apiPort,
+		pluginspec.RootFSDeviceKey: "vda",
+		pluginspec.RootFSFSTypeKey: "ext4",
+	}
+	pluginName := strings.TrimSpace(cfg.Plugin)
+	if pluginName != "" {
+		cmdArgs[pluginspec.PluginKey] = pluginName
+	}
+	encodedManifest, err := pluginspec.Encode(*manifest)
+	if err != nil {
+		_ = e.network.CleanupTap(ctx, tapName)
+		e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+		return nil, fmt.Errorf("orchestrator: encode manifest: %w", err)
+	}
+	cmdArgs[pluginspec.CmdlineKey] = encodedManifest
+	spec.Args = cmdArgs
+	spec.RootFS = strings.TrimSpace(manifest.RootFS.URL)
+	spec.RootFSChecksum = strings.TrimSpace(manifest.RootFS.Checksum)
+
+	launchCtx := e.launchContext()
+	instance, err := e.launcher.Launch(launchCtx, spec)
+	if err != nil {
+		_ = e.network.CleanupTap(ctx, tapName)
+		e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+		return nil, err
+	}
+
+	pid := int64(instance.PID())
+	if err := e.store.WithTx(ctx, func(q db.Queries) error {
+		repo := q.VirtualMachines()
+		if err := repo.UpdateRuntimeState(ctx, vmRecord.ID, db.VMStatusRunning, &pid); err != nil {
+			return err
+		}
+		return repo.UpdateSockets(ctx, vmRecord.ID, spec.SerialSocket)
+	}); err != nil {
+		_ = instance.Stop(ctx)
+		_ = e.network.CleanupTap(ctx, tapName)
+		return nil, err
+	}
+
+	e.mu.Lock()
+	handle := processHandle{instance: instance, tapName: tapName, serial: spec.SerialSocket}
+	e.instances[vmRecord.Name] = handle
+	e.mu.Unlock()
+
+	e.monitorInstance(vmRecord.Name, handle)
+
+	vmRecord.Status = db.VMStatusRunning
+	vmRecord.PID = &pid
+	vmRecord.SerialSocket = spec.SerialSocket
+	vmRecord.CPUCores = cfg.Resources.CPUCores
+	vmRecord.MemoryMB = cfg.Resources.MemoryMB
+
+	e.publishEvent(ctx, orchestratorevents.TypeVMRunning, orchestratorevents.VMStatusRunning, vmRecord, "vm started")
+	return vmRecord, nil
+}
+
+func (e *engine) StopVM(ctx context.Context, name string) (*db.VM, error) {
+	var (
+		handle   processHandle
+		exists   bool
+		vmRecord *db.VM
+	)
+
+	e.mu.Lock()
+	if h, ok := e.instances[name]; ok {
+		handle = h
+		exists = true
+		delete(e.instances, name)
+	}
+	e.mu.Unlock()
+
+	err := e.store.WithTx(ctx, func(q db.Queries) error {
+		vmRepo := q.VirtualMachines()
+		vm, err := vmRepo.GetByName(ctx, name)
+		if err != nil {
+			return err
+		}
+		if vm == nil {
+			return fmt.Errorf("%w: %s", ErrVMNotFound, name)
+		}
+		vmRecord = vm
+		return vmRepo.UpdateRuntimeState(ctx, vm.ID, db.VMStatusStopped, nil)
+	})
+	if err != nil {
+		if exists {
+			// restore handle for consistency if update failed
+			e.mu.Lock()
+			e.instances[name] = handle
+			e.mu.Unlock()
+		}
+		return nil, err
+	}
+
+	if exists {
+		if stopErr := handle.instance.Stop(ctx); stopErr != nil {
+			e.logger.Error("stop instance", "vm", name, "error", stopErr)
+		}
+		if cleanupErr := e.network.CleanupTap(ctx, handle.tapName); cleanupErr != nil {
+			e.logger.Error("cleanup tap", "tap", handle.tapName, "error", cleanupErr)
+		}
+		if socket := handle.instance.APISocketPath(); socket != "" {
+			if removeErr := os.Remove(socket); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				e.logger.Debug("remove api socket", "path", socket, "error", removeErr)
+			}
+		}
+	}
+
+	if vmRecord != nil {
+		vmRecord.Status = db.VMStatusStopped
+		vmRecord.PID = nil
+	}
+
+	e.publishEvent(ctx, orchestratorevents.TypeVMStopped, orchestratorevents.VMStatusStopped, vmRecord, "vm stopped")
+	return vmRecord, nil
+}
+
+func (e *engine) RestartVM(ctx context.Context, name string) (*db.VM, error) {
+	if _, err := e.StopVM(ctx, name); err != nil {
+		return nil, err
+	}
+	return e.StartVM(ctx, name)
 }
 
 func (e *engine) Store() db.Store {
@@ -813,4 +1207,12 @@ func isUsableAdvertiseHost(host string) bool {
 		}
 	}
 	return true
+}
+
+func (e *engine) setVMState(ctx context.Context, vmID int64, status db.VMStatus, pid *int64) {
+	if err := e.store.WithTx(ctx, func(q db.Queries) error {
+		return q.VirtualMachines().UpdateRuntimeState(ctx, vmID, status, pid)
+	}); err != nil {
+		e.logger.Error("update vm state", "vm_id", vmID, "status", status, "error", err)
+	}
 }

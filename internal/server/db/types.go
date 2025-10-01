@@ -34,6 +34,23 @@ type VM struct {
 	UpdatedAt     time.Time
 }
 
+// VMConfig captures the serialized configuration stored for a VM.
+type VMConfig struct {
+	VMID       int64
+	Version    int
+	ConfigJSON []byte
+	UpdatedAt  time.Time
+}
+
+// VMConfigHistoryEntry represents a historical version of a VM configuration.
+type VMConfigHistoryEntry struct {
+	ID         int64
+	VMID       int64
+	Version    int
+	ConfigJSON []byte
+	UpdatedAt  time.Time
+}
+
 // IPStatus communicates whether an address is available or leased.
 type IPStatus string
 
@@ -84,6 +101,7 @@ type Queries interface {
 	VirtualMachines() VMRepository
 	IPAllocations() IPRepository
 	Plugins() PluginRepository
+	VMConfigs() VMConfigRepository
 }
 
 // VMRepository manages CRUD and lifecycle updates for VMs.
@@ -94,7 +112,15 @@ type VMRepository interface {
 	UpdateRuntimeState(ctx context.Context, id int64, status VMStatus, pid *int64) error
 	UpdateKernelCmdline(ctx context.Context, id int64, cmdline string) error
 	UpdateSockets(ctx context.Context, id int64, serial string) error
+	UpdateSpec(ctx context.Context, id int64, runtime string, cpuCores, memoryMB int, kernelCmdline string) error
 	Delete(ctx context.Context, id int64) error
+}
+
+// VMConfigRepository manages serialized VM configuration payloads.
+type VMConfigRepository interface {
+	GetCurrent(ctx context.Context, vmID int64) (*VMConfig, error)
+	Upsert(ctx context.Context, vmID int64, payload []byte) (*VMConfig, error)
+	History(ctx context.Context, vmID int64, limit int) ([]VMConfigHistoryEntry, error)
 }
 
 // IPRepository manages deterministic IP allocation.

@@ -1,0 +1,16 @@
+CREATE TABLE IF NOT EXISTS vm_configs (
+    vm_id INTEGER PRIMARY KEY REFERENCES vms(id) ON DELETE CASCADE,
+    config_json TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS vm_config_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vm_id INTEGER NOT NULL REFERENCES vms(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    config_json TEXT NOT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_vm_config_history_vm ON vm_config_history(vm_id, version DESC);

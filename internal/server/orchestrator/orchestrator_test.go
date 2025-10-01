@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/ccheshirecat/volant/internal/pluginspec"
 	"github.com/ccheshirecat/volant/internal/server/db/sqlite"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator/network"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator/runtime"
@@ -44,7 +45,14 @@ func TestEngineCreateAndDestroyVM(t *testing.T) {
 		t.Fatalf("engine start: %v", err)
 	}
 
-	vm, err := engine.CreateVM(ctx, CreateVMRequest{Name: "vm-test-1", Runtime: "browser", CPUCores: 2, MemoryMB: 2048})
+	vm, err := engine.CreateVM(ctx, CreateVMRequest{
+		Name:     "vm-test-1",
+		Plugin:   "browser",
+		Runtime:  "browser",
+		CPUCores: 2,
+		MemoryMB: 2048,
+		Manifest: &pluginspec.Manifest{Name: "browser", Runtime: "browser"},
+	})
 	if err != nil {
 		t.Fatalf("create vm: %v", err)
 	}

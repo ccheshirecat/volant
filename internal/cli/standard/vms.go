@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ccheshirecat/volant/internal/cli/client"
+	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
 	"golang.org/x/term"
 )
 
@@ -46,6 +47,11 @@ func newVMsCmd() *cobra.Command {
 	cmd.AddCommand(newVMsScrapeCmd())
 	cmd.AddCommand(newVMsExecCmd())
 	cmd.AddCommand(newVMsGraphQLCmd())
+	cmd.AddCommand(newVMsStartCmd())
+	cmd.AddCommand(newVMsStopCmd())
+	cmd.AddCommand(newVMsRestartCmd())
+	cmd.AddCommand(newVMsScaleCmd())
+	cmd.AddCommand(newVMsConfigCmd())
 	return cmd
 }
 
@@ -138,37 +144,71 @@ func newVMsGetCmd() *cobra.Command {
 }
 
 func newVMsCreateCmd() *cobra.Command {
+	var configPath string
 	cmd := &cobra.Command{
 		Use:   "create <name>",
 		Short: "Create a microVM",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			runtimeName, err := cmd.Flags().GetString("runtime")
+			runtimeFlag, err := cmd.Flags().GetString("runtime")
 			if err != nil {
 				return err
 			}
-			runtimeName = strings.TrimSpace(runtimeName)
+			cpuFlag, err := cmd.Flags().GetInt("cpu")
+			if err != nil {
+				return err
+			}
+			memFlag, err := cmd.Flags().GetInt("memory")
+			if err != nil {
+				return err
+			}
+			kernelFlag, err := cmd.Flags().GetString("kernel-cmdline")
+			if err != nil {
+				return err
+			}
+			pluginFlag, err := cmd.Flags().GetString("plugin")
+			if err != nil {
+				return err
+			}
+			apiHostFlag, err := cmd.Flags().GetString("api-host")
+			if err != nil {
+				return err
+			}
+			apiPortFlag, err := cmd.Flags().GetString("api-port")
+			if err != nil {
+				return err
+			}
+			configPath = strings.TrimSpace(configPath)
 
-			cpu, err := cmd.Flags().GetInt("cpu")
-			if err != nil {
-				return err
-			}
-			mem, err := cmd.Flags().GetInt("memory")
-			if err != nil {
-				return err
-			}
-			kernelCmdline, err := cmd.Flags().GetString("kernel-cmdline")
-			if err != nil {
-				return err
+			var cfg *vmconfig.Config
+			if configPath != "" {
+				data, readErr := os.ReadFile(configPath)
+				if readErr != nil {
+					return readErr
+				}
+				var parsed vmconfig.Config
+				if err := json.Unmarshal(data, &parsed); err != nil {
+					var envelope struct {
+						Config vmconfig.Config `json:"config"`
+					}
+					if err2 := json.Unmarshal(data, &envelope); err2 != nil {
+						return fmt.Errorf("parse config file: %w", err)
+					}
+					parsed = envelope.Config
+				}
+				cfg = &parsed
 			}
 
-			pluginName, err := cmd.Flags().GetString("plugin")
-			if err != nil {
-				return err
+			pluginName := strings.TrimSpace(pluginFlag)
+			if cfg != nil && strings.TrimSpace(cfg.Plugin) != "" {
+				cfgPlugin := strings.TrimSpace(cfg.Plugin)
+				if pluginName != "" && !strings.EqualFold(pluginName, cfgPlugin) {
+					return fmt.Errorf("plugin mismatch between flag (%s) and config (%s)", pluginName, cfgPlugin)
+				}
+				pluginName = cfgPlugin
 			}
-			pluginName = strings.TrimSpace(pluginName)
 			if pluginName == "" {
-				return fmt.Errorf("plugin is required")
+				return fmt.Errorf("plugin is required (flag or config file)")
 			}
 
 			api, err := clientFromCmd(cmd)
@@ -186,6 +226,11 @@ func newVMsCreateCmd() *cobra.Command {
 			if manifest.Labels == nil {
 				manifest.Labels = map[string]string{}
 			}
+
+			runtimeName := strings.TrimSpace(runtimeFlag)
+			if cfg != nil && strings.TrimSpace(cfg.Runtime) != "" {
+				runtimeName = strings.TrimSpace(cfg.Runtime)
+			}
 			if runtimeName == "" {
 				runtimeName = manifest.Runtime
 			}
@@ -196,14 +241,57 @@ func newVMsCreateCmd() *cobra.Command {
 				return fmt.Errorf("plugin %s does not define a runtime", pluginName)
 			}
 
-			vm, err := api.CreateVM(ctx, client.CreateVMRequest{
+			cpu := cpuFlag
+			if cfg != nil && cfg.Resources.CPUCores > 0 {
+				cpu = cfg.Resources.CPUCores
+			}
+			if cpu <= 0 {
+				cpu = 2
+			}
+
+			mem := memFlag
+			if cfg != nil && cfg.Resources.MemoryMB > 0 {
+				mem = cfg.Resources.MemoryMB
+			}
+			if mem <= 0 {
+				mem = 2048
+			}
+
+			kernelExtra := strings.TrimSpace(kernelFlag)
+			if cfg != nil && strings.TrimSpace(cfg.KernelCmdline) != "" {
+				kernelExtra = strings.TrimSpace(cfg.KernelCmdline)
+			}
+
+			apiHost := strings.TrimSpace(apiHostFlag)
+			if cfg != nil && strings.TrimSpace(cfg.API.Host) != "" {
+				apiHost = strings.TrimSpace(cfg.API.Host)
+			}
+			apiPort := strings.TrimSpace(apiPortFlag)
+			if cfg != nil && strings.TrimSpace(cfg.API.Port) != "" {
+				apiPort = strings.TrimSpace(cfg.API.Port)
+			}
+
+			req := client.CreateVMRequest{
 				Name:          args[0],
 				Plugin:        pluginName,
 				Runtime:       runtimeName,
 				CPUCores:      cpu,
 				MemoryMB:      mem,
-				KernelCmdline: kernelCmdline,
-			})
+				KernelCmdline: kernelExtra,
+				APIHost:       apiHost,
+				APIPort:       apiPort,
+			}
+			if cfg != nil {
+				cfgClone := cfg.Clone()
+				cfgClone.Plugin = pluginName
+				cfgClone.Runtime = runtimeName
+				cfgClone.Resources = vmconfig.Resources{CPUCores: cpu, MemoryMB: mem}
+				cfgClone.KernelCmdline = kernelExtra
+				cfgClone.API = vmconfig.API{Host: apiHost, Port: apiPort}
+				req.Config = &cfgClone
+			}
+
+			vm, err := api.CreateVM(ctx, req)
 			if err != nil {
 				return err
 			}
@@ -211,11 +299,14 @@ func newVMsCreateCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("runtime", "", "Runtime type to launch (derived from plugin if omitted)")
+	cmd.Flags().String("runtime", "", "Runtime type to launch (derived from plugin or config if omitted)")
 	cmd.Flags().Int("cpu", 2, "Number of virtual CPU cores")
 	cmd.Flags().Int("memory", 2048, "Memory (MB)")
 	cmd.Flags().String("kernel-cmdline", "", "Additional kernel cmdline parameters")
 	cmd.Flags().String("plugin", "", "Plugin name to use when creating the VM")
+	cmd.Flags().StringVar(&configPath, "config", "", "Path to a VM config JSON file")
+	cmd.Flags().String("api-host", "", "Override agent API host for the VM")
+	cmd.Flags().String("api-port", "", "Override agent API port for the VM")
 	return cmd
 }
 
@@ -239,6 +330,292 @@ func newVMsDeleteCmd() *cobra.Command {
 			return nil
 		},
 	}
+	return cmd
+}
+
+func newVMsStartCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "start <name>",
+		Short: "Start a stopped microVM",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+
+			vm, err := api.StartVM(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			if vm.PID != nil {
+				fmt.Fprintf(cmd.OutOrStdout(), "VM %s started (PID %d)\n", vm.Name, *vm.PID)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "VM %s started\n", vm.Name)
+			}
+			return nil
+		},
+	}
+	return cmd
+}
+
+func newVMsStopCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "stop <name>",
+		Short: "Stop a running microVM",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+
+			vm, err := api.StopVM(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "VM %s stopped\n", vm.Name)
+			return nil
+		},
+	}
+	return cmd
+}
+
+func newVMsRestartCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "restart <name>",
+		Short: "Restart a microVM",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+			defer cancel()
+
+			vm, err := api.RestartVM(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			if vm.PID != nil {
+				fmt.Fprintf(cmd.OutOrStdout(), "VM %s restarted (PID %d)\n", vm.Name, *vm.PID)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "VM %s restarted\n", vm.Name)
+			}
+			return nil
+		},
+	}
+	return cmd
+}
+
+func newVMsScaleCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "scale <name>",
+		Short: "Update CPU and memory allocation for a microVM",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cpuVal, err := cmd.Flags().GetInt("cpu")
+			if err != nil {
+				return err
+			}
+			memVal, err := cmd.Flags().GetInt("memory")
+			if err != nil {
+				return err
+			}
+			restart, err := cmd.Flags().GetBool("restart")
+			if err != nil {
+				return err
+			}
+			if cpuVal <= 0 && memVal <= 0 {
+				return fmt.Errorf("specify --cpu and/or --memory to update")
+			}
+
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+
+			var resPatch vmconfig.ResourcesPatch
+			setPatch := false
+			if cpuVal > 0 {
+				cpuCopy := cpuVal
+				resPatch.CPUCores = &cpuCopy
+				setPatch = true
+			}
+			if memVal > 0 {
+				memCopy := memVal
+				resPatch.MemoryMB = &memCopy
+				setPatch = true
+			}
+			if !setPatch {
+				return fmt.Errorf("no resources to update")
+			}
+
+			patch := vmconfig.Patch{Resources: &resPatch}
+			updated, err := api.UpdateVMConfig(ctx, args[0], patch)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "VM %s updated: CPU=%d cores, Memory=%d MB (config version %d)\n",
+				args[0], updated.Config.Resources.CPUCores, updated.Config.Resources.MemoryMB, updated.Version)
+			if restart {
+				restartCtx, cancelRestart := context.WithTimeout(cmd.Context(), 60*time.Second)
+				defer cancelRestart()
+				if _, err := api.RestartVM(restartCtx, args[0]); err != nil {
+					return fmt.Errorf("config updated but restart failed: %w", err)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "VM %s restarted to apply resource changes\n", args[0])
+			}
+			return nil
+		},
+	}
+	cmd.Flags().Int("cpu", -1, "Target number of virtual CPU cores")
+	cmd.Flags().Int("memory", -1, "Target memory in MB")
+	cmd.Flags().Bool("restart", false, "Restart the VM after updating resources")
+	return cmd
+}
+
+func newVMsConfigCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Inspect and update VM configuration",
+	}
+	cmd.AddCommand(newVMsConfigGetCmd())
+	cmd.AddCommand(newVMsConfigSetCmd())
+	cmd.AddCommand(newVMsConfigHistoryCmd())
+	return cmd
+}
+
+func newVMsConfigGetCmd() *cobra.Command {
+	var outputPath string
+	var raw bool
+	cmd := &cobra.Command{
+		Use:   "get <name>",
+		Short: "Fetch the current VM configuration",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
+			defer cancel()
+
+			cfg, err := api.GetVMConfig(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			var payload any
+			if raw {
+				payload = cfg
+			} else {
+				payload = cfg.Config
+			}
+
+			data, err := json.MarshalIndent(payload, "", "  ")
+			if err != nil {
+				return err
+			}
+			if outputPath != "" {
+				return os.WriteFile(outputPath, data, 0o644)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), string(data))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&outputPath, "output", "", "Write configuration to file instead of stdout")
+	cmd.Flags().BoolVar(&raw, "raw", false, "Include metadata such as version and timestamps")
+	return cmd
+}
+
+func newVMsConfigSetCmd() *cobra.Command {
+	var filePath string
+	cmd := &cobra.Command{
+		Use:   "set <name>",
+		Short: "Replace VM configuration from a file",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(filePath) == "" {
+				return fmt.Errorf("--file is required")
+			}
+			data, err := os.ReadFile(filePath)
+			if err != nil {
+				return err
+			}
+
+			var cfg vmconfig.Config
+			if err := json.Unmarshal(data, &cfg); err != nil {
+				var envelope struct {
+					Config vmconfig.Config `json:"config"`
+				}
+				if err2 := json.Unmarshal(data, &envelope); err2 != nil {
+					return fmt.Errorf("parse config file: %w", err)
+				}
+				cfg = envelope.Config
+			}
+			payload, err := json.Marshal(cfg)
+			if err != nil {
+				return err
+			}
+
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+
+			updated, err := api.UpdateVMConfigRaw(ctx, args[0], payload)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "VM %s configuration updated (version %d)\n", args[0], updated.Version)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&filePath, "file", "", "Path to JSON configuration file")
+	return cmd
+}
+
+func newVMsConfigHistoryCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "history <name>",
+		Short: "Show VM configuration history",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			limit, err := cmd.Flags().GetInt("limit")
+			if err != nil {
+				return err
+			}
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
+			defer cancel()
+			history, err := api.GetVMConfigHistory(ctx, args[0], limit)
+			if err != nil {
+				return err
+			}
+			for _, entry := range history {
+				fmt.Fprintf(cmd.OutOrStdout(), "Version %d	%s	CPU=%d	Memory=%d MB\n",
+					entry.Version,
+					entry.UpdatedAt.UTC().Format(time.RFC3339),
+					entry.Config.Resources.CPUCores,
+					entry.Config.Resources.MemoryMB,
+				)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().Int("limit", 0, "Limit the number of history entries returned")
 	return cmd
 }
 

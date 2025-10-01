@@ -27,6 +27,7 @@ import (
 	"github.com/ccheshirecat/volant/internal/server/eventbus"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator"
 	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
+	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
 	"github.com/ccheshirecat/volant/internal/server/plugins"
 )
 
@@ -89,7 +90,13 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 			vms.GET("", api.listVMs)
 			vms.POST("", api.createVM)
 			vms.GET(":name", api.getVM)
+			vms.GET(":name/config", api.getVMConfig)
+			vms.GET(":name/config/history", api.getVMConfigHistory)
+			vms.PATCH(":name/config", api.updateVMConfig)
 			vms.DELETE(":name", api.deleteVM)
+			vms.POST(":name/start", api.startVM)
+			vms.POST(":name/stop", api.stopVM)
+			vms.POST(":name/restart", api.restartVM)
 			vms.Any(":name/agent/*path", api.proxyAgent)
 			vms.POST(":name/actions/:plugin/:action", api.postVMPluginAction)
 		}
@@ -259,12 +266,15 @@ type graphqlActionRequest struct {
 }
 
 type createVMRequest struct {
-	Name          string `json:"name" binding:"required"`
-	Plugin        string `json:"plugin" binding:"required"`
-	Runtime       string `json:"runtime"`
-	CPUCores      int    `json:"cpu_cores" binding:"required,min=1"`
-	MemoryMB      int    `json:"memory_mb" binding:"required,min=64"`
-	KernelCmdline string `json:"kernel_cmdline"`
+	Name          string           `json:"name" binding:"required"`
+	Plugin        string           `json:"plugin"`
+	Runtime       string           `json:"runtime"`
+	CPUCores      int              `json:"cpu_cores"`
+	MemoryMB      int              `json:"memory_mb"`
+	KernelCmdline string           `json:"kernel_cmdline"`
+	APIHost       string           `json:"api_host"`
+	APIPort       string           `json:"api_port"`
+	Config        *vmconfig.Config `json:"config,omitempty"`
 }
 
 type vmResponse struct {
@@ -348,6 +358,18 @@ func (api *apiServer) createVM(c *gin.Context) {
 		return
 	}
 	pluginName := strings.TrimSpace(req.Plugin)
+	if req.Config != nil && strings.TrimSpace(req.Config.Plugin) != "" {
+		configPlugin := strings.TrimSpace(req.Config.Plugin)
+		if pluginName != "" && !strings.EqualFold(pluginName, configPlugin) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "plugin mismatch between request and config"})
+			return
+		}
+		pluginName = configPlugin
+	}
+	if pluginName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "plugin is required"})
+		return
+	}
 	manifest, ok := api.plugins.Get(pluginName)
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("plugin %s not found", pluginName)})
@@ -361,26 +383,83 @@ func (api *apiServer) createVM(c *gin.Context) {
 	manifestCopy := manifest
 	manifestCopy.Labels = labels
 	manifestCopy.Normalize()
-	if strings.TrimSpace(req.Runtime) == "" {
-		req.Runtime = manifestCopy.Runtime
+
+	runtimeName := strings.TrimSpace(req.Runtime)
+	if req.Config != nil && strings.TrimSpace(req.Config.Runtime) != "" {
+		runtimeName = strings.TrimSpace(req.Config.Runtime)
 	}
-	if strings.TrimSpace(req.Runtime) == "" {
-		req.Runtime = manifestCopy.Name
+	if runtimeName == "" {
+		runtimeName = manifestCopy.Runtime
 	}
-	if strings.TrimSpace(req.Runtime) == "" {
+	if runtimeName == "" {
+		runtimeName = manifestCopy.Name
+	}
+	if runtimeName == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "runtime not specified and plugin manifest missing runtime"})
 		return
 	}
+
+	cpu := req.CPUCores
+	if req.Config != nil && req.Config.Resources.CPUCores > 0 {
+		cpu = req.Config.Resources.CPUCores
+	}
+	if cpu <= 0 {
+		cpu = 2
+	}
+	mem := req.MemoryMB
+	if req.Config != nil && req.Config.Resources.MemoryMB > 0 {
+		mem = req.Config.Resources.MemoryMB
+	}
+	if mem <= 0 {
+		mem = 2048
+	}
+
+	kernelExtra := strings.TrimSpace(req.KernelCmdline)
+	if req.Config != nil && strings.TrimSpace(req.Config.KernelCmdline) != "" {
+		kernelExtra = strings.TrimSpace(req.Config.KernelCmdline)
+	}
+
+	apiHost := strings.TrimSpace(req.APIHost)
+	apiPort := strings.TrimSpace(req.APIPort)
+	if req.Config != nil {
+		if host := strings.TrimSpace(req.Config.API.Host); host != "" {
+			apiHost = host
+		}
+		if port := strings.TrimSpace(req.Config.API.Port); port != "" {
+			apiPort = port
+		}
+	}
+
+	var configClone *vmconfig.Config
+	if req.Config != nil {
+		clone := req.Config.Clone()
+		clone.Plugin = pluginName
+		clone.Runtime = runtimeName
+		clone.Resources = vmconfig.Resources{CPUCores: cpu, MemoryMB: mem}
+		clone.KernelCmdline = kernelExtra
+		clone.API = vmconfig.API{Host: apiHost, Port: apiPort}
+		if clone.Manifest == nil {
+			manifestForConfig := manifestCopy
+			clone.Manifest = &manifestForConfig
+		} else {
+			manifestForConfig := *clone.Manifest
+			manifestForConfig.Normalize()
+			clone.Manifest = &manifestForConfig
+		}
+		configClone = &clone
+	}
+
 	vm, err := api.engine.CreateVM(c.Request.Context(), orchestrator.CreateVMRequest{
 		Name:              req.Name,
 		Plugin:            pluginName,
-		Runtime:           req.Runtime,
-		CPUCores:          req.CPUCores,
-		MemoryMB:          req.MemoryMB,
-		APIHost:           "",
-		APIPort:           "",
-		KernelCmdlineHint: req.KernelCmdline,
+		Runtime:           runtimeName,
+		CPUCores:          cpu,
+		MemoryMB:          mem,
+		APIHost:           apiHost,
+		APIPort:           apiPort,
+		KernelCmdlineHint: kernelExtra,
 		Manifest:          &manifestCopy,
+		Config:            configClone,
 	})
 	if err != nil {
 		api.logger.Error("create vm", "vm", req.Name, "error", err)
@@ -395,6 +474,90 @@ func (api *apiServer) createVM(c *gin.Context) {
 		Message:   "VM created",
 	})
 	c.JSON(http.StatusCreated, vmToResponse(vm))
+}
+
+func (api *apiServer) getVMConfig(c *gin.Context) {
+	name := c.Param("name")
+	config, err := api.engine.GetVMConfig(c.Request.Context(), name)
+	if err != nil {
+		api.logger.Error("get vm config", "vm", name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	if config == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "vm config not found"})
+		return
+	}
+	c.JSON(http.StatusOK, config)
+}
+
+func (api *apiServer) updateVMConfig(c *gin.Context) {
+	name := c.Param("name")
+	var patch vmconfig.Patch
+	if err := c.ShouldBindJSON(&patch); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	config, err := api.engine.UpdateVMConfig(c.Request.Context(), name, patch)
+	if err != nil {
+		api.logger.Error("update vm config", "vm", name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, config)
+}
+
+func (api *apiServer) getVMConfigHistory(c *gin.Context) {
+	name := c.Param("name")
+	limit := 0
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		val, err := strconv.Atoi(raw)
+		if err != nil || val < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid limit"})
+			return
+		}
+		limit = val
+	}
+	entries, err := api.engine.GetVMConfigHistory(c.Request.Context(), name, limit)
+	if err != nil {
+		api.logger.Error("vm config history", "vm", name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, entries)
+}
+
+func (api *apiServer) startVM(c *gin.Context) {
+	name := c.Param("name")
+	vm, err := api.engine.StartVM(c.Request.Context(), name)
+	if err != nil {
+		api.logger.Error("start vm", "vm", name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, vmToResponse(vm))
+}
+
+func (api *apiServer) stopVM(c *gin.Context) {
+	name := c.Param("name")
+	vm, err := api.engine.StopVM(c.Request.Context(), name)
+	if err != nil {
+		api.logger.Error("stop vm", "vm", name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, vmToResponse(vm))
+}
+
+func (api *apiServer) restartVM(c *gin.Context) {
+	name := c.Param("name")
+	vm, err := api.engine.RestartVM(c.Request.Context(), name)
+	if err != nil {
+		api.logger.Error("restart vm", "vm", name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, vmToResponse(vm))
 }
 
 func (api *apiServer) deleteVM(c *gin.Context) {

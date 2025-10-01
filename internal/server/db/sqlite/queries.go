@@ -41,6 +41,10 @@ func (q *queries) Plugins() db.PluginRepository {
 	return &pluginRepository{exec: q.exec}
 }
 
+func (q *queries) VMConfigs() db.VMConfigRepository {
+	return &vmConfigRepository{exec: q.exec}
+}
+
 type vmRepository struct {
 	exec executor
 }
@@ -138,6 +142,13 @@ func (r *vmRepository) UpdateSockets(ctx context.Context, id int64, serial strin
 	return nil
 }
 
+func (r *vmRepository) UpdateSpec(ctx context.Context, id int64, runtime string, cpuCores, memoryMB int, kernelCmdline string) error {
+	if _, err := r.exec.ExecContext(ctx, `UPDATE vms SET runtime = ?, cpu_cores = ?, memory_mb = ?, kernel_cmdline = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;`, runtime, cpuCores, memoryMB, nullableString(kernelCmdline), id); err != nil {
+		return fmt.Errorf("update vm spec: %w", err)
+	}
+	return nil
+}
+
 func (r *vmRepository) Delete(ctx context.Context, id int64) error {
 	if _, err := r.exec.ExecContext(ctx, `DELETE FROM vms WHERE id = ?;`, id); err != nil {
 		return fmt.Errorf("delete vm: %w", err)
@@ -230,6 +241,12 @@ type pluginRepository struct {
 
 var _ db.PluginRepository = (*pluginRepository)(nil)
 
+type vmConfigRepository struct {
+	exec executor
+}
+
+var _ db.VMConfigRepository = (*vmConfigRepository)(nil)
+
 func (r *pluginRepository) Upsert(ctx context.Context, plugin db.Plugin) error {
 	meta := plugin.Metadata
 	if meta == nil {
@@ -303,6 +320,80 @@ func (r *pluginRepository) Delete(ctx context.Context, name string) error {
 		return fmt.Errorf("delete plugin rows: %w", err)
 	}
 	return nil
+}
+
+func (r *vmConfigRepository) GetCurrent(ctx context.Context, vmID int64) (*db.VMConfig, error) {
+	row := r.exec.QueryRowContext(ctx, `SELECT vm_id, version, config_json, updated_at FROM vm_configs WHERE vm_id = ?;`, vmID)
+	cfg, err := scanVMConfig(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func (r *vmConfigRepository) Upsert(ctx context.Context, vmID int64, payload []byte) (*db.VMConfig, error) {
+	var currentVersion int
+	row := r.exec.QueryRowContext(ctx, `SELECT version FROM vm_configs WHERE vm_id = ?;`, vmID)
+	switch err := row.Scan(&currentVersion); err {
+	case nil:
+	case sql.ErrNoRows:
+		currentVersion = 0
+	default:
+		return nil, fmt.Errorf("select vm config version: %w", err)
+	}
+
+	nextVersion := currentVersion + 1
+	configText := string(payload)
+
+	if _, err := r.exec.ExecContext(ctx, `INSERT INTO vm_configs (vm_id, config_json, version, updated_at)
+	VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+	ON CONFLICT(vm_id) DO UPDATE SET config_json = excluded.config_json, version = excluded.version, updated_at = CURRENT_TIMESTAMP;`, vmID, configText, nextVersion); err != nil {
+		return nil, fmt.Errorf("upsert vm config: %w", err)
+	}
+
+	if _, err := r.exec.ExecContext(ctx, `INSERT INTO vm_config_history (vm_id, version, config_json, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP);`, vmID, nextVersion, configText); err != nil {
+		return nil, fmt.Errorf("insert vm config history: %w", err)
+	}
+
+	row = r.exec.QueryRowContext(ctx, `SELECT vm_id, version, config_json, updated_at FROM vm_configs WHERE vm_id = ?;`, vmID)
+	cfg, err := scanVMConfig(row)
+	if err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func (r *vmConfigRepository) History(ctx context.Context, vmID int64, limit int) ([]db.VMConfigHistoryEntry, error) {
+	baseQuery := `SELECT id, vm_id, version, config_json, updated_at FROM vm_config_history WHERE vm_id = ? ORDER BY version DESC`
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if limit > 0 {
+		rows, err = r.exec.QueryContext(ctx, baseQuery+" LIMIT ?", vmID, limit)
+	} else {
+		rows, err = r.exec.QueryContext(ctx, baseQuery, vmID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query vm config history: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []db.VMConfigHistoryEntry
+	for rows.Next() {
+		record, scanErr := scanVMConfigHistory(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		entries = append(entries, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate vm config history: %w", err)
+	}
+	return entries, nil
 }
 
 func scanVM(row rowScanner) (db.VM, error) {
@@ -425,6 +516,48 @@ func scanPlugin(row rowScanner) (db.Plugin, error) {
 	plugin.InstalledAt, _ = parseTimeField(installed)
 	plugin.UpdatedAt, _ = parseTimeField(updated)
 	return plugin, nil
+}
+
+func scanVMConfig(row rowScanner) (db.VMConfig, error) {
+	var (
+		cfg     db.VMConfig
+		payload []byte
+		updated any
+	)
+
+	if err := row.Scan(&cfg.VMID, &cfg.Version, &payload, &updated); err != nil {
+		if err == sql.ErrNoRows {
+			return db.VMConfig{}, err
+		}
+		return db.VMConfig{}, fmt.Errorf("scan vm config: %w", err)
+	}
+
+	cfg.ConfigJSON = append([]byte(nil), payload...)
+	ts, err := parseTimestamp(updated)
+	if err != nil {
+		return db.VMConfig{}, fmt.Errorf("parse vm config updated: %w", err)
+	}
+	cfg.UpdatedAt = ts
+	return cfg, nil
+}
+
+func scanVMConfigHistory(row rowScanner) (db.VMConfigHistoryEntry, error) {
+	var (
+		record  db.VMConfigHistoryEntry
+		payload []byte
+		updated any
+	)
+
+	if err := row.Scan(&record.ID, &record.VMID, &record.Version, &payload, &updated); err != nil {
+		return db.VMConfigHistoryEntry{}, fmt.Errorf("scan vm config history: %w", err)
+	}
+	record.ConfigJSON = append([]byte(nil), payload...)
+	ts, err := parseTimestamp(updated)
+	if err != nil {
+		return db.VMConfigHistoryEntry{}, fmt.Errorf("parse vm config history updated: %w", err)
+	}
+	record.UpdatedAt = ts
+	return record, nil
 }
 
 func parseTimeField(value any) (time.Time, error) {
