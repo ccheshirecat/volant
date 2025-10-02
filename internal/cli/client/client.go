@@ -160,6 +160,35 @@ func (c *Client) GetVM(ctx context.Context, name string) (*VM, error) {
 	return &vm, nil
 }
 
+// GetVMOpenAPI fetches the raw OpenAPI specification document for the VM's plugin.
+// Returns the document bytes and content type (application/json or application/yaml).
+func (c *Client) GetVMOpenAPI(ctx context.Context, name string) ([]byte, string, error) {
+	path := "/api/v1/vms/" + url.PathEscape(name) + "/openapi"
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, "", err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("client: get openapi: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, "", fmt.Errorf("client: get openapi http %d: %s", resp.StatusCode, string(body))
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", fmt.Errorf("client: read openapi: %w", err)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	return data, contentType, nil
+}
+
 func (c *Client) CreateVM(ctx context.Context, payload CreateVMRequest) (*VM, error) {
 	req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/vms", payload)
 	if err != nil {
@@ -453,25 +482,6 @@ func (c *Client) WatchVMLogs(ctx context.Context, name string, handler func(VMLo
 		}
 		handler(event)
 	}
-			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
-			_ = conn.Close()
-		case <-done:
-		}
-	}()
-
-	for {
-		msgType, payload, err := conn.ReadMessage()
-		if err != nil {
-			close(done)
-			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || errors.Is(err, context.Canceled) || ctx.Err() != nil {
-				return nil
-			}
-			return fmt.Errorf("client: read agui event: %w", err)
-		}
-		if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
-			handler(string(payload))
-		}
-	}
 }
 
 func (c *Client) AgentRequest(ctx context.Context, vmName, method, path string, body any, out any) error {
@@ -533,44 +543,8 @@ func (c *Client) BaseURL() *url.URL {
 	return &clone
 }
 
-func (c *Client) NavigateVM(ctx context.Context, name string, payload NavigateActionRequest) error {
-	if payload.URL == "" {
-		return fmt.Errorf("client: navigate url required")
-	}
-	return c.PluginActionVM(ctx, name, "browser", "navigate", payload)
-}
-
-func (c *Client) ScreenshotVM(ctx context.Context, name string, payload ScreenshotActionRequest) (*ScreenshotActionResponse, error) {
-	var response ScreenshotActionResponse
-	if err := c.PluginActionVM(ctx, name, "browser", "screenshot", payload, &response); err != nil {
-		return nil, err
-	}
-	return &response, nil
-}
-
-func (c *Client) ScrapeVM(ctx context.Context, name string, payload ScrapeActionRequest) (*ScrapeActionResponse, error) {
-	var response ScrapeActionResponse
-	if err := c.PluginActionVM(ctx, name, "browser", "scrape", payload, &response); err != nil {
-		return nil, err
-	}
-	return &response, nil
-}
-
-func (c *Client) EvaluateVM(ctx context.Context, name string, payload EvaluateActionRequest) (*EvaluateActionResponse, error) {
-	var response EvaluateActionResponse
-	if err := c.PluginActionVM(ctx, name, "browser", "evaluate", payload, &response); err != nil {
-		return nil, err
-	}
-	return &response, nil
-}
-
-func (c *Client) GraphQLVM(ctx context.Context, name string, payload GraphQLActionRequest) (GraphQLActionResponse, error) {
-	var response GraphQLActionResponse
-	if err := c.PluginActionVM(ctx, name, "browser", "graphql", payload, &response); err != nil {
-		return nil, err
-	}
-	return response, nil
-}
+// NOTE: Browser-specific methods removed in favor of dynamic OpenAPI-based operations
+// Use the generic ProxyVM method or the `volar vms call` command for plugin operations
 
 func (c *Client) MCP(ctx context.Context, request MCPRequest) (*MCPResponse, error) {
 	var response MCPResponse
