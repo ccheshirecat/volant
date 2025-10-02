@@ -944,6 +944,7 @@ func newVMsOperationsCmd() *cobra.Command {
 
 			// Fetch the OpenAPI spec
 			data, _, err := api.GetVMOpenAPISpec(ctx, args[0])
+
 			if err != nil {
 				return fmt.Errorf("fetch openapi spec: %w", err)
 			}
@@ -1013,6 +1014,7 @@ Examples:
 
 			// Fetch the OpenAPI spec
 			data, _, err := api.GetVMOpenAPISpec(ctx, vmName)
+
 			if err != nil {
 				return fmt.Errorf("fetch openapi spec: %w", err)
 			}

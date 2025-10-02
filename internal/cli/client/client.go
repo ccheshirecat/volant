@@ -162,6 +162,35 @@ func (c *Client) GetVM(ctx context.Context, name string) (*VM, error) {
 	return &vm, nil
 }
 
+// GetVMOpenAPI fetches the raw OpenAPI specification document for the VM's plugin.
+// Returns the document bytes and content type (application/json or application/yaml).
+func (c *Client) GetVMOpenAPI(ctx context.Context, name string) ([]byte, string, error) {
+	path := "/api/v1/vms/" + url.PathEscape(name) + "/openapi"
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, "", err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("client: get openapi: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, "", fmt.Errorf("client: get openapi http %d: %s", resp.StatusCode, string(body))
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", fmt.Errorf("client: read openapi: %w", err)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	return data, contentType, nil
+}
+
 func (c *Client) CreateVM(ctx context.Context, payload CreateVMRequest) (*VM, error) {
 	req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/vms", payload)
 	if err != nil {
@@ -540,6 +569,7 @@ func (c *Client) BaseURL() *url.URL {
 	clone := *c.baseURL
 	return &clone
 }
+
 
 func (c *Client) MCP(ctx context.Context, request MCPRequest) (*MCPResponse, error) {
 	var response MCPResponse
