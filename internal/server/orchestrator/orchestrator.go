@@ -19,6 +19,7 @@ import (
 	"github.com/ccheshirecat/volant/internal/pluginspec"
 	"github.com/ccheshirecat/volant/internal/server/db"
 	"github.com/ccheshirecat/volant/internal/server/eventbus"
+	"github.com/ccheshirecat/volant/internal/server/orchestrator/cloudinit"
 	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator/network"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator/runtime"
@@ -210,6 +211,7 @@ type processHandle struct {
 	instance runtime.Instance
 	tapName  string
 	serial   string
+	seedPath string
 }
 
 var (
@@ -386,6 +388,8 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		manifestForConfig = &manifestCopy
 	}
 
+	additionalDisks := buildAdditionalDisks(req.Manifest)
+
 	configToStore := vmconfig.Config{}
 	if req.Config != nil {
 		configToStore = req.Config.Clone()
@@ -414,20 +418,51 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		configToStore.Manifest = &manifestCopy
 	}
 
+	var seedDisk *runtime.Disk
+	var cloudInitRecord *db.VMCloudInit
+	overrideCloudInit := (*pluginspec.CloudInit)(nil)
+	if configToStore.CloudInit != nil {
+		overrideCopy := *configToStore.CloudInit
+		overrideCopy.Normalize()
+		overrideCloudInit = &overrideCopy
+	}
+	effectiveCloudInit, record, preparedSeedDisk, err := e.prepareCloudInitSeed(ctx, vmRecord, manifestForConfig, overrideCloudInit)
+	if err != nil {
+		e.rollbackCreate(ctx, vmRecord)
+		return nil, err
+	}
+	configToStore.CloudInit = effectiveCloudInit
+	seedDisk = preparedSeedDisk
+	cloudInitRecord = record
+
 	configPayload, err := vmconfig.Marshal(configToStore)
 	if err != nil {
+		if seedDisk != nil {
+			_ = os.Remove(seedDisk.Path)
+		}
 		e.rollbackCreate(ctx, vmRecord)
 		return nil, err
 	}
 
 	if err := e.store.WithTx(ctx, func(q db.Queries) error {
-		_, upsertErr := q.VMConfigs().Upsert(ctx, vmRecord.ID, configPayload)
-		return upsertErr
+		if _, upsertErr := q.VMConfigs().Upsert(ctx, vmRecord.ID, configPayload); upsertErr != nil {
+			return upsertErr
+		}
+		if cloudInitRecord != nil {
+			record := *cloudInitRecord
+			record.VMID = vmRecord.ID
+			if err := q.VMCloudInit().Upsert(ctx, record); err != nil {
+				return err
+			}
+		}
+		return nil
 	}); err != nil {
+		if seedDisk != nil {
+			_ = os.Remove(seedDisk.Path)
+		}
 		e.rollbackCreate(ctx, vmRecord)
 		return nil, err
 	}
-
 	tapName, err := e.network.PrepareTap(ctx, vmRecord.Name, vmRecord.MACAddress)
 	if err != nil {
 		e.rollbackCreate(ctx, vmRecord)
@@ -456,6 +491,10 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		Gateway:       e.hostIP.String(),
 		Netmask:       netmask,
 		SerialSocket:  serialPath,
+	}
+	spec.Disks = additionalDisks
+	if seedDisk != nil {
+		spec.SeedDisk = seedDisk
 	}
 
 	cmdArgs := map[string]string{
@@ -488,6 +527,9 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 
 	instance, err := e.launcher.Launch(launchCtx, spec)
 	if err != nil {
+		if seedDisk != nil {
+			_ = os.Remove(seedDisk.Path)
+		}
 		_ = e.network.CleanupTap(ctx, tapName)
 		e.rollbackCreate(ctx, vmRecord)
 		return nil, err
@@ -504,11 +546,18 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 	}); err != nil {
 		_ = instance.Stop(ctx)
 		_ = e.network.CleanupTap(ctx, tapName)
+		if seedDisk != nil {
+			_ = os.Remove(seedDisk.Path)
+		}
 		return nil, err
 	}
 
 	e.mu.Lock()
-	handle := processHandle{instance: instance, tapName: tapName, serial: spec.SerialSocket}
+	seedPath := ""
+	if seedDisk != nil {
+		seedPath = seedDisk.Path
+	}
+	handle := processHandle{instance: instance, tapName: tapName, serial: spec.SerialSocket, seedPath: seedPath}
 	e.instances[vmRecord.Name] = handle
 	e.mu.Unlock()
 
@@ -526,7 +575,10 @@ func (e *engine) DestroyVM(ctx context.Context, name string) error {
 }
 
 func (e *engine) destroyVM(ctx context.Context, name string, reconcile bool) (*db.VM, error) {
-	var vmRecord *db.VM
+	var (
+		vmRecord    *db.VM
+		cloudRecord *db.VMCloudInit
+	)
 	err := e.store.WithTx(ctx, func(q db.Queries) error {
 		vmRepo := q.VirtualMachines()
 		vm, err := vmRepo.GetByName(ctx, name)
@@ -537,10 +589,18 @@ func (e *engine) destroyVM(ctx context.Context, name string, reconcile bool) (*d
 			return fmt.Errorf("%w: %s", ErrVMNotFound, name)
 		}
 		vmRecord = vm
+		if record, err := q.VMCloudInit().Get(ctx, vm.ID); err == nil {
+			cloudRecord = record
+		} else if err != nil {
+			return err
+		}
 		if err := vmRepo.Delete(ctx, vm.ID); err != nil {
 			return err
 		}
 		if err := q.IPAllocations().Release(ctx, vm.IPAddress); err != nil {
+			return err
+		}
+		if err := q.VMCloudInit().Delete(ctx, vm.ID); err != nil {
 			return err
 		}
 		return nil
@@ -567,6 +627,19 @@ func (e *engine) destroyVM(ctx context.Context, name string, reconcile bool) (*d
 			if removeErr := os.Remove(socket); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 				e.logger.Debug("remove api socket", "path", socket, "error", removeErr)
 			}
+		}
+	}
+
+	seedPath := ""
+	if cloudRecord != nil && strings.TrimSpace(cloudRecord.SeedPath) != "" {
+		seedPath = strings.TrimSpace(cloudRecord.SeedPath)
+	}
+	if exists && handle.seedPath != "" {
+		seedPath = handle.seedPath
+	}
+	if seedPath != "" {
+		if err := os.Remove(seedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			e.logger.Debug("remove seed image", "path", seedPath, "error", err)
 		}
 	}
 
@@ -709,8 +782,10 @@ func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
 	e.mu.Unlock()
 
 	var (
-		vmRecord *db.VM
-		cfg      vmconfig.Config
+		vmRecord         *db.VM
+		cfg              vmconfig.Config
+		cloudRecord      *db.VMCloudInit
+		cloudInitToStore *db.VMCloudInit
 	)
 
 	err := e.store.WithTx(ctx, func(q db.Queries) error {
@@ -734,6 +809,11 @@ func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
 			return err
 		}
 		cfg = versioned.Config.Clone()
+		if existing, err := q.VMCloudInit().Get(ctx, vm.ID); err == nil {
+			cloudRecord = existing
+		} else if err != nil {
+			return err
+		}
 		if err := vmRepo.UpdateRuntimeState(ctx, vm.ID, db.VMStatusStarting, nil); err != nil {
 			return err
 		}
@@ -790,6 +870,17 @@ func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
 		return nil, fmt.Errorf("orchestrator: manifest missing in configuration for vm %s", name)
 	}
 
+	additionalDisks := buildAdditionalDisks(manifest)
+	overrideCloudInit := cfg.CloudInit
+	mergedCloudInit, record, seedDisk, err := e.prepareCloudInitSeed(ctx, vmRecord, manifest, overrideCloudInit)
+	if err != nil {
+		_ = e.network.CleanupTap(ctx, tapName)
+		e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+		return nil, err
+	}
+	cfg.CloudInit = mergedCloudInit
+	cloudInitToStore = record
+
 	netmask := formatNetmask(e.subnet.Mask)
 	spec := runtime.LaunchSpec{
 		Name:          vmRecord.Name,
@@ -802,6 +893,10 @@ func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
 		Gateway:       e.hostIP.String(),
 		Netmask:       netmask,
 		SerialSocket:  serialPath,
+	}
+	spec.Disks = additionalDisks
+	if seedDisk != nil {
+		spec.SeedDisk = seedDisk
 	}
 
 	cmdArgs := map[string]string{
@@ -826,9 +921,40 @@ func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
 	spec.RootFS = strings.TrimSpace(manifest.RootFS.URL)
 	spec.RootFSChecksum = strings.TrimSpace(manifest.RootFS.Checksum)
 
+	if cloudInitToStore != nil {
+		cloudInitToStore.VMID = vmRecord.ID
+		if err := e.store.WithTx(ctx, func(q db.Queries) error {
+			return q.VMCloudInit().Upsert(ctx, *cloudInitToStore)
+		}); err != nil {
+			if seedDisk != nil {
+				_ = os.Remove(seedDisk.Path)
+			}
+			_ = e.network.CleanupTap(ctx, tapName)
+			e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+			return nil, err
+		}
+	} else if cloudRecord != nil {
+		if err := e.store.WithTx(ctx, func(q db.Queries) error {
+			return q.VMCloudInit().Delete(ctx, vmRecord.ID)
+		}); err != nil {
+			if seedDisk != nil {
+				_ = os.Remove(seedDisk.Path)
+			}
+			_ = e.network.CleanupTap(ctx, tapName)
+			e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+			return nil, err
+		}
+		if path := strings.TrimSpace(cloudRecord.SeedPath); path != "" {
+			_ = os.Remove(path)
+		}
+	}
+
 	launchCtx := e.launchContext()
 	instance, err := e.launcher.Launch(launchCtx, spec)
 	if err != nil {
+		if seedDisk != nil {
+			_ = os.Remove(seedDisk.Path)
+		}
 		_ = e.network.CleanupTap(ctx, tapName)
 		e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
 		return nil, err
@@ -844,11 +970,18 @@ func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
 	}); err != nil {
 		_ = instance.Stop(ctx)
 		_ = e.network.CleanupTap(ctx, tapName)
+		if seedDisk != nil {
+			_ = os.Remove(seedDisk.Path)
+		}
 		return nil, err
 	}
 
 	e.mu.Lock()
-	handle := processHandle{instance: instance, tapName: tapName, serial: spec.SerialSocket}
+	seedPath := ""
+	if seedDisk != nil {
+		seedPath = seedDisk.Path
+	}
+	handle := processHandle{instance: instance, tapName: tapName, serial: spec.SerialSocket, seedPath: seedPath}
 	e.instances[vmRecord.Name] = handle
 	e.mu.Unlock()
 
@@ -1152,6 +1285,11 @@ func (e *engine) monitorInstance(name string, handle processHandle) {
 				e.logger.Debug("remove api socket", "path", socket, "error", removeErr)
 			}
 		}
+		if stored.seedPath != "" {
+			if err := os.Remove(stored.seedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				e.logger.Debug("remove seed image", "path", stored.seedPath, "error", err)
+			}
+		}
 
 		if exitErr != nil {
 			e.logger.Warn("vm exited unexpectedly", "vm", name, "error", exitErr)
@@ -1335,6 +1473,145 @@ func normalizeDeploymentConfig(cfg vmconfig.Config) (vmconfig.Config, error) {
 		return vmconfig.Config{}, err
 	}
 	return clone, nil
+}
+
+func (e *engine) prepareCloudInitSeed(ctx context.Context, vm *db.VM, manifest *pluginspec.Manifest, override *pluginspec.CloudInit) (*pluginspec.CloudInit, *db.VMCloudInit, *runtime.Disk, error) {
+	if vm == nil {
+		return nil, nil, nil, fmt.Errorf("prepare cloud-init: vm required")
+	}
+
+	base := (*pluginspec.CloudInit)(nil)
+	if manifest != nil && manifest.CloudInit != nil {
+		copy := *manifest.CloudInit
+		copy.Normalize()
+		base = &copy
+	}
+	merged := mergeCloudInit(base, override)
+	if merged == nil {
+		if vm.ID != 0 {
+			queries := e.store.Queries()
+			if existing, err := queries.VMCloudInit().Get(ctx, vm.ID); err == nil {
+				if existing != nil {
+					if path := strings.TrimSpace(existing.SeedPath); path != "" {
+						_ = os.Remove(path)
+					}
+				}
+			} else {
+				return nil, nil, nil, err
+			}
+		}
+		return nil, nil, nil, nil
+	}
+	merged.Normalize()
+	if err := merged.Validate(); err != nil {
+		return nil, nil, nil, fmt.Errorf("cloud-init validate: %w", err)
+	}
+
+	queries := e.store.Queries()
+	var previous *db.VMCloudInit
+	if vm.ID != 0 {
+		record, err := queries.VMCloudInit().Get(ctx, vm.ID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		previous = record
+	}
+
+	seedsDir := filepath.Join(e.runtimeDir, "cloudinit")
+	if err := os.MkdirAll(seedsDir, 0o755); err != nil {
+		return nil, nil, nil, fmt.Errorf("prepare cloud-init: ensure seeds dir: %w", err)
+	}
+	seedPath := filepath.Join(seedsDir, fmt.Sprintf("%s-seed.img", vm.Name))
+
+	input := cloudinit.SeedInput{
+		InstanceID:    fmt.Sprintf("volant-%d", vm.ID),
+		Hostname:      vm.Name,
+		UserData:      strings.TrimSpace(merged.UserData.Content),
+		MetaData:      strings.TrimSpace(merged.MetaData.Content),
+		NetworkConfig: strings.TrimSpace(merged.NetworkCfg.Content),
+	}
+	if err := cloudinit.Build(ctx, input, seedPath); err != nil {
+		return nil, nil, nil, fmt.Errorf("cloud-init build: %w", err)
+	}
+
+	if previous != nil {
+		oldPath := strings.TrimSpace(previous.SeedPath)
+		if oldPath != "" && oldPath != seedPath {
+			_ = os.Remove(oldPath)
+		}
+	}
+
+	record := &db.VMCloudInit{
+		VMID:          vm.ID,
+		UserData:      input.UserData,
+		MetaData:      input.MetaData,
+		NetworkConfig: input.NetworkConfig,
+		SeedPath:      seedPath,
+	}
+
+	seedDisk := &runtime.Disk{
+		Name:     "seed",
+		Path:     seedPath,
+		Readonly: true,
+	}
+
+	return merged, record, seedDisk, nil
+}
+
+func mergeCloudInit(base, override *pluginspec.CloudInit) *pluginspec.CloudInit {
+	if base == nil && override == nil {
+		return nil
+	}
+	result := pluginspec.CloudInit{}
+	if base != nil {
+		result = *base
+	}
+	if override == nil {
+		return &result
+	}
+	if strings.TrimSpace(override.Datasource) != "" {
+		result.Datasource = override.Datasource
+	}
+	if strings.TrimSpace(override.SeedMode) != "" {
+		result.SeedMode = override.SeedMode
+	}
+	result.UserData = mergeCloudInitDoc(result.UserData, override.UserData)
+	result.MetaData = mergeCloudInitDoc(result.MetaData, override.MetaData)
+	result.NetworkCfg = mergeCloudInitDoc(result.NetworkCfg, override.NetworkCfg)
+	return &result
+}
+
+func mergeCloudInitDoc(base, override pluginspec.CloudInitDoc) pluginspec.CloudInitDoc {
+	if strings.TrimSpace(override.Content) != "" || strings.TrimSpace(override.Path) != "" || override.Inline {
+		return override
+	}
+	return base
+}
+
+func buildAdditionalDisks(manifest *pluginspec.Manifest) []runtime.Disk {
+	if manifest == nil {
+		return nil
+	}
+	if len(manifest.Disks) == 0 {
+		return nil
+	}
+	disks := make([]runtime.Disk, 0, len(manifest.Disks))
+	for _, disk := range manifest.Disks {
+		path := strings.TrimSpace(disk.Source)
+		if path == "" {
+			continue
+		}
+		disks = append(disks, runtime.Disk{
+			Name:     strings.TrimSpace(disk.Name),
+			Path:     path,
+			Checksum: strings.TrimSpace(disk.Checksum),
+			Readonly: disk.Readonly,
+		})
+	}
+	if len(disks) == 0 {
+		return nil
+	}
+	return disks
 }
 
 func replicaName(base string, index int) string {

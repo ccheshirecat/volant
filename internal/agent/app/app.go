@@ -771,15 +771,9 @@ func (a *App) forwardWorkload(base *url.URL, timeout time.Duration, stripPrefix 
 		if stripPrefix != "" {
 			path = strings.TrimPrefix(path, stripPrefix)
 		}
-		if path == "" {
-			path = "/"
-		}
-		if !strings.HasPrefix(path, "/") {
-			path = "/" + path
-		}
+		path = strings.TrimSpace(path)
 
-		rel := &url.URL{Path: path, RawQuery: req.URL.RawQuery}
-		target := base.ResolveReference(rel)
+		target := resolveWorkloadURL(base, path, req.URL.RawQuery)
 
 		proxyReq, err := http.NewRequestWithContext(ctx, req.Method, target.String(), bytes.NewReader(body))
 		if err != nil {
@@ -800,6 +794,39 @@ func (a *App) forwardWorkload(base *url.URL, timeout time.Duration, stripPrefix 
 		if _, err := io.Copy(w, resp.Body); err != nil {
 			a.log.Printf("workload proxy error: %v", err)
 		}
+	}
+}
+
+func resolveWorkloadURL(base *url.URL, path, rawQuery string) *url.URL {
+	target := *base
+	target.Path = joinURLPath(base.Path, path)
+	target.RawPath = target.Path
+	target.RawQuery = rawQuery
+	return &target
+}
+
+func joinURLPath(basePath, subPath string) string {
+	basePath = strings.TrimSpace(basePath)
+	subPath = strings.TrimSpace(subPath)
+
+	if basePath != "" && !strings.HasPrefix(basePath, "/") {
+		basePath = "/" + basePath
+	}
+	basePath = strings.TrimRight(basePath, "/")
+	subPath = strings.TrimLeft(subPath, "/")
+
+	switch {
+	case basePath == "" && subPath == "":
+		return "/"
+	case basePath == "":
+		if subPath == "" {
+			return "/"
+		}
+		return "/" + subPath
+	case subPath == "":
+		return basePath
+	default:
+		return basePath + "/" + subPath
 	}
 }
 

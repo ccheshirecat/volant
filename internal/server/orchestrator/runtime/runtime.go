@@ -17,6 +17,15 @@ type LaunchSpec struct {
 	RootFS         string
 	RootFSChecksum string
 	SerialSocket   string
+	Disks          []Disk
+	SeedDisk       *Disk
+}
+
+type Disk struct {
+	Name     string
+	Path     string
+	Checksum string
+	Readonly bool
 }
 
 // Instance represents a running hypervisor process.

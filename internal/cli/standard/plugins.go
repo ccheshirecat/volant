@@ -131,6 +131,49 @@ func newPluginsInstallCmd() *cobra.Command {
 				resolved := filepath.Join(filepath.Dir(manifestPath), rootfsPath)
 				manifest.RootFS.URL = filepath.Clean(resolved)
 			}
+		for i := range manifest.Disks {
+			src := strings.TrimSpace(manifest.Disks[i].Source)
+			if src == "" {
+				continue
+			}
+			if strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://") || strings.HasPrefix(src, "file://") || filepath.IsAbs(src) {
+				continue
+			}
+			resolved := filepath.Join(filepath.Dir(manifestPath), src)
+			manifest.Disks[i].Source = filepath.Clean(resolved)
+		}
+		if manifest.CloudInit != nil {
+			base := filepath.Dir(manifestPath)
+			process := func(doc pluginspec.CloudInitDoc) (pluginspec.CloudInitDoc, error) {
+				path := strings.TrimSpace(doc.Path)
+				if path == "" {
+					return doc, nil
+				}
+				if !filepath.IsAbs(path) {
+					path = filepath.Join(base, path)
+				}
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return doc, err
+				}
+				doc.Path = ""
+				doc.Content = string(data)
+				doc.Inline = true
+				return doc, nil
+			}
+			var err error
+			if manifest.CloudInit != nil {
+				if manifest.CloudInit.UserData, err = process(manifest.CloudInit.UserData); err != nil {
+					return err
+				}
+				if manifest.CloudInit.MetaData, err = process(manifest.CloudInit.MetaData); err != nil {
+					return err
+				}
+				if manifest.CloudInit.NetworkCfg, err = process(manifest.CloudInit.NetworkCfg); err != nil {
+					return err
+				}
+			}
+		}
 			manifest.Normalize()
 			if err := manifest.Validate(); err != nil {
 				return err

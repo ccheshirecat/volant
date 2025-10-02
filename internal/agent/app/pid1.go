@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -46,6 +47,10 @@ func (a *App) bootstrapPID1() error {
 
 		if err := ensureConsoleTTY(a.log); err != nil {
 			a.log.Printf("warning: console setup failed: %v", err)
+		}
+
+		if err := ensureDBusDaemon(a.log); err != nil {
+			a.log.Printf("warning: %v", err)
 		}
 
 		a.log.Printf("PID 1, Stage 2: Reinforcing mounts for child processes...")
@@ -306,6 +311,42 @@ func ensureConsoleTTY(logger *log.Logger) error {
 	}
 
 	logger.Printf("console %s configured as controlling terminal", consoleTTY)
+	return nil
+}
+
+func ensureDBusDaemon(logger *log.Logger) error {
+	const daemonPath = "/usr/bin/dbus-daemon"
+	const socketPath = "/run/dbus/system_bus_socket"
+
+	info, err := os.Stat(daemonPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat %s: %w", daemonPath, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s exists but is not a regular file", daemonPath)
+	}
+
+	if _, err := os.Stat(socketPath); err == nil {
+		return nil
+	}
+
+	if err := os.MkdirAll("/run/dbus", 0o755); err != nil {
+		return fmt.Errorf("prepare /run/dbus: %w", err)
+	}
+
+	cmd := exec.Command(daemonPath, "--system", "--fork", "--nopidfile")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("start dbus-daemon: %w", err)
+	}
+
+	if err := waitForDevice(socketPath, 3*time.Second); err != nil {
+		return fmt.Errorf("wait for dbus socket: %w", err)
+	}
+
+	logger.Printf("dbus-daemon started for system bus")
 	return nil
 }
 
