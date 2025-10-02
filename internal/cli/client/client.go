@@ -19,6 +19,7 @@ import (
 	"github.com/ccheshirecat/volant/internal/pluginspec"
 	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
+	"github.com/ccheshirecat/volant/internal/vsock"
 )
 
 // Client wraps REST access to the volantd API.
@@ -453,25 +454,6 @@ func (c *Client) WatchVMLogs(ctx context.Context, name string, handler func(VMLo
 		}
 		handler(event)
 	}
-			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
-			_ = conn.Close()
-		case <-done:
-		}
-	}()
-
-	for {
-		msgType, payload, err := conn.ReadMessage()
-		if err != nil {
-			close(done)
-			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || errors.Is(err, context.Canceled) || ctx.Err() != nil {
-				return nil
-			}
-			return fmt.Errorf("client: read agui event: %w", err)
-		}
-		if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
-			handler(string(payload))
-		}
-	}
 }
 
 func (c *Client) AgentRequest(ctx context.Context, vmName, method, path string, body any, out any) error {
@@ -517,6 +499,31 @@ func (c *Client) AgentRequest(ctx context.Context, vmName, method, path string, 
 	return c.do(req, out)
 }
 
+// AgentRequestVsock sends a request directly to the VM agent over vsock.
+// This is used for vsock-only VMs that don't have IP networking.
+// The default CID is 3 and port is 8080 (assuming the volant agent listens on vsock port 8080).
+func (c *Client) AgentRequestVsock(ctx context.Context, cid, port uint32, method, path string, body any, out any) error {
+	if method == "" {
+		method = http.MethodGet
+	}
+	if path == "" {
+		path = "/"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	vsockClient := vsock.NewClient(cid, port)
+	return vsockClient.DoJSON(ctx, method, path, body, out)
+}
+
+// AgentRequestVsockDefault is a convenience wrapper that uses the default CID (3) and port (8080).
+func (c *Client) AgentRequestVsockDefault(ctx context.Context, method, path string, body any, out any) error {
+	const defaultCID = 3
+	const defaultPort = 8080
+	return c.AgentRequestVsock(ctx, defaultCID, defaultPort, method, path, body, out)
+}
+
 func (c *Client) GetAgentDevTools(ctx context.Context, vmName string) (*DevToolsInfo, error) {
 	var info DevToolsInfo
 	if err := c.AgentRequest(ctx, vmName, http.MethodGet, "/v1/devtools", nil, &info); err != nil {
@@ -531,45 +538,6 @@ func (c *Client) BaseURL() *url.URL {
 	}
 	clone := *c.baseURL
 	return &clone
-}
-
-func (c *Client) NavigateVM(ctx context.Context, name string, payload NavigateActionRequest) error {
-	if payload.URL == "" {
-		return fmt.Errorf("client: navigate url required")
-	}
-	return c.PluginActionVM(ctx, name, "browser", "navigate", payload)
-}
-
-func (c *Client) ScreenshotVM(ctx context.Context, name string, payload ScreenshotActionRequest) (*ScreenshotActionResponse, error) {
-	var response ScreenshotActionResponse
-	if err := c.PluginActionVM(ctx, name, "browser", "screenshot", payload, &response); err != nil {
-		return nil, err
-	}
-	return &response, nil
-}
-
-func (c *Client) ScrapeVM(ctx context.Context, name string, payload ScrapeActionRequest) (*ScrapeActionResponse, error) {
-	var response ScrapeActionResponse
-	if err := c.PluginActionVM(ctx, name, "browser", "scrape", payload, &response); err != nil {
-		return nil, err
-	}
-	return &response, nil
-}
-
-func (c *Client) EvaluateVM(ctx context.Context, name string, payload EvaluateActionRequest) (*EvaluateActionResponse, error) {
-	var response EvaluateActionResponse
-	if err := c.PluginActionVM(ctx, name, "browser", "evaluate", payload, &response); err != nil {
-		return nil, err
-	}
-	return &response, nil
-}
-
-func (c *Client) GraphQLVM(ctx context.Context, name string, payload GraphQLActionRequest) (GraphQLActionResponse, error) {
-	var response GraphQLActionResponse
-	if err := c.PluginActionVM(ctx, name, "browser", "graphql", payload, &response); err != nil {
-		return nil, err
-	}
-	return response, nil
 }
 
 func (c *Client) MCP(ctx context.Context, request MCPRequest) (*MCPResponse, error) {
