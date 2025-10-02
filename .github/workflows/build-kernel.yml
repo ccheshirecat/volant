@@ -109,7 +109,7 @@ jobs:
         run: |
           set -eu
           cd linux
-          make ARCH=${{ env.ARCH }} defconfig
+          make ch_defconfig
           scripts/config --set-str LOCALVERSION ""
           scripts/config --disable LOCALVERSION_AUTO
           scripts/config --enable INITRAMFS_SOURCE
