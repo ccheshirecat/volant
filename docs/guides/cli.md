@@ -80,27 +80,9 @@ Manifests describe runtime metadata (resources, workload entrypoints, optional O
 
 Browser-specific subcommands moved to the browser plugin repository. The engine CLI retains a stub that directs operators to install the plugin CLI and manifests, but routine workflows should use `volar plugins ...` or runtime-specific tooling packaged with the plugin.
 
-## Notes on TUI
+## Notes
 
-The interactive TUI (Bubble Tea) has been removed to focus on the core orchestration use case. Use the CLI and REST API instead.
-| `↑`/`↓` | Navigate history or list |
-| `q` / `ctrl+c` | Quit |
-
-### Commands
-
-- `help` — show help message
-- `status` — refresh status summary
-- `vms list`, `vms get`, `vms create`, `vms delete`
-
-### Autocomplete
-
-- Tab completes root commands and VM names.
-- Feedback messages appear if no suggestions are available.
-
-### Logs
-
-- Shows recent events/log entries (newest at top)
-- `vm logs` stream is appended via SSE
+The interactive TUI has been removed to focus on the core orchestration use case. Use the CLI and REST/MCP APIs.
 
 ## Environment Variables
 

@@ -79,6 +79,11 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
+    // Serve OpenAPI spec at /openapi (JSON)
+    r.GET("/openapi", func(c *gin.Context) {
+        api.serveOpenAPI(c.Writer, c.Request)
+    })
+
 	v1 := r.Group("/api/v1")
 	{
 		v1.GET("/system/status", api.systemStatus)
