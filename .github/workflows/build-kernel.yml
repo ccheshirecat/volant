@@ -127,8 +127,8 @@ jobs:
           export KBUILD_BUILD_TIMESTAMP="${{ steps.chlinux.outputs.ts }}"
           export SOURCE_DATE_EPOCH="$KBUILD_BUILD_TIMESTAMP"
           make ARCH=${{ env.ARCH }} -j"$(nproc)" bzImage
-          mkdir -p ${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}
-          cp arch/x86/boot/bzImage ${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/bzImage
+          mkdir -p "$GITHUB_WORKSPACE/${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}"
+          cp arch/x86/boot/bzImage "$GITHUB_WORKSPACE/${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/bzImage"
 
       - name: Checksums and metadata
         run: |
