@@ -49,7 +49,7 @@
 ## Networking Model
 - Host bridge `vbr0` at `192.168.127.1/24` created by `volar setup`.
 - NAT enabled via `iptables` MASQUERADE to allow outbound access.
-- MicroVMs receive static IP via kernel cmdline to avoid DHCP complexity.
+- Default: server-managed static IPs injected via kernel cmdline; DHCP is supported when requested by a plugin/VM config, and a vsock-only mode skips IP networking entirely.
 - MAC addresses generated per VM with deterministic prefix to simplify filtering.
 - `network.BridgeManager` provisions tap interfaces via `ip tuntap`/`ip link`, attaches them to the bridge, and tears them down during VM destruction. A `NoopManager` remains available for non-Linux development hosts.
 
@@ -69,8 +69,9 @@
 - MCP handler for AI orchestration. Plugin manifests are exposed via the protocol for discovery so agents can determine required runtimes before execution.
 - Future work: durable event log for replay/audit.
 
-## Security & Observability (Preview)
-- Authn/z layer to be defined (API tokens or mutual TLS) before release.
+## Security & Observability
+- API access control: optional API token (`VOLANT_API_KEY`) validated via `X-Volant-API-Key` header or `api_key` query parameter; optional CIDR allow-list via `VOLANT_API_ALLOW_CIDR`.
+- For production deployments, run behind TLS-terminating proxy; future enhancements may include mTLS/OIDC.
 - Structured logging via `log/slog`; metrics/exporters to be added (Prometheus/OpenTelemetry).
 - Agent-server communication constrained to private subnet; host firewall rules enforced by installer.
 
