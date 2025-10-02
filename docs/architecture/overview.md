@@ -4,14 +4,14 @@
 - **volantd**: Native orchestrator responsible for lifecycle management of Cloud Hypervisor microVMs, static IP allocation, plugin manifest registry, and API exposure (REST, MCP, AG-UI).
 - **volary**: In-VM Go agent that hydrates the runtime declared by the manifest (no longer hard-wired to Chrome). It mounts plugin-defined HTTP/WebSocket routes and manages optional DevTools/log streaming based on the workload contract.
 - **Plugin Runtime Artifacts**: Signed manifests, rootfs bundles, and optional OCI images distributed per plugin. The orchestrator injects manifest payloads into the VM kernel cmdline and mounts artifacts from the runtime directory.
-- **Client Tooling**: Dual-mode `volar` CLI (Cobra) and interactive Bubble Tea TUI providing operator and automation entry points.
+- **Client Tooling**: `volar` CLI providing operator and automation entry points.
 
 ## Control Flow Summary
 1. **VM Creation**
    - REST/MCP request hits `volantd`.
    - Server begins SQLite transaction, leases deterministic IP, and persists VM metadata.
    - Engine loads the plugin manifest, encodes it into kernel cmdline parameters (`volant.manifest`, `volant.runtime`, `volant.plugin`), and launches Cloud Hypervisor with the declared rootfs/kernel artifacts.
-   - Event bus broadcasts VM lifecycle event for TUI, AG-UI, and other subscribers.
+- Event bus broadcasts VM lifecycle event for subscribers.
 
 2. **In-VM Boot**
    - Kernel executes `/bin/volant-init` which mounts virtual filesystems, parses `ip=` from `/proc/cmdline`, configures `eth0`, and `exec`s `volary`.
