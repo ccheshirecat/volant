@@ -21,6 +21,8 @@ func newSetupCmd() *cobra.Command {
 	var runtimeDir string
 	var logDir string
 	var serviceFile string
+    var workDir string
+    var kernelPath string
 
 	cmd := &cobra.Command{
 		Use:   "setup",
@@ -56,6 +58,8 @@ func newSetupCmd() *cobra.Command {
 				LogDir:      logDir,
 				ServicePath: serviceFile,
 				BinaryPath:  serverBinary,
+				WorkDir:     workDir,
+				KernelPath:  kernelPath,
 			}
 
 			res, err := setup.Run(ctx, opts)
@@ -85,6 +89,8 @@ func newSetupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeDir, "runtime-dir", envOrDefault("VOLANT_RUNTIME_DIR", "~/.volant/run"), "Runtime directory for VM sockets")
 	cmd.Flags().StringVar(&logDir, "log-dir", envOrDefault("VOLANT_LOG_DIR", "~/.volant/logs"), "Log directory for VM logs")
 	cmd.Flags().StringVar(&serviceFile, "service-file", "/etc/systemd/system/volantd.service", "Path to write systemd service unit (empty to skip)")
+	cmd.Flags().StringVar(&workDir, "work-dir", envOrDefault("VOLANT_WORK_DIR", "/var/lib/volant"), "Working directory for volantd (systemd WorkingDirectory)")
+	cmd.Flags().StringVar(&kernelPath, "kernel", envOrDefault("VOLANT_KERNEL", "/var/lib/volant/kernel/bzImage"), "Kernel image path for volantd (sets VOLANT_KERNEL)")
 
 	return cmd
 }
