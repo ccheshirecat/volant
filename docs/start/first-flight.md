@@ -9,21 +9,19 @@ This quickstart walks through provisioning a microVM with the Volant engine, ins
 
 ---
 
-## 1. Launch the TUI or CLI
+## 1. Use the CLI
 
-You can operate the engine via the CLI or the full-screen TUI. To open the TUI:
+Operate the engine via the CLI:
 
 ```bash
-volar
+volar --help
 ```
-
-If you prefer scripting, every step below can be executed as a CLI command (`volar <command>`).
 
 ---
 
 ## 2. Create a microVM
 
-From the TUI command input (or shell), run:
+Run:
 
 ```
 vms create my-first-vm --plugin browser --cpu 2 --memory 2048
@@ -41,11 +39,7 @@ Use the CLI to query details:
 volar vms get my-first-vm
 ```
 
-You’ll see runtime, IP, MAC, resource allocation, and process PID. To stream lifecycle events:
-
-```bash
-volar vms watch
-```
+You’ll see runtime, IP, MAC, resource allocation, and process PID. To stream lifecycle events, use the SSE endpoint or your own client.
 
 ---
 
