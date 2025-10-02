@@ -35,6 +35,7 @@ type Config struct {
 	Plugin        string                    `json:"plugin"`
 	Runtime       string                    `json:"runtime,omitempty"`
 	KernelCmdline string                    `json:"kernel_cmdline,omitempty"`
+	KernelOverride string                    `json:"kernel_override,omitempty"`
 	Resources     Resources                 `json:"resources"`
 	API           API                       `json:"api,omitempty"`
 	Manifest      *pluginspec.Manifest      `json:"manifest,omitempty"`
@@ -42,6 +43,8 @@ type Config struct {
 	Expose        []Expose                  `json:"expose,omitempty"`
 	CloudInit     *pluginspec.CloudInit     `json:"cloud_init,omitempty"`
 	Network       *pluginspec.NetworkConfig `json:"network,omitempty"`
+	Initramfs     *pluginspec.Initramfs     `json:"initramfs,omitempty"`
+	RootFS        *pluginspec.RootFS        `json:"rootfs,omitempty"`
 }
 
 // Versioned associates a configuration with its version metadata.
@@ -70,6 +73,10 @@ type Patch struct {
 	Expose        *[]Expose                 `json:"expose,omitempty"`
 	CloudInit     *pluginspec.CloudInit     `json:"cloud_init,omitempty"`
 	Network       *pluginspec.NetworkConfig `json:"network,omitempty"`
+    // Optional boot media overrides
+    KernelOverride *string                  `json:"kernel_override,omitempty"`
+    Initramfs      *pluginspec.Initramfs    `json:"initramfs,omitempty"`
+    RootFS         *pluginspec.RootFS       `json:"rootfs,omitempty"`
 }
 
 // ResourcesPatch allows partial updates of compute resources.
@@ -96,6 +103,14 @@ func (c Config) Clone() Config {
 		cloudCopy.Normalize()
 		clone.CloudInit = &cloudCopy
 	}
+    if c.Initramfs != nil {
+        initCopy := *c.Initramfs
+        clone.Initramfs = &initCopy
+    }
+    if c.RootFS != nil {
+        rootCopy := *c.RootFS
+        clone.RootFS = &rootCopy
+    }
 	if c.Metadata != nil {
 		metaCopy := make(map[string]any, len(c.Metadata))
 		for k, v := range c.Metadata {
@@ -119,6 +134,7 @@ func (c *Config) Normalize() {
 	c.Plugin = strings.TrimSpace(c.Plugin)
 	c.Runtime = strings.TrimSpace(c.Runtime)
 	c.KernelCmdline = strings.TrimSpace(c.KernelCmdline)
+    c.KernelOverride = strings.TrimSpace(c.KernelOverride)
 	c.API.Host = strings.TrimSpace(c.API.Host)
 	c.API.Port = strings.TrimSpace(c.API.Port)
 	for i := range c.Expose {
@@ -135,6 +151,19 @@ func (c *Config) Normalize() {
 		cloudCopy.Normalize()
 		c.CloudInit = &cloudCopy
 	}
+    if c.Initramfs != nil {
+        initCopy := *c.Initramfs
+        initCopy.URL = strings.TrimSpace(initCopy.URL)
+        initCopy.Checksum = strings.TrimSpace(initCopy.Checksum)
+        c.Initramfs = &initCopy
+    }
+    if c.RootFS != nil {
+        rootCopy := *c.RootFS
+        rootCopy.URL = strings.TrimSpace(rootCopy.URL)
+        rootCopy.Checksum = strings.TrimSpace(rootCopy.Checksum)
+        rootCopy.Format = strings.TrimSpace(strings.ToLower(rootCopy.Format))
+        c.RootFS = &rootCopy
+    }
 }
 
 // Validate performs semantic validation on the configuration.
@@ -172,6 +201,22 @@ func (c Config) Validate() error {
 			return fmt.Errorf("vmconfig: %w", err)
 		}
 	}
+    // Optional boot media overrides: allow at most one of initramfs or rootfs
+    initramfsSet := c.Initramfs != nil && strings.TrimSpace(c.Initramfs.URL) != ""
+    rootfsSet := c.RootFS != nil && strings.TrimSpace(c.RootFS.URL) != ""
+    if initramfsSet && rootfsSet {
+        return fmt.Errorf("vmconfig: cannot set both initramfs and rootfs overrides")
+    }
+    if c.Initramfs != nil {
+        if err := c.Initramfs.Validate(); err != nil {
+            return fmt.Errorf("vmconfig: %w", err)
+        }
+    }
+    if c.RootFS != nil {
+        if err := c.RootFS.Validate(); err != nil {
+            return fmt.Errorf("vmconfig: %w", err)
+        }
+    }
 	return nil
 }
 
@@ -211,6 +256,9 @@ func (p Patch) Apply(base Config) (Config, error) {
 	if p.KernelCmdline != nil {
 		updated.KernelCmdline = strings.TrimSpace(*p.KernelCmdline)
 	}
+    if p.KernelOverride != nil {
+        updated.KernelOverride = strings.TrimSpace(*p.KernelOverride)
+    }
 	if p.Resources != nil {
 		if p.Resources.CPUCores != nil {
 			updated.Resources.CPUCores = *p.Resources.CPUCores
@@ -257,6 +305,14 @@ func (p Patch) Apply(base Config) (Config, error) {
 		cloudCopy.Normalize()
 		updated.CloudInit = &cloudCopy
 	}
+    if p.Initramfs != nil {
+        initCopy := *p.Initramfs
+        updated.Initramfs = &initCopy
+    }
+    if p.RootFS != nil {
+        rootCopy := *p.RootFS
+        updated.RootFS = &rootCopy
+    }
 
 	updated.Normalize()
 	if err := updated.Validate(); err != nil {
