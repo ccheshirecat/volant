@@ -61,7 +61,16 @@ jobs:
         run: |
           WORKDIR=/tmp/initramfs
           rm -rf "$WORKDIR"
-          mkdir -p "$WORKDIR"/{bin,sbin,etc,proc,sys,dev,usr/bin,usr/sbin}
+          # POSIX-compatible mkdirs (avoid brace expansion)
+          mkdir -p "$WORKDIR"
+          mkdir -p "$WORKDIR/bin"
+          mkdir -p "$WORKDIR/sbin"
+          mkdir -p "$WORKDIR/etc"
+          mkdir -p "$WORKDIR/proc"
+          mkdir -p "$WORKDIR/sys"
+          mkdir -p "$WORKDIR/dev"
+          mkdir -p "$WORKDIR/usr/bin"
+          mkdir -p "$WORKDIR/usr/sbin"
           cp build/volary "$WORKDIR/bin/volary"
           cp build/init "$WORKDIR/init"
           chmod 0755 "$WORKDIR/init" "$WORKDIR/bin/volary"
@@ -74,7 +83,7 @@ jobs:
       - name: Clone Cloud Hypervisor Linux
         id: chlinux
         run: |
-          set -euo pipefail
+          set -eu
           COMMIT="${{ github.event.inputs.ch_linux_commit || '' }}"
           if [ -z "$COMMIT" ]; then
             echo "Provide ch_linux_commit when running workflow_dispatch or use a tag-driven run" >&2
@@ -89,18 +98,16 @@ jobs:
 
       - name: Bake deterministic initramfs
         run: |
-          set -euo pipefail
+          set -eu
           TS="${{ steps.chlinux.outputs.ts }}"
           WORKDIR=/tmp/initramfs
           export SOURCE_DATE_EPOCH="$TS"
           find "$WORKDIR" -exec touch -h -d @"$SOURCE_DATE_EPOCH" {} +
-          pushd "$WORKDIR" >/dev/null
-          find . -print0 | cpio --null -ov --format=newc | gzip -n -9 > "$GITHUB_WORKSPACE/build/volant-initramfs.cpio.gz"
-          popd >/dev/null
+          ( cd "$WORKDIR" && find . -print0 | cpio --null -ov --format=newc | gzip -n -9 > "$GITHUB_WORKSPACE/build/volant-initramfs.cpio.gz" )
 
       - name: Configure kernel
         run: |
-          set -euo pipefail
+          set -eu
           cd linux
           make ARCH=${{ env.ARCH }} defconfig
           scripts/config --set-str LOCALVERSION ""
@@ -113,7 +120,7 @@ jobs:
 
       - name: Build kernel (bzImage)
         run: |
-          set -euo pipefail
+          set -eu
           cd linux
           export KBUILD_BUILD_USER=volant
           export KBUILD_BUILD_HOST=gh-actions
@@ -125,7 +132,7 @@ jobs:
 
       - name: Checksums and metadata
         run: |
-          set -euo pipefail
+          set -eu
           cd ${{ env.OUT_DIR }}
           sha256sum kernels/${{ env.ARCH }}/bzImage | tee kernels/${{ env.ARCH }}/bzImage.sha256
           cp ../linux/.config kernels/${{ env.ARCH }}/kernel.config
