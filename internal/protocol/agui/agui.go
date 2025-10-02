@@ -1,3 +1,5 @@
+// Package agui was used by a legacy Agent-UI WebSocket and is now removed.
+// This file remains temporarily to avoid breaking imports, but will be deleted.
 package agui
 
 // RunStartedEvent signals the start of a run.
