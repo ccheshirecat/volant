@@ -1,6 +1,6 @@
 ---
 title: "CLI"
-description: "Using the volar command-line interface. The TUI has been removed."
+description: "Using the volar command-line interface."
 ---
 
 # CLI Reference
