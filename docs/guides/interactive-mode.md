@@ -37,23 +37,11 @@ The structure of `payload.json` and the semantics of the response are defined by
 
 ---
 
-## TUI integration
-
-The interactive TUI lets you issue the same action commands. Select a VM, open the command input, and run:
-
-```
-plugins action <plugin> <action> --payload '{"...": ...}'
-```
-
-Any events or logs emitted by the plugin runtime will appear in the log pane thanks to the event bus.
-
----
-
 ## Browser-specific workflows
 
 If you’re looking for the “open remote DevTools” or “start live browser session” commands referenced in earlier documentation, those now live in the browser plugin repository. Install the browser plugin and follow its CLI/TUI guide to enable interactive sessions.
 
-The base engine intentionally avoids bundling browser tooling so that other runtime plugins (AI inference, workers, etc.) can coexist without assumptions.
+The base engine intentionally avoids bundling browser tooling so that other runtime plugins (AI inference, workers, etc.) can coexist without assumptions. The interactive TUI has been removed; use the CLI and REST/WebSocket endpoints exposed by plugins.
 
 ---
 
