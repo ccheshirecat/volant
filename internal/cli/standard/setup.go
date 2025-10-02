@@ -21,8 +21,9 @@ func newSetupCmd() *cobra.Command {
 	var runtimeDir string
 	var logDir string
 	var serviceFile string
-	var workDir string
-	var kernelPath string
+    var workDir string
+    var bzImage string
+    var vmlinux string
 
 	cmd := &cobra.Command{
 		Use:   "setup",
@@ -49,7 +50,7 @@ func newSetupCmd() *cobra.Command {
 			}
 			serverBinary := filepath.Join(filepath.Dir(exe), "volantd")
 
-			opts := setup.Options{
+            opts := setup.Options{
 				BridgeName:  bridge,
 				SubnetCIDR:  subnet,
 				HostCIDR:    hostCIDR,
@@ -59,7 +60,8 @@ func newSetupCmd() *cobra.Command {
 				ServicePath: serviceFile,
 				BinaryPath:  serverBinary,
 				WorkDir:     workDir,
-				KernelPath:  kernelPath,
+                BZImagePath: bzImage,
+                VMLinuxPath: vmlinux,
 			}
 
 			res, err := setup.Run(ctx, opts)
@@ -90,7 +92,8 @@ func newSetupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&logDir, "log-dir", envOrDefault("VOLANT_LOG_DIR", "~/.volant/logs"), "Log directory for VM logs")
 	cmd.Flags().StringVar(&serviceFile, "service-file", "/etc/systemd/system/volantd.service", "Path to write systemd service unit (empty to skip)")
 	cmd.Flags().StringVar(&workDir, "work-dir", envOrDefault("VOLANT_WORK_DIR", "/var/lib/volant"), "Working directory for volantd (systemd WorkingDirectory)")
-	cmd.Flags().StringVar(&kernelPath, "kernel", envOrDefault("VOLANT_KERNEL", "/var/lib/volant/kernel/bzImage"), "Kernel image path for volantd (sets VOLANT_KERNEL)")
+    cmd.Flags().StringVar(&bzImage, "bzimage", envOrDefault("VOLANT_KERNEL_BZIMAGE", "/var/lib/volant/kernel/bzImage"), "bzImage kernel path (sets VOLANT_KERNEL_BZIMAGE)")
+    cmd.Flags().StringVar(&vmlinux, "vmlinux", envOrDefault("VOLANT_KERNEL_VMLINUX", "/var/lib/volant/kernel/vmlinux"), "vmlinux kernel path (sets VOLANT_KERNEL_VMLINUX)")
 
 	return cmd
 }

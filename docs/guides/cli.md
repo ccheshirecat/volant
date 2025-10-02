@@ -57,7 +57,8 @@ See Installation. Useful flags:
 - `--bridge`, `--subnet`, `--host-ip`
 - `--runtime-dir`, `--log-dir`
 - `--work-dir` (default `/var/lib/volant`)
-- `--kernel` (default `/var/lib/volant/kernel/bzImage`)
+- `--bzimage` (default `/var/lib/volant/kernel/bzImage`) sets VOLANT_KERNEL_BZIMAGE
+- `--vmlinux` (default `/var/lib/volant/kernel/vmlinux`) sets VOLANT_KERNEL_VMLINUX
 - `--service-file`
 - `--dry-run`
 
@@ -88,7 +89,7 @@ The interactive TUI has been removed to focus on the core orchestration use case
 
 - `VOLANT_API_BASE`: Base URL
 - `VOLANT_BRIDGE`, `VOLANT_SUBNET`, etc. for setup defaults
-- `VOLANT_KERNEL` for setup service template (initramfs is embedded in the kernel)
+- `VOLANT_KERNEL_BZIMAGE`, `VOLANT_KERNEL_VMLINUX` for setup service template
 
 ## Troubleshooting
 

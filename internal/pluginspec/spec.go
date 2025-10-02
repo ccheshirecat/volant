@@ -39,7 +39,8 @@ type Manifest struct {
 	Name          string            `json:"name"`
 	Version       string            `json:"version"`
 	Runtime       string            `json:"runtime"`
-	RootFS        RootFS            `json:"rootfs"`
+    RootFS        RootFS            `json:"rootfs"`
+    Initramfs     Initramfs         `json:"initramfs"`
 	Disks         []Disk            `json:"disks,omitempty"`
 	Image         string            `json:"image,omitempty"`
 	ImageDigest   string            `json:"image_digest,omitempty"`
@@ -58,6 +59,11 @@ type RootFS struct {
 	URL      string `json:"url"`
 	Checksum string `json:"checksum,omitempty"`
 	Format   string `json:"format,omitempty"`
+}
+
+type Initramfs struct {
+    URL      string `json:"url"`
+    Checksum string `json:"checksum,omitempty"`
 }
 
 type Disk struct {
@@ -234,9 +240,19 @@ func (m Manifest) Validate() error {
 	if err := normalized.Workload.Validate(); err != nil {
 		return err
 	}
-	if err := normalized.RootFS.Validate(); err != nil {
-		return err
-	}
+    // Enforce that exactly one of rootfs or initramfs is specified for boot media by default.
+    // Advanced users may override at runtime via per-VM configuration.
+    if err := normalized.RootFS.Validate(); err != nil {
+        return err
+    }
+    if err := normalized.Initramfs.Validate(); err != nil {
+        return err
+    }
+    rootfsSet := strings.TrimSpace(normalized.RootFS.URL) != ""
+    initramfsSet := strings.TrimSpace(normalized.Initramfs.URL) != ""
+    if rootfsSet == initramfsSet { // both true or both false
+        return fmt.Errorf("plugin manifest: exactly one of rootfs.url or initramfs.url must be set")
+    }
 	for _, disk := range normalized.Disks {
 		if err := disk.Validate(); err != nil {
 			return fmt.Errorf("plugin manifest: %w", err)
@@ -276,6 +292,8 @@ func (m *Manifest) Normalize() {
 	if m.RootFS.Format == "" {
 		m.RootFS.Format = "raw"
 	}
+    m.Initramfs.URL = strings.TrimSpace(m.Initramfs.URL)
+    m.Initramfs.Checksum = strings.TrimSpace(m.Initramfs.Checksum)
 	if len(m.Disks) > 0 {
 		for i := range m.Disks {
 			m.Disks[i].Normalize()
@@ -394,25 +412,40 @@ func (w Workload) Validate() error {
 }
 
 func (r RootFS) Validate() error {
-	url := strings.TrimSpace(r.URL)
-	if url == "" {
-		return nil
-	}
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "file://") && !strings.HasPrefix(url, "/") {
-		return fmt.Errorf("plugin manifest: rootfs url must be http(s), file://, or absolute path")
-	}
-	checksum := strings.TrimSpace(r.Checksum)
-	if checksum != "" && !strings.Contains(checksum, ":") && len(checksum) < 32 {
-		return fmt.Errorf("plugin manifest: rootfs checksum should include algorithm prefix or be a sha256")
-	}
-	format := normalizeFormat(r.Format)
-	if format == "" {
-		format = "raw"
-	}
-	if _, ok := allowedDiskFormats[format]; !ok {
-		return fmt.Errorf("plugin manifest: rootfs format %q not supported", r.Format)
-	}
-	return nil
+    url := strings.TrimSpace(r.URL)
+    if url == "" {
+        return nil
+    }
+    if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "file://") && !strings.HasPrefix(url, "/") {
+        return fmt.Errorf("plugin manifest: rootfs url must be http(s), file://, or absolute path")
+    }
+    checksum := strings.TrimSpace(r.Checksum)
+    if checksum != "" && !strings.Contains(checksum, ":") && len(checksum) < 32 {
+        return fmt.Errorf("plugin manifest: rootfs checksum should include algorithm prefix or be a sha256")
+    }
+    format := normalizeFormat(r.Format)
+    if format == "" {
+        format = "raw"
+    }
+    if _, ok := allowedDiskFormats[format]; !ok {
+        return fmt.Errorf("plugin manifest: rootfs format %q not supported", r.Format)
+    }
+    return nil
+}
+
+func (i Initramfs) Validate() error {
+    url := strings.TrimSpace(i.URL)
+    if url == "" {
+        return nil
+    }
+    if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "file://") && !strings.HasPrefix(url, "/") {
+        return fmt.Errorf("plugin manifest: initramfs url must be http(s), file://, or absolute path")
+    }
+    checksum := strings.TrimSpace(i.Checksum)
+    if checksum != "" && !strings.Contains(checksum, ":") && len(checksum) < 32 {
+        return fmt.Errorf("plugin manifest: initramfs checksum should include algorithm prefix or be a sha256")
+    }
+    return nil
 }
 
 // Encode encodes the manifest as JSON, base64url encoded, for kernel cmdline transport.
