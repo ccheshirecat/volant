@@ -69,7 +69,7 @@ The control plane persists manifests, enforces enablement/disablement, and proxi
 
 - [Installation](installation.md) – bootstrap the engine and database.
 - [Control Plane Overview](../guides/control-plane.md) – internal architecture of `volantd`.
-- [CLI & TUI](../guides/cli-and-tui.md) – scriptable commands and interactive ops surface.
+- [CLI](../guides/cli-and-tui.md) – scriptable commands.
 - [Plugin Guide](../guides/plugins.md) – authoring and distributing runtime manifests.
 
 When you are ready to integrate with tooling, explore the [REST API](../api/rest-api.md) and [MCP interface](../api/mcp.md).
