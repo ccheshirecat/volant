@@ -149,8 +149,8 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		args = append(args, "--net", netArg)
 	} else {
 		// Vsock-only mode: configure vsock device for host-guest communication
-		// Using CID 3 (first available CID, as 0-2 are reserved)
-		vsockArg := "cid=3"
+		// Use the allocated CID from the spec
+		vsockArg := fmt.Sprintf("cid=%d", spec.VsockCID)
 		args = append(args, "--vsock", vsockArg)
 	}
 	if initramfsCopy != "" {

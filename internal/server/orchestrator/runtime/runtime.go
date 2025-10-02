@@ -13,6 +13,7 @@ type LaunchSpec struct {
 	IPAddress      string
 	Gateway        string
 	Netmask        string
+	VsockCID       uint32 // Vsock Context ID for guest communication
 	Args           map[string]string
 	RootFS         string
 	RootFSChecksum string

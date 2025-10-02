@@ -337,6 +337,14 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 			ipAddress = ""
 		}
 
+		// Allocate unique vsock CID for this VM
+		// CIDs 0-2 are reserved (0=hypervisor, 1=local, 2=host)
+		// Start from 3 and find next available
+		vsockCID, err := e.allocateNextCID(ctx, vmRepo)
+		if err != nil {
+			return fmt.Errorf("allocate vsock cid: %w", err)
+		}
+
 		mac := deriveMAC(req.Name, ipAddress)
 		baseCmdline := buildKernelCmdline(ipAddress, e.hostIP.String(), netmask, hostname, req.KernelCmdlineHint)
 		fullCmdline := appendKernelArgs(baseCmdline, map[string]string{})
@@ -347,6 +355,7 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 			Runtime:       req.Runtime,
 			IPAddress:     ipAddress,
 			MACAddress:    mac,
+			VsockCID:      vsockCID,
 			CPUCores:      req.CPUCores,
 			MemoryMB:      req.MemoryMB,
 			KernelCmdline: fullCmdline,
@@ -509,6 +518,7 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		IPAddress:     vmRecord.IPAddress,
 		Gateway:       e.hostIP.String(),
 		Netmask:       netmask,
+		VsockCID:      vmRecord.VsockCID,
 		SerialSocket:  serialPath,
 	}
 	spec.Disks = additionalDisks
@@ -922,6 +932,7 @@ func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
 		IPAddress:     vmRecord.IPAddress,
 		Gateway:       e.hostIP.String(),
 		Netmask:       netmask,
+		VsockCID:      vmRecord.VsockCID,
 		SerialSocket:  serialPath,
 	}
 	spec.Disks = additionalDisks
@@ -1900,4 +1911,31 @@ func (e *engine) setVMState(ctx context.Context, vmID int64, status db.VMStatus,
 	}); err != nil {
 		e.logger.Error("update vm state", "vm_id", vmID, "status", status, "error", err)
 	}
+}
+
+// allocateNextCID finds the next available vsock CID starting from 3.
+// CIDs 0-2 are reserved: 0=hypervisor, 1=local, 2=host.
+func (e *engine) allocateNextCID(ctx context.Context, vmRepo db.VMRepository) (uint32, error) {
+	vms, err := vmRepo.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	// Collect all used CIDs
+	used := make(map[uint32]bool)
+	for _, vm := range vms {
+		if vm.VsockCID > 0 {
+			used[vm.VsockCID] = true
+		}
+	}
+
+	// Find first available CID starting from 3
+	// CIDs 0-2 are reserved
+	for cid := uint32(3); cid < 1<<32-1; cid++ {
+		if !used[cid] {
+			return cid, nil
+		}
+	}
+
+	return 0, fmt.Errorf("no available vsock CIDs")
 }

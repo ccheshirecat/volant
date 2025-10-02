@@ -54,6 +54,7 @@ type VM struct {
 	PID           *int64 `json:"pid,omitempty"`
 	IPAddress     string `json:"ip_address"`
 	MACAddress    string `json:"mac_address"`
+	VsockCID      uint32 `json:"vsock_cid"`
 	CPUCores      int    `json:"cpu_cores"`
 	MemoryMB      int    `json:"memory_mb"`
 	KernelCmdline string `json:"kernel_cmdline,omitempty"`
