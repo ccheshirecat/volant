@@ -161,7 +161,7 @@ jobs:
           path: out/kernels/${{ env.ARCH }}
 
       - name: Generate SLSA provenance
-        uses: slsa-framework/slsa-github-generator/actions/generator@v1.10.0
+        uses: slsa-framework/slsa-github-generator@v1.10.0
         with:
           base64-subjects: |
             $(sha256sum out/kernels/${{ env.ARCH }}/bzImage | awk '{print "sha256:"$1}')
