@@ -454,7 +454,6 @@ func (r *vmGroupRepository) List(ctx context.Context) ([]db.VMGroup, error) {
 	return result, nil
 }
 
-
 func (r *pluginArtifactRepository) Upsert(ctx context.Context, artifact db.PluginArtifact) error {
 	if _, err := r.exec.ExecContext(ctx, `INSERT INTO plugin_artifacts (plugin_name, version, artifact_name, kind, source_url, checksum, format, local_path, size_bytes)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -485,7 +484,6 @@ func (r *pluginArtifactRepository) ListByPlugin(ctx context.Context, plugin stri
 	}
 	return result, nil
 }
-
 
 func (r *pluginArtifactRepository) ListByPluginVersion(ctx context.Context, plugin, version string) ([]db.PluginArtifact, error) {
 	rows, err := r.exec.QueryContext(ctx, `SELECT id, plugin_name, version, artifact_name, kind, source_url, checksum, format, local_path, size_bytes, created_at, updated_at FROM plugin_artifacts WHERE plugin_name = ? AND version = ? ORDER BY artifact_name ASC;`, plugin, version)
@@ -765,7 +763,6 @@ func scanPlugin(row rowScanner) (db.Plugin, error) {
 	plugin.UpdatedAt, _ = parseTimeField(updated)
 	return plugin, nil
 }
-
 
 func scanPluginArtifact(row rowScanner) (db.PluginArtifact, error) {
 	var (

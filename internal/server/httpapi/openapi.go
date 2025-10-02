@@ -38,7 +38,6 @@ func (api *apiServer) serveOpenAPI(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
-
 // BuildOpenAPISpec constructs the OpenAPI spec. If baseURL is non-empty, it will be set as the server URL.
 func BuildOpenAPISpec(baseURL string) (*openapi3.T, error) {
 	// Initialize spec
