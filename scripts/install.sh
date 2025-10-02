@@ -6,6 +6,10 @@ INSTALL_VERSION="${volant_VERSION:-latest}"
 INSTALL_FORCE=no
 RUN_SETUP=yes
 NONINTERACTIVE=no
+KERNEL_URL="${VOLANT_KERNEL_URL:-}"
+WORK_DIR="/var/lib/volant"
+KERNEL_DIR="${WORK_DIR}/kernel"
+KERNEL_PATH="${KERNEL_DIR}/bzImage"
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TMP_DIR=""
@@ -32,6 +36,7 @@ Options:
   --version <ver>     Install a specific version (default: latest)
   --force             Reinstall even if volant is already present
   --skip-setup        Skip running 'volar setup' after installation
+  --kernel-url <url>  Download kernel bzImage from URL (default attempts repo kernels path)
   --yes               Non-interactive mode (assume yes to prompts)
   --help              Show this message
 EOF
@@ -46,6 +51,8 @@ parse_args() {
         INSTALL_FORCE=yes; shift ;;
       --skip-setup)
         RUN_SETUP=no; shift ;;
+      --kernel-url)
+        KERNEL_URL="$2"; shift 2 ;;
       --yes|-y)
         NONINTERACTIVE=yes; shift ;;
       --help|-h)
@@ -264,8 +271,19 @@ install_binaries() {
   log_info "Extracting binaries..."
   tar -xzf "$archive" -C "$TMP_DIR"
 
-  log_info "Installing volant binaries..."
-  sudo install -m 0755 "${TMP_DIR}/volant" /usr/local/bin/volar
+  log_info "Installing Volant binaries..."
+  if [[ -f "${TMP_DIR}/volar" ]]; then
+    sudo install -m 0755 "${TMP_DIR}/volar" /usr/local/bin/volar
+  elif [[ -f "${TMP_DIR}/volant" ]]; then
+    # Backward-compatibility: older archives used the 'volant' filename for the CLI
+    sudo install -m 0755 "${TMP_DIR}/volant" /usr/local/bin/volar
+  else
+    log_error "CLI binary (volar) not found in archive"
+    exit 1
+  fi
+  if [[ -f "${TMP_DIR}/volantd" ]]; then
+    sudo install -m 0755 "${TMP_DIR}/volantd" /usr/local/bin/volantd
+  fi
   if [[ -f "${TMP_DIR}/volary" ]]; then
     sudo install -m 0755 "${TMP_DIR}/volary" /usr/local/bin/volary
   fi
@@ -278,11 +296,48 @@ run_volant_setup() {
   fi
   if prompt_yes_no "Run 'sudo volar setup' now?"; then
     log_info "Running 'sudo volar setup'..."
-    if ! sudo volar setup; then
+    local kernel_flag=( )
+    if [[ -f "$KERNEL_PATH" ]]; then
+      kernel_flag=(--kernel "$KERNEL_PATH")
+    else
+      log_warn "Kernel not present at $KERNEL_PATH; systemd service will reference it but may fail to start until provided."
+    fi
+    if ! sudo VOLANT_WORK_DIR="$WORK_DIR" VOLANT_KERNEL="$KERNEL_PATH" volar setup "${kernel_flag[@]}" --work-dir "$WORK_DIR"; then
       log_warn "'volar setup' failed. You can rerun it manually later."
     fi
   else
     log_info "You can run 'sudo volar setup' at any time to initialize the system."
+  fi
+}
+
+default_kernel_url() {
+  # Prefer release-tagged kernel under the repo's kernels directory
+  # Expected path: kernels/<arch>/bzImage in the repository at the given tag
+  local ref="$RESOLVED_VERSION"
+  # Convert 'latest' to 'main' for raw content if resolution failed
+  if [[ -z "$ref" || "$ref" == "latest" ]]; then
+    ref="main"
+  fi
+  echo "https://raw.githubusercontent.com/ccheshirecat/volant/${ref}/kernels/${ARCH}/bzImage"
+}
+
+provision_kernel() {
+  sudo mkdir -p "$KERNEL_DIR"
+  if [[ -f "$KERNEL_PATH" ]]; then
+    log_info "Kernel already present at $KERNEL_PATH"
+    return
+  fi
+  local url="$KERNEL_URL"
+  if [[ -z "$url" ]]; then
+    url=$(default_kernel_url)
+  fi
+  log_info "Attempting to download kernel from: $url"
+  if curl -fL "$url" -o "$TMP_DIR/bzImage"; then
+    sudo install -m 0644 "$TMP_DIR/bzImage" "$KERNEL_PATH"
+    log_info "Kernel installed to $KERNEL_PATH"
+  else
+    log_warn "Failed to fetch kernel from $url"
+    log_warn "You must place a bzImage at $KERNEL_PATH before starting volantd."
   fi
 }
 
@@ -299,6 +354,7 @@ main() {
   create_temp_dir
   resolve_version
   install_binaries
+  provision_kernel
   run_volant_setup
   log_info "Volant installation complete. Launch with 'volar' or 'volar --help'."
 }
