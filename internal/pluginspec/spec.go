@@ -40,12 +40,14 @@ type Manifest struct {
 	Version       string            `json:"version"`
 	Runtime       string            `json:"runtime"`
 	RootFS        RootFS            `json:"rootfs"`
+	Disks         []Disk            `json:"disks,omitempty"`
 	Image         string            `json:"image,omitempty"`
 	ImageDigest   string            `json:"image_digest,omitempty"`
 	Resources     ResourceSpec      `json:"resources"`
 	Actions       map[string]Action `json:"actions,omitempty"`
 	HealthCheck   HealthCheck       `json:"health_check"`
 	Workload      Workload          `json:"workload"`
+	CloudInit     *CloudInit        `json:"cloud_init,omitempty"`
 	Enabled       bool              `json:"enabled"`
 	OpenAPI       string            `json:"openapi,omitempty"`
 	Labels        map[string]string `json:"labels,omitempty"`
@@ -54,6 +56,121 @@ type Manifest struct {
 type RootFS struct {
 	URL      string `json:"url"`
 	Checksum string `json:"checksum,omitempty"`
+	Format   string `json:"format,omitempty"`
+}
+
+type Disk struct {
+	Name     string `json:"name"`
+	Source   string `json:"source"`
+	Checksum string `json:"checksum,omitempty"`
+	Format   string `json:"format,omitempty"`
+	Readonly bool   `json:"readonly"`
+	Target   string `json:"target,omitempty"`
+}
+
+type CloudInit struct {
+	Datasource string        `json:"datasource,omitempty"`
+	SeedMode   string        `json:"seed_mode,omitempty"`
+	UserData   CloudInitDoc  `json:"user_data,omitempty"`
+	MetaData   CloudInitDoc  `json:"meta_data,omitempty"`
+	NetworkCfg CloudInitDoc  `json:"network_config,omitempty"`
+}
+
+type CloudInitDoc struct {
+	Inline  bool   `json:"inline,omitempty"`
+	Content string `json:"content,omitempty"`
+	Path    string `json:"path,omitempty"`
+}
+
+var allowedDiskFormats = map[string]struct{}{
+	"raw":   {},
+	"qcow2": {},
+}
+
+func normalizeFormat(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func (d *Disk) Normalize() {
+	if d == nil {
+		return
+	}
+	d.Name = strings.TrimSpace(d.Name)
+	d.Source = strings.TrimSpace(d.Source)
+	d.Format = normalizeFormat(d.Format)
+	d.Target = strings.TrimSpace(d.Target)
+}
+
+func (d Disk) Validate() error {
+	if strings.TrimSpace(d.Name) == "" {
+		return fmt.Errorf("disk name required")
+	}
+	if strings.TrimSpace(d.Source) == "" {
+		return fmt.Errorf("disk %s: source required", d.Name)
+	}
+	format := normalizeFormat(d.Format)
+	if format == "" {
+		format = "raw"
+	}
+	if _, ok := allowedDiskFormats[format]; !ok {
+		return fmt.Errorf("disk %s: unsupported format %q", d.Name, d.Format)
+	}
+	return nil
+}
+
+func (c *CloudInit) Normalize() {
+	if c == nil {
+		return
+	}
+	c.Datasource = strings.TrimSpace(c.Datasource)
+	c.SeedMode = strings.TrimSpace(strings.ToLower(c.SeedMode))
+	c.UserData.Normalize()
+	c.MetaData.Normalize()
+	c.NetworkCfg.Normalize()
+}
+
+func (c CloudInit) Validate() error {
+	if strings.TrimSpace(c.Datasource) == "" {
+		return fmt.Errorf("cloud_init: datasource required")
+	}
+	seedMode := strings.TrimSpace(strings.ToLower(c.SeedMode))
+	if seedMode == "" {
+		seedMode = "vfat"
+	}
+	if seedMode != "vfat" {
+		return fmt.Errorf("cloud_init: unsupported seed_mode %q", c.SeedMode)
+	}
+	if err := c.UserData.Validate("user_data"); err != nil {
+		return err
+	}
+	if err := c.MetaData.Validate("meta_data"); err != nil {
+		return err
+	}
+	if err := c.NetworkCfg.Validate("network_config"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (d *CloudInitDoc) Normalize() {
+	if d == nil {
+		return
+	}
+	d.Content = strings.TrimSpace(d.Content)
+	d.Path = strings.TrimSpace(d.Path)
+}
+
+func (d CloudInitDoc) Validate(field string) error {
+	if d.Content != "" && d.Path != "" {
+		return fmt.Errorf("cloud_init.%s: content and path cannot both be set", field)
+	}
+	if d.Content != "" && !d.Inline {
+		return fmt.Errorf("cloud_init.%s: inline must be true when content provided", field)
+	}
+	if d.Path != "" && d.Inline {
+		return fmt.Errorf("cloud_init.%s: inline must be false when path provided", field)
+	}
+	return nil
 }
 
 // ResourceSpec captures runtime requirements for a plugin workload.
@@ -119,6 +236,16 @@ func (m Manifest) Validate() error {
 	if err := normalized.RootFS.Validate(); err != nil {
 		return err
 	}
+	for _, disk := range normalized.Disks {
+		if err := disk.Validate(); err != nil {
+			return fmt.Errorf("plugin manifest: %w", err)
+		}
+	}
+	if normalized.CloudInit != nil {
+		if err := normalized.CloudInit.Validate(); err != nil {
+			return fmt.Errorf("plugin manifest: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -139,6 +266,24 @@ func (m *Manifest) Normalize() {
 	m.OpenAPI = strings.TrimSpace(m.OpenAPI)
 	m.RootFS.URL = strings.TrimSpace(m.RootFS.URL)
 	m.RootFS.Checksum = strings.TrimSpace(m.RootFS.Checksum)
+	m.RootFS.Format = normalizeFormat(m.RootFS.Format)
+	if m.RootFS.Format == "" {
+		m.RootFS.Format = "raw"
+	}
+	if len(m.Disks) > 0 {
+		for i := range m.Disks {
+			m.Disks[i].Normalize()
+		}
+	}
+	if m.CloudInit != nil {
+		m.CloudInit.Normalize()
+		if strings.TrimSpace(m.CloudInit.Datasource) == "" {
+			m.CloudInit.Datasource = "NoCloud"
+		}
+		if strings.TrimSpace(m.CloudInit.SeedMode) == "" {
+			m.CloudInit.SeedMode = "vfat"
+		}
+	}
 
 	m.Workload.Type = strings.TrimSpace(m.Workload.Type)
 	m.Workload.BaseURL = strings.TrimSpace(m.Workload.BaseURL)
@@ -249,6 +394,13 @@ func (r RootFS) Validate() error {
 	checksum := strings.TrimSpace(r.Checksum)
 	if checksum != "" && !strings.Contains(checksum, ":") && len(checksum) < 32 {
 		return fmt.Errorf("plugin manifest: rootfs checksum should include algorithm prefix or be a sha256")
+	}
+	format := normalizeFormat(r.Format)
+	if format == "" {
+		format = "raw"
+	}
+	if _, ok := allowedDiskFormats[format]; !ok {
+		return fmt.Errorf("plugin manifest: rootfs format %q not supported", r.Format)
 	}
 	return nil
 }

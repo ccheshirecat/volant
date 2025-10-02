@@ -45,6 +45,30 @@ type VMGroup struct {
 	UpdatedAt  time.Time
 }
 
+type PluginArtifact struct {
+	ID           int64
+	PluginName   string
+	Version      string
+	ArtifactName string
+	Kind         string
+	SourceURL    string
+	Checksum     string
+	Format       string
+	LocalPath    string
+	SizeBytes    int64
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type VMCloudInit struct {
+	VMID          int64
+	UserData      string
+	MetaData      string
+	NetworkConfig string
+	SeedPath      string
+	UpdatedAt     time.Time
+}
+
 // VMConfig captures the serialized configuration stored for a VM.
 type VMConfig struct {
 	VMID       int64
@@ -114,6 +138,8 @@ type Queries interface {
 	Plugins() PluginRepository
 	VMConfigs() VMConfigRepository
 	VMGroups() VMGroupRepository
+	PluginArtifacts() PluginArtifactRepository
+	VMCloudInit() VMCloudInitRepository
 }
 
 // VMRepository manages CRUD and lifecycle updates for VMs.
@@ -145,6 +171,21 @@ type VMGroupRepository interface {
 	GetByName(ctx context.Context, name string) (*VMGroup, error)
 	GetByID(ctx context.Context, id int64) (*VMGroup, error)
 	List(ctx context.Context) ([]VMGroup, error)
+}
+
+type PluginArtifactRepository interface {
+	Upsert(ctx context.Context, artifact PluginArtifact) error
+	ListByPlugin(ctx context.Context, plugin string) ([]PluginArtifact, error)
+	ListByPluginVersion(ctx context.Context, plugin, version string) ([]PluginArtifact, error)
+	Get(ctx context.Context, plugin, version, artifactName string) (*PluginArtifact, error)
+	DeleteByPluginVersion(ctx context.Context, plugin, version string) error
+	DeleteByPlugin(ctx context.Context, plugin string) error
+}
+
+type VMCloudInitRepository interface {
+	Upsert(ctx context.Context, record VMCloudInit) error
+	Get(ctx context.Context, vmID int64) (*VMCloudInit, error)
+	Delete(ctx context.Context, vmID int64) error
 }
 
 // IPRepository manages deterministic IP allocation.

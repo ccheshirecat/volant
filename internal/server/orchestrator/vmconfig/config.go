@@ -32,14 +32,15 @@ type Expose struct {
 
 // Config represents the persisted, user-editable configuration of a VM.
 type Config struct {
-	Plugin        string               `json:"plugin"`
-	Runtime       string               `json:"runtime,omitempty"`
-	KernelCmdline string               `json:"kernel_cmdline,omitempty"`
-	Resources     Resources            `json:"resources"`
-	API           API                  `json:"api,omitempty"`
-	Manifest      *pluginspec.Manifest `json:"manifest,omitempty"`
-	Metadata      map[string]any       `json:"metadata,omitempty"`
-	Expose        []Expose             `json:"expose,omitempty"`
+    Plugin        string               `json:"plugin"`
+    Runtime       string               `json:"runtime,omitempty"`
+    KernelCmdline string               `json:"kernel_cmdline,omitempty"`
+    Resources     Resources            `json:"resources"`
+    API           API                  `json:"api,omitempty"`
+    Manifest      *pluginspec.Manifest `json:"manifest,omitempty"`
+    Metadata      map[string]any       `json:"metadata,omitempty"`
+    Expose        []Expose             `json:"expose,omitempty"`
+    CloudInit     *pluginspec.CloudInit `json:"cloud_init,omitempty"`
 }
 
 // Versioned associates a configuration with its version metadata.
@@ -66,6 +67,7 @@ type Patch struct {
 	Manifest      *pluginspec.Manifest `json:"manifest,omitempty"`
 	Metadata      *map[string]any      `json:"metadata,omitempty"`
 	Expose        *[]Expose            `json:"expose,omitempty"`
+	CloudInit     *pluginspec.CloudInit `json:"cloud_init,omitempty"`
 }
 
 // ResourcesPatch allows partial updates of compute resources.
@@ -86,6 +88,11 @@ func (c Config) Clone() Config {
 	if c.Manifest != nil {
 		manifestCopy := *c.Manifest
 		clone.Manifest = &manifestCopy
+	}
+	if c.CloudInit != nil {
+		cloudCopy := *c.CloudInit
+		cloudCopy.Normalize()
+		clone.CloudInit = &cloudCopy
 	}
 	if c.Metadata != nil {
 		metaCopy := make(map[string]any, len(c.Metadata))
@@ -121,6 +128,11 @@ func (c *Config) Normalize() {
 		manifestCopy.Normalize()
 		c.Manifest = &manifestCopy
 	}
+	if c.CloudInit != nil {
+		cloudCopy := *c.CloudInit
+		cloudCopy.Normalize()
+		c.CloudInit = &cloudCopy
+	}
 }
 
 // Validate performs semantic validation on the configuration.
@@ -146,6 +158,11 @@ func (c Config) Validate() error {
 		}
 		if rule.HostPort < 0 {
 			return fmt.Errorf("vmconfig: expose host_port cannot be negative")
+		}
+	}
+	if c.CloudInit != nil {
+		if err := c.CloudInit.Validate(); err != nil {
+			return fmt.Errorf("vmconfig: %w", err)
 		}
 	}
 	return nil
@@ -227,6 +244,11 @@ func (p Patch) Apply(base Config) (Config, error) {
 			copy(exposeCopy, *p.Expose)
 			updated.Expose = exposeCopy
 		}
+	}
+	if p.CloudInit != nil {
+		cloudCopy := *p.CloudInit
+		cloudCopy.Normalize()
+		updated.CloudInit = &cloudCopy
 	}
 
 	updated.Normalize()

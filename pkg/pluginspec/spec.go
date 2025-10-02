@@ -15,6 +15,9 @@ const (
 type (
 	Manifest     = internal.Manifest
 	RootFS       = internal.RootFS
+	Disk         = internal.Disk
+	CloudInit    = internal.CloudInit
+	CloudInitDoc = internal.CloudInitDoc
 	ResourceSpec = internal.ResourceSpec
 	Action       = internal.Action
 	HealthCheck  = internal.HealthCheck

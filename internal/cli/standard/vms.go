@@ -2,12 +2,13 @@ package standard
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ccheshirecat/volant/internal/cli/client"
+	"github.com/ccheshirecat/volant/internal/cli/openapiutil"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
 	"golang.org/x/term"
 )
@@ -25,10 +27,6 @@ func encodeAsJSON(out io.Writer, payload interface{}) error {
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
 	return enc.Encode(payload)
-}
-
-func DecodeBase64(data string) ([]byte, error) {
-	return base64.StdEncoding.DecodeString(data)
 }
 
 func newVMsCmd() *cobra.Command {
@@ -43,11 +41,8 @@ func newVMsCmd() *cobra.Command {
 	cmd.AddCommand(newVMsGetCmd())
 	cmd.AddCommand(newVMsWatchCmd())
 	cmd.AddCommand(newVMsConsoleCmd())
-	cmd.AddCommand(newVMsNavigateCmd())
-	cmd.AddCommand(newVMsScreenshotCmd())
-	cmd.AddCommand(newVMsScrapeCmd())
-	cmd.AddCommand(newVMsExecCmd())
-	cmd.AddCommand(newVMsGraphQLCmd())
+	cmd.AddCommand(newVMsOperationsCmd())
+	cmd.AddCommand(newVMsCallCmd())
 	cmd.AddCommand(newVMsStartCmd())
 	cmd.AddCommand(newVMsStopCmd())
 	cmd.AddCommand(newVMsRestartCmd())
@@ -806,107 +801,6 @@ func newDeploymentsScaleCmd() *cobra.Command {
 	}
 	return cmd
 }
-
-func newVMsWatchCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "watch",
-		Short: "Stream microVM lifecycle events",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			api, err := clientFromCmd(cmd)
-			if err != nil {
-				return err
-			}
-
-			ctx, cancel := context.WithCancel(cmd.Context())
-			defer cancel()
-
-			return api.WatchVMEvents(ctx, func(ev client.VMEvent) {
-				target := cmd.OutOrStdout()
-				fmt.Fprintf(target, "%s	%s	%s	%s\n", ev.Timestamp.Format(time.RFC3339), ev.Type, ev.Name, ev.Message)
-			})
-		},
-	}
-	return cmd
-}
-
-func newVMsNavigateCmd() *cobra.Command {
-	var timeout time.Duration
-
-	cmd := &cobra.Command{
-		Use:   "navigate <vm> <url>",
-		Short: "Navigate a VM's browser to a URL",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			api, err := clientFromCmd(cmd)
-			if err != nil {
-				return err
-			}
-			if timeout <= 0 {
-				timeout = 60 * time.Second
-			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
-			defer cancel()
-
-			payload := client.NavigateActionRequest{
-				URL:       args[1],
-				TimeoutMs: int64(timeout / time.Millisecond),
-			}
-
-			if err := api.NavigateVM(ctx, args[0], payload); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Navigation requested for %s\n", args[0])
-			return nil
-		},
-	}
-	cmd.Flags().DurationVar(&timeout, "timeout", 60*time.Second, "Action timeout")
-	return cmd
-}
-
-func newVMsScreenshotCmd() *cobra.Command {
-	var outputPath string
-	var fullPage bool
-	var format string
-	var timeout time.Duration
-
-	cmd := &cobra.Command{
-		Use:   "screenshot <vm>",
-		Short: "Capture a screenshot from a VM",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			api, err := clientFromCmd(cmd)
-			if err != nil {
-				return err
-			}
-			if timeout <= 0 {
-				timeout = 60 * time.Second
-			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
-			defer cancel()
-
-			payload := client.ScreenshotActionRequest{
-				FullPage:  fullPage,
-				Format:    format,
-				TimeoutMs: int64(timeout / time.Millisecond),
-			}
-
-			resp, err := api.ScreenshotVM(ctx, args[0], payload)
-			if err != nil {
-				return err
-			}
-
-			data, decodeErr := DecodeBase64(resp.Data)
-			if decodeErr != nil {
-				return decodeErr
-			}
-
-			path := outputPath
-			if strings.TrimSpace(path) == "" {
-				suffix := resp.Format
-				if suffix == "" {
-					suffix = payload.Format
-				}
-				if suffix == "" {
 					suffix = "png"
 				}
 				path = fmt.Sprintf("%s_%d.%s", args[0], time.Now().Unix(), suffix)
@@ -924,55 +818,6 @@ func newVMsScreenshotCmd() *cobra.Command {
 	cmd.Flags().StringVar(&outputPath, "output", "", "Destination file path")
 	cmd.Flags().BoolVar(&fullPage, "full-page", false, "Capture full page")
 	cmd.Flags().StringVar(&format, "format", "png", "Output format (png|jpeg)")
-	cmd.Flags().DurationVar(&timeout, "timeout", 60*time.Second, "Action timeout")
-
-	return cmd
-}
-
-func newVMsScrapeCmd() *cobra.Command {
-	var selector string
-	var attribute string
-	var timeout time.Duration
-
-	cmd := &cobra.Command{
-		Use:   "scrape <vm>",
-		Short: "Extract text or attribute from a VM page",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(selector) == "" {
-				return fmt.Errorf("selector is required")
-			}
-			api, err := clientFromCmd(cmd)
-			if err != nil {
-				return err
-			}
-			if timeout <= 0 {
-				timeout = 60 * time.Second
-			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
-			defer cancel()
-
-			payload := client.ScrapeActionRequest{
-				Selector:  selector,
-				Attribute: attribute,
-				TimeoutMs: int64(timeout / time.Millisecond),
-			}
-
-			resp, err := api.ScrapeVM(ctx, args[0], payload)
-			if err != nil {
-				return err
-			}
-
-			output := struct {
-				Value  interface{} `json:"value"`
-				Exists bool        `json:"exists"`
-			}{Value: resp.Value, Exists: resp.Exists}
-			return encodeAsJSON(cmd.OutOrStdout(), output)
-		},
-	}
-
-	cmd.Flags().StringVar(&selector, "selector", "", "CSS selector")
-	cmd.Flags().StringVar(&attribute, "attr", "", "Attribute to read instead of text")
 	cmd.Flags().DurationVar(&timeout, "timeout", 60*time.Second, "Action timeout")
 
 	return cmd
@@ -1162,6 +1007,40 @@ func attachUnixSocket(cmd *cobra.Command, socketPath string) error {
 		return err
 	}
 	return nil
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{})
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func preferredContentType(op *openapiutil.Operation) string {
+	if op == nil || op.RequestBody == nil {
+		return ""
+	}
+	body := op.RequestBody.Value
+	if body == nil || len(body.Content) == 0 {
+		return ""
+	}
+	if _, ok := body.Content["application/json"]; ok {
+		return "application/json"
+	}
+	for ct := range body.Content {
+		return ct
+	}
+	return ""
 }
 
 func clientFromCmd(cmd *cobra.Command) (*client.Client, error) {

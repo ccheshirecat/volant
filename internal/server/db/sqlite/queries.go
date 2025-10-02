@@ -49,6 +49,14 @@ func (q *queries) VMGroups() db.VMGroupRepository {
 	return &vmGroupRepository{exec: q.exec}
 }
 
+func (q *queries) PluginArtifacts() db.PluginArtifactRepository {
+	return &pluginArtifactRepository{exec: q.exec}
+}
+
+func (q *queries) VMCloudInit() db.VMCloudInitRepository {
+	return &vmCloudInitRepository{exec: q.exec}
+}
+
 type vmRepository struct {
 	exec executor
 }
@@ -274,6 +282,18 @@ type vmGroupRepository struct {
 
 var _ db.VMGroupRepository = (*vmGroupRepository)(nil)
 
+type pluginArtifactRepository struct {
+	exec executor
+}
+
+var _ db.PluginArtifactRepository = (*pluginArtifactRepository)(nil)
+
+type vmCloudInitRepository struct {
+	exec executor
+}
+
+var _ db.VMCloudInitRepository = (*vmCloudInitRepository)(nil)
+
 type vmConfigRepository struct {
 	exec executor
 }
@@ -431,6 +451,115 @@ func (r *vmGroupRepository) List(ctx context.Context) ([]db.VMGroup, error) {
 		return nil, fmt.Errorf("iterate vm groups: %w", err)
 	}
 	return result, nil
+}
+
+
+func (r *pluginArtifactRepository) Upsert(ctx context.Context, artifact db.PluginArtifact) error {
+	if _, err := r.exec.ExecContext(ctx, `INSERT INTO plugin_artifacts (plugin_name, version, artifact_name, kind, source_url, checksum, format, local_path, size_bytes)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(plugin_name, version, artifact_name) DO UPDATE SET kind = excluded.kind, source_url = excluded.source_url, checksum = excluded.checksum, format = excluded.format, local_path = excluded.local_path, size_bytes = excluded.size_bytes, updated_at = CURRENT_TIMESTAMP;`,
+		artifact.PluginName, artifact.Version, artifact.ArtifactName, artifact.Kind, artifact.SourceURL, artifact.Checksum, artifact.Format, artifact.LocalPath, artifact.SizeBytes); err != nil {
+		return fmt.Errorf("upsert plugin artifact: %w", err)
+	}
+	return nil
+}
+
+func (r *pluginArtifactRepository) ListByPlugin(ctx context.Context, plugin string) ([]db.PluginArtifact, error) {
+	rows, err := r.exec.QueryContext(ctx, `SELECT id, plugin_name, version, artifact_name, kind, source_url, checksum, format, local_path, size_bytes, created_at, updated_at FROM plugin_artifacts WHERE plugin_name = ? ORDER BY version DESC, artifact_name ASC;`, plugin)
+	if err != nil {
+		return nil, fmt.Errorf("list plugin artifacts: %w", err)
+	}
+	defer rows.Close()
+
+	var result []db.PluginArtifact
+	for rows.Next() {
+		artifact, err := scanPluginArtifact(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, artifact)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate plugin artifacts: %w", err)
+	}
+	return result, nil
+}
+
+
+func (r *pluginArtifactRepository) ListByPluginVersion(ctx context.Context, plugin, version string) ([]db.PluginArtifact, error) {
+	rows, err := r.exec.QueryContext(ctx, `SELECT id, plugin_name, version, artifact_name, kind, source_url, checksum, format, local_path, size_bytes, created_at, updated_at FROM plugin_artifacts WHERE plugin_name = ? AND version = ? ORDER BY artifact_name ASC;`, plugin, version)
+	if err != nil {
+		return nil, fmt.Errorf("list plugin artifacts by version: %w", err)
+	}
+	defer rows.Close()
+
+	var result []db.PluginArtifact
+	for rows.Next() {
+		artifact, err := scanPluginArtifact(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, artifact)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate plugin artifacts by version: %w", err)
+	}
+	return result, nil
+}
+
+func (r *pluginArtifactRepository) Get(ctx context.Context, plugin, version, artifactName string) (*db.PluginArtifact, error) {
+	row := r.exec.QueryRowContext(ctx, `SELECT id, plugin_name, version, artifact_name, kind, source_url, checksum, format, local_path, size_bytes, created_at, updated_at FROM plugin_artifacts WHERE plugin_name = ? AND version = ? AND artifact_name = ?;`, plugin, version, artifactName)
+	artifact, err := scanPluginArtifact(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &artifact, nil
+}
+
+func (r *pluginArtifactRepository) DeleteByPluginVersion(ctx context.Context, plugin, version string) error {
+	if _, err := r.exec.ExecContext(ctx, `DELETE FROM plugin_artifacts WHERE plugin_name = ? AND version = ?;`, plugin, version); err != nil {
+		return fmt.Errorf("delete plugin artifacts by version: %w", err)
+	}
+	return nil
+}
+
+func (r *pluginArtifactRepository) DeleteByPlugin(ctx context.Context, plugin string) error {
+	if _, err := r.exec.ExecContext(ctx, `DELETE FROM plugin_artifacts WHERE plugin_name = ?;`, plugin); err != nil {
+		return fmt.Errorf("delete plugin artifacts: %w", err)
+	}
+	return nil
+}
+
+func (r *vmCloudInitRepository) Upsert(ctx context.Context, record db.VMCloudInit) error {
+	if _, err := r.exec.ExecContext(ctx, `INSERT INTO vm_cloudinit (vm_id, user_data, meta_data, network_config, seed_path)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(vm_id) DO UPDATE SET user_data = excluded.user_data, meta_data = excluded.meta_data, network_config = excluded.network_config, seed_path = excluded.seed_path, updated_at = CURRENT_TIMESTAMP;`,
+		record.VMID, record.UserData, record.MetaData, record.NetworkConfig, record.SeedPath); err != nil {
+		return fmt.Errorf("upsert vm cloudinit: %w", err)
+	}
+	return nil
+}
+
+func (r *vmCloudInitRepository) Get(ctx context.Context, vmID int64) (*db.VMCloudInit, error) {
+	row := r.exec.QueryRowContext(ctx, `SELECT vm_id, user_data, meta_data, network_config, seed_path, updated_at FROM vm_cloudinit WHERE vm_id = ?;`, vmID)
+	record, err := scanVMCloudInit(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &record, nil
+}
+
+func (r *vmCloudInitRepository) Delete(ctx context.Context, vmID int64) error {
+	if _, err := r.exec.ExecContext(ctx, `DELETE FROM vm_cloudinit WHERE vm_id = ?;`, vmID); err != nil {
+		return fmt.Errorf("delete vm cloudinit: %w", err)
+	}
+	return nil
 }
 
 func (r *vmConfigRepository) GetCurrent(ctx context.Context, vmID int64) (*db.VMConfig, error) {
@@ -633,6 +762,51 @@ func scanPlugin(row rowScanner) (db.Plugin, error) {
 	plugin.InstalledAt, _ = parseTimeField(installed)
 	plugin.UpdatedAt, _ = parseTimeField(updated)
 	return plugin, nil
+}
+
+
+func scanPluginArtifact(row rowScanner) (db.PluginArtifact, error) {
+	var (
+		artifact db.PluginArtifact
+		created  any
+		updated  any
+	)
+
+	if err := row.Scan(&artifact.ID, &artifact.PluginName, &artifact.Version, &artifact.ArtifactName, &artifact.Kind, &artifact.SourceURL, &artifact.Checksum, &artifact.Format, &artifact.LocalPath, &artifact.SizeBytes, &created, &updated); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return db.PluginArtifact{}, err
+		}
+		return db.PluginArtifact{}, fmt.Errorf("scan plugin artifact: %w", err)
+	}
+	createdAt, err := parseTimestamp(created)
+	if err != nil {
+		return db.PluginArtifact{}, fmt.Errorf("parse artifact created_at: %w", err)
+	}
+	updatedAt, err := parseTimestamp(updated)
+	if err != nil {
+		return db.PluginArtifact{}, fmt.Errorf("parse artifact updated_at: %w", err)
+	}
+	artifact.CreatedAt = createdAt
+	artifact.UpdatedAt = updatedAt
+	return artifact, nil
+}
+
+func scanVMCloudInit(row rowScanner) (db.VMCloudInit, error) {
+	var (
+		record  db.VMCloudInit
+		updated any
+	)
+
+	if err := row.Scan(&record.VMID, &record.UserData, &record.MetaData, &record.NetworkConfig, &record.SeedPath, &updated); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return db.VMCloudInit{}, err
+		}
+		return db.VMCloudInit{}, fmt.Errorf("scan vm cloudinit: %w", err)
+	}
+	if updatedTime, err := parseTimestamp(updated); err == nil {
+		record.UpdatedAt = updatedTime
+	}
+	return record, nil
 }
 
 func scanVMGroup(row rowScanner) (db.VMGroup, error) {

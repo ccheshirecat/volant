@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -122,56 +123,6 @@ type DevToolsInfo struct {
 	Address        string `json:"address"`
 	Port           int    `json:"port"`
 }
-
-type NavigateActionRequest struct {
-	URL       string `json:"url"`
-	TimeoutMs int64  `json:"timeout_ms,omitempty"`
-}
-
-type ScreenshotActionRequest struct {
-	FullPage  bool   `json:"full_page"`
-	Format    string `json:"format,omitempty"`
-	Quality   int    `json:"quality,omitempty"`
-	TimeoutMs int64  `json:"timeout_ms,omitempty"`
-}
-
-type ScreenshotActionResponse struct {
-	Data       string `json:"data"`
-	Format     string `json:"format"`
-	FullPage   bool   `json:"full_page"`
-	ByteLength int    `json:"byte_length"`
-	CapturedAt string `json:"captured_at"`
-}
-
-type ScrapeActionRequest struct {
-	Selector  string `json:"selector"`
-	Attribute string `json:"attribute,omitempty"`
-	TimeoutMs int64  `json:"timeout_ms,omitempty"`
-}
-
-type ScrapeActionResponse struct {
-	Value  interface{} `json:"value"`
-	Exists bool        `json:"exists"`
-}
-
-type EvaluateActionRequest struct {
-	Expression   string `json:"expression"`
-	AwaitPromise bool   `json:"await_promise"`
-	TimeoutMs    int64  `json:"timeout_ms,omitempty"`
-}
-
-type EvaluateActionResponse struct {
-	Result interface{} `json:"result"`
-}
-
-type GraphQLActionRequest struct {
-	Endpoint  string                 `json:"endpoint"`
-	Query     string                 `json:"query"`
-	Variables map[string]interface{} `json:"variables,omitempty"`
-	TimeoutMs int64                  `json:"timeout_ms,omitempty"`
-}
-
-type GraphQLActionResponse map[string]interface{}
 
 type MCPRequest struct {
 	Command string                 `json:"command"`
@@ -502,42 +453,6 @@ func (c *Client) WatchVMLogs(ctx context.Context, name string, handler func(VMLo
 		}
 		handler(event)
 	}
-}
-
-func (c *Client) WatchAGUI(ctx context.Context, handler func(string)) error {
-	if handler == nil {
-		return fmt.Errorf("client: handler required")
-	}
-
-	wsURL := c.baseURL.ResolveReference(&url.URL{Path: "/ws/v1/agui"})
-	switch wsURL.Scheme {
-	case "http":
-		wsURL.Scheme = "ws"
-	case "https":
-		wsURL.Scheme = "wss"
-	case "ws", "wss":
-	default:
-		return fmt.Errorf("client: unsupported scheme %q", wsURL.Scheme)
-	}
-
-	dialer := websocket.Dialer{
-		Proxy:            http.ProxyFromEnvironment,
-		HandshakeTimeout: 30 * time.Second,
-	}
-
-	conn, resp, err := dialer.DialContext(ctx, wsURL.String(), nil)
-	if resp != nil {
-		defer resp.Body.Close()
-	}
-	if err != nil {
-		return fmt.Errorf("client: watch agui dial: %w", err)
-	}
-	defer conn.Close()
-
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
 			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
 			_ = conn.Close()
 		case <-done:
@@ -669,26 +584,76 @@ func (c *Client) MCP(ctx context.Context, request MCPRequest) (*MCPResponse, err
 	return &response, nil
 }
 
-func (c *Client) PluginActionVM(ctx context.Context, vmName, plugin, action string, payload any, out ...any) error {
-	path := fmt.Sprintf("/api/v1/vms/%s/actions/%s/%s", url.PathEscape(vmName), url.PathEscape(plugin), url.PathEscape(action))
-	return c.pluginAction(ctx, path, payload, out...)
-}
-
-func (c *Client) PluginAction(ctx context.Context, plugin, action string, payload any, out ...any) error {
-	path := fmt.Sprintf("/api/v1/plugins/%s/actions/%s", url.PathEscape(plugin), url.PathEscape(action))
-	return c.pluginAction(ctx, path, payload, out...)
-}
-
-func (c *Client) pluginAction(ctx context.Context, path string, payload any, out ...any) error {
-	req, err := c.newRequest(ctx, http.MethodPost, path, payload)
+func (c *Client) GetVMOpenAPISpec(ctx context.Context, name string) ([]byte, string, error) {
+	path := fmt.Sprintf("/api/v1/vms/%s/openapi", url.PathEscape(name))
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return err
+		return nil, "", err
 	}
 
-	if len(out) == 0 {
-		return c.do(req, nil)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("client: do request: %w", err)
 	}
-	return c.do(req, out[0])
+	defer resp.Body.Close()
+
+	data, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, "", fmt.Errorf("client: read response: %w", readErr)
+	}
+
+	if resp.StatusCode >= 300 {
+		var apiErr map[string]any
+		if len(data) > 0 && json.Unmarshal(data, &apiErr) == nil {
+			if msg, ok := apiErr["error"].(string); ok {
+				return nil, "", fmt.Errorf("client: http %d: %s", resp.StatusCode, msg)
+			}
+		}
+		return nil, "", fmt.Errorf("client: http %d", resp.StatusCode)
+	}
+
+	return data, resp.Header.Get("Content-Type"), nil
+}
+
+func (c *Client) ProxyVM(ctx context.Context, vmName, method, path string, query url.Values, body []byte, headers http.Header) (*http.Response, error) {
+	if method == "" {
+		method = http.MethodGet
+	}
+	targetPath := fmt.Sprintf("/api/v1/vms/%s/agent%s", url.PathEscape(vmName), ensureLeadingSlash(path))
+	ref := &url.URL{Path: targetPath}
+	if query != nil {
+		ref.RawQuery = query.Encode()
+	}
+	resolved := c.baseURL.ResolveReference(ref)
+
+	var reader io.Reader
+	if len(body) > 0 {
+		reader = bytes.NewReader(body)
+	} else {
+		reader = http.NoBody
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, resolved.String(), reader)
+	if err != nil {
+		return nil, fmt.Errorf("client: new request: %w", err)
+	}
+
+	if headers != nil {
+		for key, values := range headers {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
+	}
+	if len(body) > 0 && req.Header.Get("Content-Type") == "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("client: do request: %w", err)
+	}
+	return resp, nil
 }
 
 func (c *Client) newRequest(ctx context.Context, method, path string, body any) (*http.Request, error) {
@@ -741,6 +706,16 @@ type SystemStatus struct {
 	VMCount int     `json:"vm_count"`
 	CPU     float64 `json:"cpu_percent"`
 	MEM     float64 `json:"mem_percent"`
+}
+
+func ensureLeadingSlash(path string) string {
+	if path == "" {
+		return "/"
+	}
+	if !strings.HasPrefix(path, "/") {
+		return "/" + path
+	}
+	return path
 }
 
 // GetSystemStatus fetches system metrics.

@@ -148,6 +148,27 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	if rootfsPath != "" {
 		args = append(args, "--disk", fmt.Sprintf("path=%s,readonly=false", rootfsPath))
 	}
+	for _, disk := range spec.Disks {
+		path := strings.TrimSpace(disk.Path)
+		if path == "" {
+			continue
+		}
+		readonly := "false"
+		if disk.Readonly {
+			readonly = "true"
+		}
+		args = append(args, "--disk", fmt.Sprintf("path=%s,readonly=%s", path, readonly))
+	}
+	if spec.SeedDisk != nil {
+		seedPath := strings.TrimSpace(spec.SeedDisk.Path)
+		if seedPath != "" {
+			readonly := "false"
+			if spec.SeedDisk.Readonly {
+				readonly = "true"
+			}
+			args = append(args, "--disk", fmt.Sprintf("path=%s,readonly=%s", seedPath, readonly))
+		}
+	}
 
 	cmdline := spec.KernelCmdline
 	if len(spec.Args) > 0 {
