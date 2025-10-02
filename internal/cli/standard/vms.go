@@ -39,7 +39,6 @@ func newVMsCmd() *cobra.Command {
 	cmd.AddCommand(newVMsCreateCmd())
 	cmd.AddCommand(newVMsDeleteCmd())
 	cmd.AddCommand(newVMsGetCmd())
-	cmd.AddCommand(newVMsWatchCmd())
 	cmd.AddCommand(newVMsConsoleCmd())
 	cmd.AddCommand(newVMsOperationsCmd())
 	cmd.AddCommand(newVMsCallCmd())
@@ -801,129 +800,6 @@ func newDeploymentsScaleCmd() *cobra.Command {
 	}
 	return cmd
 }
-					suffix = "png"
-				}
-				path = fmt.Sprintf("%s_%d.%s", args[0], time.Now().Unix(), suffix)
-			}
-
-			if writeErr := os.WriteFile(path, data, 0o644); writeErr != nil {
-				return writeErr
-			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "Screenshot saved to %s (%d bytes)\n", path, len(data))
-			return nil
-		},
-	}
-
-	cmd.Flags().StringVar(&outputPath, "output", "", "Destination file path")
-	cmd.Flags().BoolVar(&fullPage, "full-page", false, "Capture full page")
-	cmd.Flags().StringVar(&format, "format", "png", "Output format (png|jpeg)")
-	cmd.Flags().DurationVar(&timeout, "timeout", 60*time.Second, "Action timeout")
-
-	return cmd
-}
-
-func newVMsExecCmd() *cobra.Command {
-	var expression string
-	var await bool
-	var timeout time.Duration
-
-	cmd := &cobra.Command{
-		Use:   "exec <vm>",
-		Short: "Execute JavaScript in the VM context",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(expression) == "" {
-				return fmt.Errorf("expression is required")
-			}
-			api, err := clientFromCmd(cmd)
-			if err != nil {
-				return err
-			}
-			if timeout <= 0 {
-				timeout = 60 * time.Second
-			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
-			defer cancel()
-
-			payload := client.EvaluateActionRequest{
-				Expression:   expression,
-				AwaitPromise: await,
-				TimeoutMs:    int64(timeout / time.Millisecond),
-			}
-
-			resp, err := api.EvaluateVM(ctx, args[0], payload)
-			if err != nil {
-				return err
-			}
-			return encodeAsJSON(cmd.OutOrStdout(), resp)
-		},
-	}
-
-	cmd.Flags().StringVarP(&expression, "expression", "e", "", "JavaScript expression to evaluate")
-	cmd.Flags().BoolVar(&await, "await", false, "Await returned promises")
-	cmd.Flags().DurationVar(&timeout, "timeout", 60*time.Second, "Action timeout")
-
-	return cmd
-}
-
-func newVMsGraphQLCmd() *cobra.Command {
-	var endpoint string
-	var query string
-	var variables string
-	var timeout time.Duration
-
-	cmd := &cobra.Command{
-		Use:   "graphql <vm>",
-		Short: "Execute GraphQL request from VM context",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(endpoint) == "" {
-				return fmt.Errorf("endpoint is required")
-			}
-			if strings.TrimSpace(query) == "" {
-				return fmt.Errorf("query is required")
-			}
-
-			api, err := clientFromCmd(cmd)
-			if err != nil {
-				return err
-			}
-			if timeout <= 0 {
-				timeout = 60 * time.Second
-			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
-			defer cancel()
-
-			var vars map[string]interface{}
-			if strings.TrimSpace(variables) != "" {
-				if decodeErr := json.Unmarshal([]byte(variables), &vars); decodeErr != nil {
-					return fmt.Errorf("invalid variables JSON: %w", decodeErr)
-				}
-			}
-
-			payload := client.GraphQLActionRequest{
-				Endpoint:  endpoint,
-				Query:     query,
-				Variables: vars,
-				TimeoutMs: int64(timeout / time.Millisecond),
-			}
-
-			resp, err := api.GraphQLVM(ctx, args[0], payload)
-			if err != nil {
-				return err
-			}
-			return encodeAsJSON(cmd.OutOrStdout(), resp)
-		},
-	}
-
-	cmd.Flags().StringVar(&endpoint, "endpoint", "", "GraphQL endpoint URL")
-	cmd.Flags().StringVar(&query, "query", "", "GraphQL query string")
-	cmd.Flags().StringVar(&variables, "variables", "", "GraphQL variables JSON")
-	cmd.Flags().DurationVar(&timeout, "timeout", 60*time.Second, "Action timeout")
-
-	return cmd
-}
 
 func newVMsConsoleCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -1049,4 +925,183 @@ func clientFromCmd(cmd *cobra.Command) (*client.Client, error) {
 		base = envOrDefault("VOLANT_API_BASE", "http://127.0.0.1:7777")
 	}
 	return client.New(base)
+}
+
+// newVMsOperationsCmd lists all available operations from the VM's plugin OpenAPI spec.
+func newVMsOperationsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "operations <vm>",
+		Short: "List available plugin operations for a VM",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+
+			// Fetch the OpenAPI spec
+			data, _, err := api.GetVMOpenAPI(ctx, args[0])
+			if err != nil {
+				return fmt.Errorf("fetch openapi spec: %w", err)
+			}
+
+			// Parse the spec
+			doc, err := openapiutil.ParseDocument(data)
+			if err != nil {
+				return fmt.Errorf("parse openapi spec: %w", err)
+			}
+
+			// List operations
+			ops := openapiutil.ListOperations(doc)
+			if len(ops) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "No operations found")
+				return nil
+			}
+
+			// Display operations in a table
+			fmt.Fprintf(cmd.OutOrStdout(), "%-30s %-8s %-40s %s\n", "OPERATION ID", "METHOD", "PATH", "SUMMARY")
+			fmt.Fprintf(cmd.OutOrStdout(), "%s\n", strings.Repeat("-", 120))
+			for _, op := range ops {
+				operationID := op.OperationID
+				if operationID == "" {
+					operationID = fmt.Sprintf("%s:%s", op.Method, op.Path)
+				}
+				summary := op.Summary
+				if len(summary) > 50 {
+					summary = summary[:47] + "..."
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%-30s %-8s %-40s %s\n", operationID, op.Method, op.Path, summary)
+			}
+
+			return nil
+		},
+	}
+	return cmd
+}
+
+// newVMsCallCmd dynamically invokes an operation from the VM's plugin OpenAPI spec.
+func newVMsCallCmd() *cobra.Command {
+	var queryParams []string
+	var bodyFile string
+	var bodyInline string
+	var timeout time.Duration
+
+	cmd := &cobra.Command{
+		Use:   "call <vm> <operation-id>",
+		Short: "Invoke a plugin operation dynamically",
+		Long: `Invoke a plugin operation by operationId or METHOD:PATH.
+
+Examples:
+  volar vms call myvm getStatus
+  volar vms call myvm POST:/api/action --body '{"key":"value"}'
+  volar vms call myvm updateConfig --body-file config.json --query key=value`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			vmName := args[0]
+			operationToken := args[1]
+
+			api, err := clientFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+
+			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+			defer cancel()
+
+			// Fetch the OpenAPI spec
+			data, _, err := api.GetVMOpenAPI(ctx, vmName)
+			if err != nil {
+				return fmt.Errorf("fetch openapi spec: %w", err)
+			}
+
+			// Parse the spec
+			doc, err := openapiutil.ParseDocument(data)
+			if err != nil {
+				return fmt.Errorf("parse openapi spec: %w", err)
+			}
+
+			// Find the operation
+			op, err := openapiutil.FindOperation(doc, operationToken)
+			if err != nil {
+				return err
+			}
+
+			// Build query parameters
+			query := url.Values{}
+			for _, qp := range queryParams {
+				parts := strings.SplitN(qp, "=", 2)
+				if len(parts) == 2 {
+					query.Add(parts[0], parts[1])
+				} else {
+					query.Add(parts[0], "")
+				}
+			}
+
+			// Build request body
+			var body []byte
+			if strings.TrimSpace(bodyInline) != "" {
+				body = []byte(bodyInline)
+			} else if strings.TrimSpace(bodyFile) != "" {
+				var readErr error
+				body, readErr = os.ReadFile(bodyFile)
+				if readErr != nil {
+					return fmt.Errorf("read body file: %w", readErr)
+				}
+			}
+
+			// Determine content type
+			contentType := preferredContentType(op)
+			headers := http.Header{}
+			if contentType != "" && len(body) > 0 {
+				headers.Set("Content-Type", contentType)
+			}
+
+			// Make the request via agent proxy
+			resp, err := api.ProxyVM(ctx, vmName, op.Method, op.Path, query, body, headers)
+			if err != nil {
+				return fmt.Errorf("invoke operation: %w", err)
+			}
+			defer resp.Body.Close()
+
+			// Read response
+			respBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("read response: %w", err)
+			}
+
+			// Print response
+			if resp.StatusCode >= 300 {
+				fmt.Fprintf(cmd.ErrOrStderr(), "HTTP %d\n", resp.StatusCode)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "HTTP %d\n", resp.StatusCode)
+			}
+
+			// Try to format JSON
+			if strings.Contains(resp.Header.Get("Content-Type"), "json") {
+				var formatted interface{}
+				if json.Unmarshal(respBody, &formatted) == nil {
+					encoder := json.NewEncoder(cmd.OutOrStdout())
+					encoder.SetIndent("", "  ")
+					if err := encoder.Encode(formatted); err != nil {
+						fmt.Fprintln(cmd.OutOrStdout(), string(respBody))
+					}
+					return nil
+				}
+			}
+
+			// Otherwise print raw
+			fmt.Fprintln(cmd.OutOrStdout(), string(respBody))
+			return nil
+		},
+	}
+
+	cmd.Flags().StringArrayVar(&queryParams, "query", nil, "Query parameters in key=value format (repeatable)")
+	cmd.Flags().StringVar(&bodyFile, "body-file", "", "Path to request body file")
+	cmd.Flags().StringVar(&bodyInline, "body", "", "Inline request body")
+	cmd.Flags().DurationVar(&timeout, "timeout", 60*time.Second, "Request timeout")
+
+	return cmd
 }
