@@ -26,6 +26,7 @@ type VM struct {
 	PID           *int64
 	IPAddress     string
 	MACAddress    string
+	VsockCID      uint32 // Vsock Context ID for vsock communication
 	CPUCores      int
 	MemoryMB      int
 	KernelCmdline string

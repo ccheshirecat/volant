@@ -98,12 +98,17 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		return nil, fmt.Errorf("cloudhypervisor: open log file: %w", err)
 	}
 
-	netArg := fmt.Sprintf("tap=%s,mac=%s", spec.TapDevice, spec.MACAddress)
-	if ip := strings.TrimSpace(spec.IPAddress); ip != "" {
-		netArg = fmt.Sprintf("%s,ip=%s", netArg, ip)
-	}
-	if mask := strings.TrimSpace(spec.Netmask); mask != "" {
-		netArg = fmt.Sprintf("%s,mask=%s", netArg, mask)
+	// Configure network based on whether tap device is provided
+	// Empty tap device indicates vsock-only mode (no IP networking)
+	var netArg string
+	if spec.TapDevice != "" {
+		netArg = fmt.Sprintf("tap=%s,mac=%s", spec.TapDevice, spec.MACAddress)
+		if ip := strings.TrimSpace(spec.IPAddress); ip != "" {
+			netArg = fmt.Sprintf("%s,ip=%s", netArg, ip)
+		}
+		if mask := strings.TrimSpace(spec.Netmask); mask != "" {
+			netArg = fmt.Sprintf("%s,mask=%s", netArg, mask)
+		}
 	}
 	if l.ConsoleDir == "" {
 		l.ConsoleDir = l.RuntimeDir
@@ -140,7 +145,13 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		"--console", "off",
 	}
 	if netArg != "" {
+		// Bridged or DHCP mode: configure network interface
 		args = append(args, "--net", netArg)
+	} else {
+		// Vsock-only mode: configure vsock device for host-guest communication
+		// Use the allocated CID from the spec
+		vsockArg := fmt.Sprintf("cid=%d", spec.VsockCID)
+		args = append(args, "--vsock", vsockArg)
 	}
 	if initramfsCopy != "" {
 		args = append(args, "--initramfs", initramfsCopy)

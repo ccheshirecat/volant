@@ -22,6 +22,7 @@ import (
 	pty "github.com/creack/pty"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/mdlayher/vsock"
 
 	"github.com/ccheshirecat/volant/internal/pluginspec"
 )
@@ -159,19 +160,50 @@ func (a *App) run(ctx context.Context) error {
 		}
 	})
 
-	server := &http.Server{
+	handler := router
+
+	// Start TCP listener (for bridged/dhcp modes)
+	tcpServer := &http.Server{
 		Addr:         a.cfg.ListenAddr,
-		Handler:      router,
+		Handler:      handler,
 		ReadTimeout:  120 * time.Second,
 		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
+	
+	// TCP listener
 	go func() {
-		a.log.Printf("listening on %s", a.cfg.ListenAddr)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
+		a.log.Printf("TCP listener starting on %s", a.cfg.ListenAddr)
+		if err := tcpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- fmt.Errorf("tcp listener: %w", err)
+		}
+	}()
+
+	// Vsock listener (for vsock mode) - port 8080
+	// This enables host->guest communication over vsock
+	go func() {
+		const vsockPort = 8080
+		listener, err := vsock.Listen(vsockPort, nil)
+		if err != nil {
+			a.log.Printf("vsock listener failed to start on port %d: %v", vsockPort, err)
+			// Don't fail if vsock isn't available (e.g., non-VM environment)
+			return
+		}
+		defer listener.Close()
+		
+		a.log.Printf("vsock listener starting on port %d", vsockPort)
+		
+		vsockServer := &http.Server{
+			Handler:      handler,
+			ReadTimeout:  120 * time.Second,
+			WriteTimeout: 120 * time.Second,
+			IdleTimeout:  120 * time.Second,
+		}
+		
+		if err := vsockServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- fmt.Errorf("vsock listener: %w", err)
 		}
 	}()
 
@@ -179,7 +211,7 @@ func (a *App) run(ctx context.Context) error {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := server.Shutdown(shutdownCtx); a.handleFatal(err, "shutdown server") {
+		if err := tcpServer.Shutdown(shutdownCtx); a.handleFatal(err, "shutdown tcp server") {
 			return err
 		}
 		return ctx.Err()

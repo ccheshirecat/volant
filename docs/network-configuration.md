@@ -214,5 +214,5 @@ type NetworkConfig struct {
 ## References
 
 - Task #7: Network Configuration with Multiple Modes
-- Firecracker networking documentation
+- Cloud Hypervisor networking documentation
 - Linux bridge and vsock documentation

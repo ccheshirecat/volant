@@ -89,8 +89,7 @@ func main() {
 		os.Exit(1)
 	}
 
-    artifactRoot := filepath.Join(runtimeDir, "plugins")
-    handler := httpapi.New(logger, engine, events, runtimeRegistry, artifactRoot)
+	handler := httpapi.New(logger, engine, events, runtimeRegistry)
 
 	daemon, err := app.New(cfg, logger, store, engine, events, runtimeRegistry, handler)
 	if err != nil {

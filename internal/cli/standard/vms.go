@@ -943,7 +943,8 @@ func newVMsOperationsCmd() *cobra.Command {
 			defer cancel()
 
 			// Fetch the OpenAPI spec
-			data, _, err := api.GetVMOpenAPI(ctx, args[0])
+			data, _, err := api.GetVMOpenAPISpec(ctx, args[0])
+
 			if err != nil {
 				return fmt.Errorf("fetch openapi spec: %w", err)
 			}
@@ -1012,7 +1013,8 @@ Examples:
 			defer cancel()
 
 			// Fetch the OpenAPI spec
-			data, _, err := api.GetVMOpenAPI(ctx, vmName)
+			data, _, err := api.GetVMOpenAPISpec(ctx, vmName)
+
 			if err != nil {
 				return fmt.Errorf("fetch openapi spec: %w", err)
 			}

@@ -75,14 +75,15 @@ func (r *vmRepository) Create(ctx context.Context, vm *db.VM) (int64, error) {
 
 	res, err := r.exec.ExecContext(
 		ctx,
-		`INSERT INTO vms (name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket, group_id)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+		`INSERT INTO vms (name, status, runtime, pid, ip_address, mac_address, vsock_cid, cpu_cores, memory_mb, kernel_cmdline, serial_socket, group_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
 		vm.Name,
 		string(vm.Status),
 		vm.Runtime,
 		pidVal,
 		vm.IPAddress,
 		vm.MACAddress,
+		vm.VsockCID,
 		vm.CPUCores,
 		vm.MemoryMB,
 		cmdlineVal,
@@ -101,7 +102,7 @@ func (r *vmRepository) Create(ctx context.Context, vm *db.VM) (int64, error) {
 }
 
 func (r *vmRepository) GetByName(ctx context.Context, name string) (*db.VM, error) {
-	row := r.exec.QueryRowContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket, group_id, created_at, updated_at FROM vms WHERE name = ?;`, name)
+	row := r.exec.QueryRowContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, vsock_cid, cpu_cores, memory_mb, kernel_cmdline, serial_socket, group_id, created_at, updated_at FROM vms WHERE name = ?;`, name)
 	vm, err := scanVM(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -113,7 +114,7 @@ func (r *vmRepository) GetByName(ctx context.Context, name string) (*db.VM, erro
 }
 
 func (r *vmRepository) List(ctx context.Context) ([]db.VM, error) {
-	rows, err := r.exec.QueryContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket, group_id, created_at, updated_at FROM vms ORDER BY created_at ASC;`)
+	rows, err := r.exec.QueryContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, vsock_cid, cpu_cores, memory_mb, kernel_cmdline, serial_socket, group_id, created_at, updated_at FROM vms ORDER BY created_at ASC;`)
 	if err != nil {
 		return nil, fmt.Errorf("query vms: %w", err)
 	}
@@ -135,7 +136,7 @@ func (r *vmRepository) List(ctx context.Context) ([]db.VM, error) {
 }
 
 func (r *vmRepository) ListByGroupID(ctx context.Context, groupID int64) ([]db.VM, error) {
-	rows, err := r.exec.QueryContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, cpu_cores, memory_mb, kernel_cmdline, serial_socket, group_id, created_at, updated_at FROM vms WHERE group_id = ? ORDER BY name ASC;`, groupID)
+	rows, err := r.exec.QueryContext(ctx, `SELECT id, name, status, runtime, pid, ip_address, mac_address, vsock_cid, cpu_cores, memory_mb, kernel_cmdline, serial_socket, group_id, created_at, updated_at FROM vms WHERE group_id = ? ORDER BY name ASC;`, groupID)
 	if err != nil {
 		return nil, fmt.Errorf("query vms by group: %w", err)
 	}
@@ -657,6 +658,7 @@ func scanVM(row rowScanner) (db.VM, error) {
 		&pid,
 		&vm.IPAddress,
 		&vm.MACAddress,
+		&vm.VsockCID,
 		&vm.CPUCores,
 		&vm.MemoryMB,
 		&cmdline,

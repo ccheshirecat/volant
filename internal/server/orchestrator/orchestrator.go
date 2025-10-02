@@ -311,6 +311,9 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		vmRecord   *db.VM
 	)
 
+	// Resolve effective network configuration
+	networkCfg := resolveNetworkConfig(req.Manifest, req.Config)
+
 	err := e.store.WithTx(ctx, func(q db.Queries) error {
 		vmRepo := q.VirtualMachines()
 		existing, err := vmRepo.GetByName(ctx, req.Name)
@@ -321,21 +324,38 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 			return fmt.Errorf("%w: %s", ErrVMExists, req.Name)
 		}
 
-		allocation, err := q.IPAllocations().LeaseNextAvailable(ctx)
-		if err != nil {
-			return err
+		// Conditionally allocate IP based on network mode
+		var ipAddress string
+		if needsIPAllocation(networkCfg) {
+			allocation, err := q.IPAllocations().LeaseNextAvailable(ctx)
+			if err != nil {
+				return err
+			}
+			ipAddress = allocation.IPAddress
+		} else {
+			// vsock or dhcp mode: no host-managed IP
+			ipAddress = ""
 		}
 
-		mac := deriveMAC(req.Name, allocation.IPAddress)
-		baseCmdline := buildKernelCmdline(allocation.IPAddress, e.hostIP.String(), netmask, hostname, req.KernelCmdlineHint)
+		// Allocate unique vsock CID for this VM
+		// CIDs 0-2 are reserved (0=hypervisor, 1=local, 2=host)
+		// Start from 3 and find next available
+		vsockCID, err := e.allocateNextCID(ctx, vmRepo)
+		if err != nil {
+			return fmt.Errorf("allocate vsock cid: %w", err)
+		}
+
+		mac := deriveMAC(req.Name, ipAddress)
+		baseCmdline := buildKernelCmdline(ipAddress, e.hostIP.String(), netmask, hostname, req.KernelCmdlineHint)
 		fullCmdline := appendKernelArgs(baseCmdline, map[string]string{})
 
 		vm := &db.VM{
 			Name:          req.Name,
 			Status:        db.VMStatusStarting,
 			Runtime:       req.Runtime,
-			IPAddress:     allocation.IPAddress,
+			IPAddress:     ipAddress,
 			MACAddress:    mac,
+			VsockCID:      vsockCID,
 			CPUCores:      req.CPUCores,
 			MemoryMB:      req.MemoryMB,
 			KernelCmdline: fullCmdline,
@@ -346,8 +366,10 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		if err != nil {
 			return err
 		}
-		if err := q.IPAllocations().Assign(ctx, allocation.IPAddress, id); err != nil {
-			return err
+		if ipAddress != "" {
+			if err := q.IPAllocations().Assign(ctx, ipAddress, id); err != nil {
+				return err
+			}
 		}
 		insertedID = id
 		vm.ID = id
@@ -463,10 +485,16 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		e.rollbackCreate(ctx, vmRecord)
 		return nil, err
 	}
-	tapName, err := e.network.PrepareTap(ctx, vmRecord.Name, vmRecord.MACAddress)
-	if err != nil {
-		e.rollbackCreate(ctx, vmRecord)
-		return nil, err
+
+	// Conditionally prepare tap device based on network mode
+	tapName := ""
+	if needsTapDevice(networkCfg) {
+		tap, err := e.network.PrepareTap(ctx, vmRecord.Name, vmRecord.MACAddress)
+		if err != nil {
+			e.rollbackCreate(ctx, vmRecord)
+			return nil, err
+		}
+		tapName = tap
 	}
 
 	serialPath := filepath.Join(e.runtimeDir, fmt.Sprintf("%s.serial", vmRecord.Name))
@@ -490,6 +518,7 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		IPAddress:     vmRecord.IPAddress,
 		Gateway:       e.hostIP.String(),
 		Netmask:       netmask,
+		VsockCID:      vmRecord.VsockCID,
 		SerialSocket:  serialPath,
 	}
 	spec.Disks = additionalDisks
@@ -620,8 +649,11 @@ func (e *engine) destroyVM(ctx context.Context, name string, reconcile bool) (*d
 		if err := handle.instance.Stop(ctx); err != nil {
 			e.logger.Error("stop instance", "vm", name, "error", err)
 		}
-		if err := e.network.CleanupTap(ctx, handle.tapName); err != nil {
-			e.logger.Error("cleanup tap", "tap", handle.tapName, "error", err)
+		// Only cleanup tap if one was created
+		if handle.tapName != "" {
+			if err := e.network.CleanupTap(ctx, handle.tapName); err != nil {
+				e.logger.Error("cleanup tap", "tap", handle.tapName, "error", err)
+			}
 		}
 		if socket := handle.instance.APISocketPath(); socket != "" {
 			if removeErr := os.Remove(socket); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
@@ -845,10 +877,18 @@ func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
 		apiPort = e.controlPort
 	}
 
-	tapName, err := e.network.PrepareTap(ctx, vmRecord.Name, vmRecord.MACAddress)
-	if err != nil {
-		e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
-		return nil, err
+	// Resolve network configuration for this VM
+	networkCfg := resolveNetworkConfig(cfg.Manifest, &cfg)
+
+	// Conditionally prepare tap device based on network mode
+	tapName := ""
+	if needsTapDevice(networkCfg) {
+		tap, err := e.network.PrepareTap(ctx, vmRecord.Name, vmRecord.MACAddress)
+		if err != nil {
+			e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+			return nil, err
+		}
+		tapName = tap
 	}
 
 	serialPath := filepath.Join(e.runtimeDir, fmt.Sprintf("%s.serial", vmRecord.Name))
@@ -892,6 +932,7 @@ func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
 		IPAddress:     vmRecord.IPAddress,
 		Gateway:       e.hostIP.String(),
 		Netmask:       netmask,
+		VsockCID:      vmRecord.VsockCID,
 		SerialSocket:  serialPath,
 	}
 	spec.Disks = additionalDisks
@@ -1036,10 +1077,13 @@ func (e *engine) StopVM(ctx context.Context, name string) (*db.VM, error) {
 
 	if exists {
 		if stopErr := handle.instance.Stop(ctx); stopErr != nil {
-			e.logger.Error("stop instance", "vm", name, "error", stopErr)
+			e.logger.Error("stop instance", "vm", "name", "error", stopErr)
 		}
-		if cleanupErr := e.network.CleanupTap(ctx, handle.tapName); cleanupErr != nil {
-			e.logger.Error("cleanup tap", "tap", handle.tapName, "error", cleanupErr)
+		// Only cleanup tap if one was created
+		if handle.tapName != "" {
+			if cleanupErr := e.network.CleanupTap(ctx, handle.tapName); cleanupErr != nil {
+				e.logger.Error("cleanup tap", "tap", handle.tapName, "error", cleanupErr)
+			}
 		}
 		if socket := handle.instance.APISocketPath(); socket != "" {
 			if removeErr := os.Remove(socket); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
@@ -1825,10 +1869,73 @@ func isUsableAdvertiseHost(host string) bool {
 	return true
 }
 
+// resolveNetworkConfig determines the effective network configuration for a VM.
+// VM-level config overrides plugin-level defaults.
+func resolveNetworkConfig(manifest *pluginspec.Manifest, vmConfig *vmconfig.Config) *pluginspec.NetworkConfig {
+	// VM config takes precedence
+	if vmConfig != nil && vmConfig.Network != nil {
+		return vmConfig.Network
+	}
+	// Fall back to plugin manifest
+	if manifest != nil && manifest.Network != nil {
+		return manifest.Network
+	}
+	// No network config specified - use default (bridged with IP)
+	return nil
+}
+
+// needsIPAllocation returns true if the network mode requires host-managed IP allocation.
+func needsIPAllocation(netCfg *pluginspec.NetworkConfig) bool {
+	if netCfg == nil {
+		return true // Default behavior: allocate IP
+	}
+	mode := pluginspec.NetworkMode(strings.ToLower(strings.TrimSpace(string(netCfg.Mode))))
+	// Only bridged mode with host-managed IPs needs allocation
+	// vsock and dhcp modes do not need host IP allocation
+	return mode == pluginspec.NetworkModeBridged || mode == ""
+}
+
+// needsTapDevice returns true if the network mode requires a tap device.
+func needsTapDevice(netCfg *pluginspec.NetworkConfig) bool {
+	if netCfg == nil {
+		return true // Default behavior: create tap
+	}
+	mode := pluginspec.NetworkMode(strings.ToLower(strings.TrimSpace(string(netCfg.Mode))))
+	// vsock mode doesn't need a tap device
+	return mode != pluginspec.NetworkModeVsock
+}
+
 func (e *engine) setVMState(ctx context.Context, vmID int64, status db.VMStatus, pid *int64) {
 	if err := e.store.WithTx(ctx, func(q db.Queries) error {
 		return q.VirtualMachines().UpdateRuntimeState(ctx, vmID, status, pid)
 	}); err != nil {
 		e.logger.Error("update vm state", "vm_id", vmID, "status", status, "error", err)
 	}
+}
+
+// allocateNextCID finds the next available vsock CID starting from 3.
+// CIDs 0-2 are reserved: 0=hypervisor, 1=local, 2=host.
+func (e *engine) allocateNextCID(ctx context.Context, vmRepo db.VMRepository) (uint32, error) {
+	vms, err := vmRepo.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	// Collect all used CIDs
+	used := make(map[uint32]bool)
+	for _, vm := range vms {
+		if vm.VsockCID > 0 {
+			used[vm.VsockCID] = true
+		}
+	}
+
+	// Find first available CID starting from 3
+	// CIDs 0-2 are reserved
+	for cid := uint32(3); cid < 1<<32-1; cid++ {
+		if !used[cid] {
+			return cid, nil
+		}
+	}
+
+	return 0, fmt.Errorf("no available vsock CIDs")
 }

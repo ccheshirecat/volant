@@ -19,6 +19,7 @@ import (
 	"github.com/ccheshirecat/volant/internal/pluginspec"
 	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
+	"github.com/ccheshirecat/volant/internal/vsock"
 )
 
 // Client wraps REST access to the volantd API.
@@ -53,6 +54,7 @@ type VM struct {
 	PID           *int64 `json:"pid,omitempty"`
 	IPAddress     string `json:"ip_address"`
 	MACAddress    string `json:"mac_address"`
+	VsockCID      uint32 `json:"vsock_cid"`
 	CPUCores      int    `json:"cpu_cores"`
 	MemoryMB      int    `json:"memory_mb"`
 	KernelCmdline string `json:"kernel_cmdline,omitempty"`
@@ -527,6 +529,31 @@ func (c *Client) AgentRequest(ctx context.Context, vmName, method, path string, 
 	return c.do(req, out)
 }
 
+// AgentRequestVsock sends a request directly to the VM agent over vsock.
+// This is used for vsock-only VMs that don't have IP networking.
+// The default CID is 3 and port is 8080 (assuming the volant agent listens on vsock port 8080).
+func (c *Client) AgentRequestVsock(ctx context.Context, cid, port uint32, method, path string, body any, out any) error {
+	if method == "" {
+		method = http.MethodGet
+	}
+	if path == "" {
+		path = "/"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	vsockClient := vsock.NewClient(cid, port)
+	return vsockClient.DoJSON(ctx, method, path, body, out)
+}
+
+// AgentRequestVsockDefault is a convenience wrapper that uses the default CID (3) and port (8080).
+func (c *Client) AgentRequestVsockDefault(ctx context.Context, method, path string, body any, out any) error {
+	const defaultCID = 3
+	const defaultPort = 8080
+	return c.AgentRequestVsock(ctx, defaultCID, defaultPort, method, path, body, out)
+}
+
 func (c *Client) GetAgentDevTools(ctx context.Context, vmName string) (*DevToolsInfo, error) {
 	var info DevToolsInfo
 	if err := c.AgentRequest(ctx, vmName, http.MethodGet, "/v1/devtools", nil, &info); err != nil {
@@ -543,8 +570,6 @@ func (c *Client) BaseURL() *url.URL {
 	return &clone
 }
 
-// NOTE: Browser-specific methods removed in favor of dynamic OpenAPI-based operations
-// Use the generic ProxyVM method or the `volar vms call` command for plugin operations
 
 func (c *Client) MCP(ctx context.Context, request MCPRequest) (*MCPResponse, error) {
 	var response MCPResponse
