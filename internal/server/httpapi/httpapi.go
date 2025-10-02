@@ -22,7 +22,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/ccheshirecat/volant/internal/pluginspec"
-	"github.com/ccheshirecat/volant/internal/protocol/agui"
 	"github.com/ccheshirecat/volant/internal/server/db"
 	"github.com/ccheshirecat/volant/internal/server/eventbus"
 	"github.com/ccheshirecat/volant/internal/server/orchestrator"
@@ -84,6 +83,7 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 	{
 		v1.GET("/system/status", api.systemStatus)
 		v1.GET("/system/info", api.systemInfo)
+		v1.POST("/mcp", api.handleMCP)
 
 		vms := v1.Group("/vms")
 		{
@@ -97,6 +97,7 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 			vms.POST(":name/start", api.startVM)
 			vms.POST(":name/stop", api.stopVM)
 			vms.POST(":name/restart", api.restartVM)
+			vms.GET(":name/openapi", api.getVMOpenAPI)
 			vms.Any(":name/agent/*path", api.proxyAgent)
 			vms.POST(":name/actions/:plugin/:action", api.postVMPluginAction)
 		}
@@ -129,7 +130,6 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 
 	r.GET("/ws/v1/vms/:name/devtools/*path", api.vmDevToolsWebSocket)
 	r.GET("/ws/v1/vms/:name/logs", api.vmLogsWebSocket)
-	r.GET("/ws/v1/agui", api.aguiWebSocket)
 
 	return r
 }
@@ -786,7 +786,7 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 	var err error
 
 	switch req.Command {
-	case "hype.vms.list":
+	case "volant.vms.list":
 		vms, e := api.engine.ListVMs(ctx)
 		if e != nil {
 			err = e
@@ -804,7 +804,7 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 			}
 			result = vmList
 		}
-	case "hype.vms.create":
+	case "volant.vms.create":
 		name, ok := req.Params["name"].(string)
 		if !ok {
 			err = fmt.Errorf("name param required")
@@ -851,56 +851,11 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 				})
 			}
 		}
-	case "spawn_vm":
-		name := fmt.Sprintf("agui-%d", time.Now().UnixNano())
-		runtime := "browser"
-		if raw, exists := req.Params["runtime"].(string); exists {
-			runtime = strings.TrimSpace(raw)
-		}
-		manifest, ok := api.plugins.Get(runtime)
-		if !ok || !manifest.Enabled {
-			err = fmt.Errorf("runtime %s unavailable", runtime)
-			break
-		}
-		manifestCopy := manifest
-		labels := cloneLabelMap(manifest.Labels)
-		manifestCopy.Labels = labels
-		hostIP := api.engine.HostIP().String()
-		_, portStr, _ := net.SplitHostPort(api.engine.ControlPlaneAdvertiseAddr())
-		vm, e := api.engine.CreateVM(ctx, orchestrator.CreateVMRequest{
-			Name:     name,
-			Plugin:   runtime,
-			Runtime:  runtime,
-			CPUCores: manifest.Resources.CPUCores,
-			MemoryMB: manifest.Resources.MemoryMB,
-			Manifest: &manifestCopy,
-			APIHost:  hostIP,
-			APIPort:  portStr,
-		})
-		if e != nil {
-			err = e
-		} else {
-			result = map[string]interface{}{
-				"id":         vm.ID,
-				"name":       vm.Name,
-				"status":     vm.Status,
-				"ip_address": vm.IPAddress,
-				"cpu_cores":  vm.CPUCores,
-				"memory_mb":  vm.MemoryMB,
-			}
-			// Emit event for async notification
-			api.bus.Publish(ctx, orchestratorevents.TopicVMEvents, orchestratorevents.VMEvent{
-				Type:      orchestratorevents.TypeVMCreated,
-				Name:      vm.Name,
-				Timestamp: time.Now().UTC(),
-				Message:   "VM created via MCP",
-			})
-		}
-	case "hype.system.get_capabilities":
+	case "volant.system.get_capabilities":
 		result = map[string]interface{}{
 			"capabilities": []map[string]interface{}{
 				{
-					"name":        "hype.vms.create",
+					"name":        "volant.vms.create",
 					"description": "Create a new microVM",
 					"params": map[string]interface{}{
 						"name":      "string (required)",
@@ -909,7 +864,7 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 					},
 				},
 				{
-					"name":        "hype.vms.list",
+					"name":        "volant.vms.list",
 					"description": "List all microVMs",
 					"params":      map[string]interface{}{},
 				},
@@ -926,60 +881,135 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-func (api *apiServer) aguiWebSocket(c *gin.Context) {
-	conn, err := (&websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}).Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		api.logger.Error("agui ws upgrade", "error", err)
-		return
-	}
-	defer conn.Close()
+// getVMOpenAPI serves the VM plugin's OpenAPI document.
+// Precedence: 1) agent http://<vm.ip>:8080/v1/openapi, 2) manifest.OpenAPI URL, else 404.
+func (api *apiServer) getVMOpenAPI(c *gin.Context) {
+    name := c.Param("name")
+    if strings.TrimSpace(name) == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "vm name required"})
+        return
+    }
 
-	ctx := c.Request.Context()
-	eventsCh := make(chan any, 16)
-	unsubscribe, err := api.bus.Subscribe(orchestratorevents.TopicVMEvents, eventsCh)
-	if err != nil {
-		api.logger.Error("agui ws subscribe", "error", err)
-		return
-	}
-	defer unsubscribe()
+    // Try agent first if VM is running with an IP
+    vm, err := api.engine.GetVM(c.Request.Context(), name)
+    if err != nil {
+        api.logger.Error("get vm openapi", "vm", name, "error", err)
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve vm"})
+        return
+    }
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case payload := <-eventsCh:
-			if payload == nil {
-				continue
-			}
-			vmEvent, ok := payload.(orchestratorevents.VMEvent)
-			if !ok {
-				continue
-			}
-			// Translate to AG-UI event
-			var aguiEvent interface{}
-			switch vmEvent.Type {
-			case orchestratorevents.TypeVMCreated:
-				aguiEvent = agui.RunStartedEvent{
-					ID:   vmEvent.Name,
-					Name: "VM " + vmEvent.Name + " started",
-				}
-			case orchestratorevents.TypeVMRunning:
-				aguiEvent = agui.TextMessageEvent{
-					Type: "text",
-					Text: "VM " + vmEvent.Name + " is running",
-				}
-			case orchestratorevents.TypeVMStopped:
-				aguiEvent = agui.RunFinishedEvent{
-					Output: "VM " + vmEvent.Name + " stopped",
-				}
-			default:
-				continue
-			}
-			if err := conn.WriteJSON(aguiEvent); err != nil {
-				return
-			}
-		}
-	}
+    // helper to write a raw document
+    writeDoc := func(contentType string, data []byte) {
+        if contentType == "" {
+            contentType = http.DetectContentType(data)
+        }
+        // Prefer JSON/YAML types when possible
+        lower := strings.ToLower(contentType)
+        if !strings.Contains(lower, "json") && !strings.Contains(lower, "yaml") && !strings.Contains(lower, "yml") {
+            // best-effort guess by content
+            ct := "application/json"
+            trimmed := strings.TrimSpace(string(data))
+            if len(trimmed) > 0 && trimmed[0] != '{' && trimmed[0] != '[' {
+                ct = "application/yaml"
+            }
+            contentType = ct
+        }
+        c.Header("Content-Type", contentType)
+        c.Status(http.StatusOK)
+        _, _ = c.Writer.Write(data)
+    }
+
+    if vm != nil && vm.Status == db.VMStatusRunning && strings.TrimSpace(vm.IPAddress) != "" {
+        req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, api.agentURL(vm, "/v1/openapi"), nil)
+        if err == nil {
+            resp, err := api.agentClient.Do(req)
+            if err == nil && resp != nil {
+                defer resp.Body.Close()
+                if resp.StatusCode == http.StatusOK {
+                    data, _ := io.ReadAll(resp.Body)
+                    writeDoc(resp.Header.Get("Content-Type"), data)
+                    return
+                }
+            }
+        }
+    }
+
+    // Fallback to manifest.OpenAPI URL from stored VM config
+    versioned, err := api.engine.GetVMConfig(c.Request.Context(), name)
+    if err != nil {
+        api.logger.Error("get vm config for openapi", "vm", name, "error", err)
+        c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+        return
+    }
+    if versioned == nil || versioned.Config.Manifest == nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "openapi spec unavailable"})
+        return
+    }
+    ref := strings.TrimSpace(versioned.Config.Manifest.OpenAPI)
+    if ref == "" {
+        c.JSON(http.StatusNotFound, gin.H{"error": "openapi spec unavailable"})
+        return
+    }
+
+    // Support http(s), file://, and absolute path
+    if strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://") {
+        req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, ref, nil)
+        if err != nil {
+            c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch manifest openapi"})
+            return
+        }
+        resp, err := api.agentClient.Do(req)
+        if err != nil {
+            c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch manifest openapi"})
+            return
+        }
+        defer resp.Body.Close()
+        if resp.StatusCode != http.StatusOK {
+            c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("manifest openapi returned %d", resp.StatusCode)})
+            return
+        }
+        data, err := io.ReadAll(resp.Body)
+        if err != nil {
+            c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read manifest openapi"})
+            return
+        }
+        ct := resp.Header.Get("Content-Type")
+        if ct == "" {
+            lower := strings.ToLower(ref)
+            switch {
+            case strings.HasSuffix(lower, ".yaml"), strings.HasSuffix(lower, ".yml"):
+                ct = "application/yaml"
+            default:
+                ct = "application/json"
+            }
+        }
+        writeDoc(ct, data)
+        return
+    }
+
+    // file:// or absolute path
+    path := ref
+    if strings.HasPrefix(ref, "file://") {
+        if u, err := url.Parse(ref); err == nil {
+            path = u.Path
+        }
+    }
+    if !strings.HasPrefix(path, "/") {
+        // not a supported scheme/path
+        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid openapi reference in manifest"})
+        return
+    }
+    data, err := os.ReadFile(path)
+    if err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "openapi file not found"})
+        return
+    }
+    ct := "application/json"
+    lower := strings.ToLower(path)
+    if strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml") {
+        ct = "application/yaml"
+    }
+    writeDoc(ct, data)
 }
 
 type devToolsInfo struct {
