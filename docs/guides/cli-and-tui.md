@@ -1,16 +1,13 @@
 ---
-title: "CLI & TUI"
-description: "Using the volar command-line interface and interactive TUI."
+title: "CLI"
+description: "Using the volar command-line interface. The TUI has been removed."
 ---
 
-# CLI & TUI Reference
+# CLI Reference
 
 ## Overview
 
-`volar` is a dual-mode binary:
-
-- **Command-line** (Cobra commands for scripting)
-- **Interactive TUI** (Bubble Tea dashboard)
+`volar` is a command-line tool for orchestrating microVMs.
 
 ## Basic Commands
 
@@ -55,11 +52,12 @@ Common flags:
 
 ## `volar setup`
 
-See [Installation](../setup/installer.md). Useful flags:
+See Installation. Useful flags:
 
 - `--bridge`, `--subnet`, `--host-ip`
 - `--runtime-dir`, `--log-dir`
-- `--kernel`, `--initramfs`
+- `--work-dir` (default `/var/lib/volant`)
+- `--kernel` (default `/var/lib/volant/kernel/bzImage`)
 - `--service-file`
 - `--dry-run`
 
@@ -82,24 +80,9 @@ Manifests describe runtime metadata (resources, workload entrypoints, optional O
 
 Browser-specific subcommands moved to the browser plugin repository. The engine CLI retains a stub that directs operators to install the plugin CLI and manifests, but routine workflows should use `volar plugins ...` or runtime-specific tooling packaged with the plugin.
 
-## Interactive TUI
+## Notes on TUI
 
-Launch by running `volar` without arguments.
-
-### Layout
-
-- Header: health/status
-- VM list pane
-- Log pane (SSE stream)
-- Command input with history/autocomplete
-
-### Key Bindings
-
-| Key | Action |
-| --- | --- |
-| `tab` | Cycle focus (VM list ↔ logs ↔ input) /
-| `enter` | Execute command or switch to input |
-| `ctrl+w` | Clear input |
+The interactive TUI (Bubble Tea) has been removed to focus on the core orchestration use case. Use the CLI and REST API instead.
 | `↑`/`↓` | Navigate history or list |
 | `q` / `ctrl+c` | Quit |
 
@@ -123,7 +106,7 @@ Launch by running `volar` without arguments.
 
 - `VOLANT_API_BASE`: Base URL
 - `VOLANT_BRIDGE`, `VOLANT_SUBNET`, etc. for setup defaults
-- `VOLANT_KERNEL`, `VOLANT_INITRAMFS` for setup service template
+- `VOLANT_KERNEL` for setup service template (initramfs is embedded in the kernel)
 
 ## Troubleshooting
 

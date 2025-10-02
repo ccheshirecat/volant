@@ -5,7 +5,7 @@ description: "Install Volant using the curl|bash bootstrapper and volar setup."
 
 # Installation Guide
 
-Volant ships a "zero-configuration" installer that bootstraps the host and launches the control plane in minutes.
+Volant ships a "zero-configuration" installer that bootstraps the host and launches the control plane in minutes. The kernel initramfs is baked into the kernel bzImage used by Cloud Hypervisor.
 
 ## Prerequisites
 
@@ -24,22 +24,23 @@ What the installer does:
 1. Detects OS + architecture.
 2. Installs prerequisites via the native package manager (prompted unless `--yes`).
 3. Downloads the latest `volar` CLI / `volantd` daemon / `volary` binaries from GitHub releases.
-4. Fetches the default runtime bundle (kernel, initramfs, manifest) and stores it under `/usr/local/share/volant` for quick-start scenarios.
+4. Provisions the kernel at `/var/lib/volant/kernel/bzImage` (download from repo `kernels/<arch>/bzImage` if available or use `--kernel-url`).
 5. Verifies SHA-256 checksums.
 6. Installs binaries to `/usr/local/bin/`.
-7. Optionally runs `sudo volar setup`.
+7. Runs `sudo volar setup` (unless `--skip-setup`) which writes a systemd unit with `WorkingDirectory=/var/lib/volant` and `VOLANT_KERNEL=/var/lib/volant/kernel/bzImage`, then enables and starts it.
 
 > Use `VOLANT_VERSION=v2.0.0` to pin a release, or download `install.sh` manually for review.
 
 ### Flags
 
 ```
-install.sh [--version v2.0.0] [--force] [--skip-setup] [--yes]
+install.sh [--version v2.0.0] [--force] [--skip-setup] [--kernel-url <url>] [--yes]
 ```
 
 - `--version` — install a specific tag instead of `latest`.
 - `--force` — reinstall even if Volant is already present.
 - `--skip-setup` — skip invoking `volar setup` at the end.
+- `--kernel-url` — explicit URL to a `bzImage` to install at `/var/lib/volant/kernel/bzImage`.
 - `--yes/-y` — non-interactive mode (auto-confirm dependency installs).
 
 ### Verify Installation
@@ -52,12 +53,12 @@ volary --help
 
 ## Post-Install: `volar setup`
 
-`volar setup` provisions networking, installs the systemd service, and configures env vars. It also seeds the runtime directory with any manifests staged by the installer:
+`volar setup` provisions networking, installs the systemd service, and configures env vars:
 
 ```
 sudo volar setup \
-  --kernel /usr/local/share/volant/vmlinux-x86_64 \
-  --initramfs /usr/local/share/volant/volant-initramfs.cpio.gz
+  --work-dir /var/lib/volant \
+  --kernel /var/lib/volant/kernel/bzImage
 ```
 
 Key responsibilities:
@@ -68,11 +69,12 @@ Key responsibilities:
 4. Ensure `~/.volant/run` and `~/.volant/logs` directories exist.
 5. Write `/etc/systemd/system/volantd.service` with:
    - `ExecStart=/usr/local/bin/volantd`
-   - `Environment` variables for kernel/initramfs/bridge/runtime dirs.
-   - Log redirection to `/var/log/volant/volantd.log`.
-6. (Optional) `systemctl daemon-reload && systemctl enable --now volantd`.
+   - `WorkingDirectory=/var/lib/volant`
+   - `Environment` variables for kernel/bridge/runtime dirs (`VOLANT_KERNEL=/var/lib/volant/kernel/bzImage`)
+   - Log redirection to `~/.volant/logs/volantd.log`.
+6. `systemctl daemon-reload && systemctl enable --now volantd`.
 
-> Generate artifacts with `make build-browser-artifacts` if you prefer local kernel/initramfs; pass their paths via `--kernel` / `--initramfs` or environment variables (`VOLANT_KERNEL`, `VOLANT_INITRAMFS`).
+> The initramfs is baked into the kernel. If you want to build your own initramfs, use `build/bake.sh` and then rebuild the Cloud Hypervisor kernel (CONFIG_INITRAMFS_SOURCE) from https://github.com/cloud-hypervisor/linux, producing a `bzImage`. Place the resulting `bzImage` at `/var/lib/volant/kernel/bzImage` or provide a URL via `--kernel-url`.
 
 ## Manual Uninstall
 
@@ -80,7 +82,7 @@ Key responsibilities:
 sudo systemctl disable --now volantd
 sudo rm -f /etc/systemd/system/volantd.service
 sudo ip link delete vbr0
-sudo iptables -t nat -D POSTROUTING -s 192.168.127.0/24 ! -o vbr0 -j MASQUERADE
+sudo iptables -t nat -D POSTROUTING -s 192.168.127.0/24 ! -o vbr0 -j MASQUERADE || true
 rm -rf ~/.volant
 sudo rm -f /usr/local/bin/volar /usr/local/bin/volantd /usr/local/bin/volary
 ```
