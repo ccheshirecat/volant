@@ -1,0 +1,162 @@
+{
+  "$id": "https://volant.dev/schemas/plugin-manifest-v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Volant Plugin Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string", "format": "uri" },
+    "schema_version": { "type": "string", "enum": ["1.0"] },
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "runtime": { "type": "string" },
+    "rootfs": { "$ref": "#/$defs/rootfs" },
+    "disks": { "type": "array", "items": { "$ref": "#/$defs/disk" } },
+    "image": { "type": "string" },
+    "image_digest": { "type": "string" },
+    "resources": { "$ref": "#/$defs/resources" },
+    "actions": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/action" }
+    },
+    "health_check": { "$ref": "#/$defs/health_check" },
+    "workload": { "$ref": "#/$defs/workload" },
+    "cloud_init": { "$ref": "#/$defs/cloud_init" },
+    "network": { "$ref": "#/$defs/network" },
+    "enabled": { "type": "boolean" },
+    "openapi": { "type": "string", "format": "uri" },
+    "labels": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "required": ["name", "version", "resources", "workload", "enabled"],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "workload": {
+            "properties": { "type": { "const": "http" } },
+            "required": ["type"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "workload": { "required": ["base_url", "entrypoint"] }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "rootfs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": { "type": "string", "minLength": 1 },
+        "checksum": { "type": "string" },
+        "format": { "type": "string", "enum": ["raw", "qcow2"] }
+      },
+      "required": ["url"]
+    },
+    "disk": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "checksum": { "type": "string" },
+        "format": { "type": "string", "enum": ["raw", "qcow2"] },
+        "readonly": { "type": "boolean" },
+        "target": { "type": "string" }
+      },
+      "required": ["name", "source"]
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu_cores": { "type": "integer", "minimum": 1 },
+        "memory_mb": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["cpu_cores", "memory_mb"]
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "method": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "timeout_ms": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["method", "path"]
+    },
+    "health_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": { "type": "string" },
+        "timeout_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["http"] },
+        "base_url": { "type": "string", "format": "uri" },
+        "entrypoint": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "env": { "type": "object", "additionalProperties": { "type": "string" } },
+        "workdir": { "type": "string" }
+      },
+      "required": ["type"]
+    },
+    "cloud_init": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "datasource": { "type": "string" },
+        "seed_mode": { "type": "string", "enum": ["vfat"] },
+        "user_data": { "$ref": "#/$defs/cloud_init_doc" },
+        "meta_data": { "$ref": "#/$defs/cloud_init_doc" },
+        "network_config": { "$ref": "#/$defs/cloud_init_doc" }
+      }
+    },
+    "cloud_init_doc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "inline": { "type": "boolean" },
+        "content": { "type": "string" },
+        "path": { "type": "string" }
+      },
+      "allOf": [
+        { "not": { "required": ["content", "path"] } },
+        {
+          "if": { "required": ["content"] },
+          "then": { "properties": { "inline": { "const": true } }, "required": ["inline"] }
+        },
+        {
+          "if": { "required": ["path"] },
+          "then": { "properties": { "inline": { "const": false } }, "required": ["inline"] }
+        }
+      ]
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string", "enum": ["vsock", "bridged", "dhcp"] },
+        "subnet": { "type": "string" },
+        "gateway": { "type": "string" },
+        "auto_assign": { "type": "boolean" }
+      },
+      "required": ["mode"]
+    }
+  }
+}

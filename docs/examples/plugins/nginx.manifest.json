@@ -1,0 +1,31 @@
+{
+  "$schema": "https://volant.dev/schemas/plugin-manifest-v1.json",
+  "schema_version": "1.0",
+  "name": "nginx",
+  "version": "0.1.0",
+  "runtime": "nginx",
+  "enabled": true,
+  "image": "nginx:latest",
+  "image_digest": "sha256:887a5a497ad28b83b9868d346db1502fab82b8df7f4e0fccc15c200800429b20",
+  "rootfs": {
+    "url": "/root/browser-plugin/manifest/nginx.img",
+    "checksum": "be639b23d45275adc260e974085a46ef8bc121c788b436bd7dd1f1ecf22b129c"
+  },
+  "resources": {
+    "cpu_cores": 1,
+    "memory_mb": 1024
+  },
+  "workload": {
+    "type": "http",
+    "entrypoint": ["/docker-entrypoint.sh", "nginx", "-g", "daemon off;"],
+    "base_url": "http://127.0.0.1:80",
+    "env": {
+      "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    },
+    "workdir": "/"
+  },
+  "health_check": {
+    "endpoint": "/",
+    "timeout_ms": 10000
+  }
+}
