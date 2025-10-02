@@ -5,7 +5,7 @@ description: "Consuming the Server-Sent Events (SSE) feed for Volant."
 
 # Event Streaming (SSE)
 
-Volant provides a real-time Server-Sent Events (SSE) stream for VM lifecycle data. For WebSocket-based streams (like AG-UI or Agent Logs), see their respective documentation pages.
+Volant provides a real-time Server-Sent Events (SSE) stream for VM lifecycle data. For agent log streaming and DevTools, see the VM WebSocket endpoints. The legacy AG-UI WebSocket has been removed.
 
 ## Server-Sent Events (SSE)
 
@@ -45,7 +45,7 @@ eventSource.onerror = (err) => {
 
 ## Internal Event Bus
 
-Internally, `internal/server/eventbus` broadcasts `orchestratorevents.VMEvent` objects to all subscribers (SSE, AG-UI, CLI/TUI, and MCP).
+Internally, `internal/server/eventbus` broadcasts `orchestratorevents.VMEvent` objects to all subscribers (SSE, CLI, and MCP).
 
 The internal event payload shape is as follows:
 

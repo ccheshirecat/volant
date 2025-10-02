@@ -11,7 +11,7 @@ The `volantd` daemon is the central nervous system of the Volant platform. It's 
 
 - **Native Orchestration:** Unlike other tools that delegate to complex, generic systems like Kubernetes or Nomad, `volantd` contains its own lightweight, special-purpose orchestrator designed exclusively for managing Cloud Hypervisor microVMs.
 - **State Management:** It maintains the authoritative state of the entire cluster (VMs, IP allocations, plugins) in a local SQLite database, ensuring consistency and reliability.
-- **API Server:** It exposes a unified set of interfaces (REST, MCP, AG-UI) for all clients to interact with.
+- **API Server:** It exposes a unified set of interfaces (REST, MCP) for all clients to interact with.
 - **Agent Proxy:** It acts as a secure proxy, allowing clients to communicate with the `volary` inside microVMs without ever needing to know their private IP addresses.
 
 ## The "It Just Works" Networking

@@ -21,6 +21,12 @@ type Options struct {
 	LogDir      string
 	ServicePath string
 	BinaryPath  string
+    // KernelPath points to the kernel image that volantd should use.
+    // Example: /var/lib/volant/kernel/bzImage
+    KernelPath  string
+    // WorkDir is the WorkingDirectory for the volantd systemd unit.
+    // Example: /var/lib/volant
+    WorkDir     string
 }
 
 // Result collects output and executed commands.
@@ -45,6 +51,12 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	if opts.LogDir == "" {
 		opts.LogDir = "~/.volant/logs"
 	}
+    if strings.TrimSpace(opts.WorkDir) == "" {
+        opts.WorkDir = "/var/lib/volant"
+    }
+    if strings.TrimSpace(opts.KernelPath) == "" {
+        opts.KernelPath = filepath.Join(opts.WorkDir, "kernel", "bzImage")
+    }
 
 	res := &Result{}
 
@@ -87,6 +99,14 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("expand log dir: %w", err)
 	}
 	binaryPath, err := expand(opts.BinaryPath)
+    workDir, err := expand(opts.WorkDir)
+    if err != nil {
+        return nil, fmt.Errorf("expand work dir: %w", err)
+    }
+    kernelPath, err := expand(opts.KernelPath)
+    if err != nil {
+        return nil, fmt.Errorf("expand kernel path: %w", err)
+    }
 	if err != nil {
 		return nil, fmt.Errorf("expand binary path: %w", err)
 	}
@@ -98,6 +118,13 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	if err := ensureDir(logDir, opts.DryRun, res); err != nil {
 		return nil, err
 	}
+    // Ensure working directory (and kernel dir) exist
+    if err := ensureDir(workDir, opts.DryRun, res); err != nil {
+        return nil, err
+    }
+    if err := ensureDir(filepath.Dir(kernelPath), opts.DryRun, res); err != nil {
+        return nil, err
+    }
 
 	// Ensure ip, iptables, cloud-hypervisor binaries exist.
 	required := []string{"ip", "iptables", "cloud-hypervisor"}
@@ -141,11 +168,19 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 	}
 
-	if opts.ServicePath != "" {
-		if err := writeServiceFile(binaryPath, opts, runtimeDir, logDir, opts.DryRun, res); err != nil {
-			return nil, err
-		}
-	}
+    if opts.ServicePath != "" {
+        if err := writeServiceFile(binaryPath, opts, runtimeDir, logDir, workDir, kernelPath, opts.DryRun, res); err != nil {
+            return nil, err
+        }
+        // Optionally enable and start the service automatically
+        if !opts.DryRun {
+            _ = runCommand(ctx, []string{"systemctl", "daemon-reload"}, false, res, false)
+            _ = runCommand(ctx, []string{"systemctl", "enable", "--now", "volantd"}, false, res, true)
+        } else {
+            res.Commands = append(res.Commands, "systemctl daemon-reload")
+            res.Commands = append(res.Commands, "systemctl enable --now volantd")
+        }
+    }
 
 	return res, nil
 }
@@ -210,13 +245,13 @@ func writeFile(path, data string, dryRun bool, res *Result) error {
 	return os.WriteFile(path, []byte(data), 0o644)
 }
 
-func writeServiceFile(binaryPath string, opts Options, runtimeDir, logDir string, dryRun bool, res *Result) error {
+func writeServiceFile(binaryPath string, opts Options, runtimeDir, logDir, workDir, kernelPath string, dryRun bool, res *Result) error {
 	if binaryPath == "" {
 		return errors.New("server binary path required when writing service file")
 	}
 
 	logFile := filepath.Join(logDir, "volantd.log")
-	service := fmt.Sprintf(`[Unit]
+    service := fmt.Sprintf(`[Unit]
 Description=VOLANT Control Plane
 After=network.target
 
@@ -224,10 +259,12 @@ After=network.target
 Type=simple
 User=root
 Group=root
+WorkingDirectory=%s
 Environment=VOLANT_BRIDGE=%s
 Environment=VOLANT_SUBNET=%s
 Environment=VOLANT_RUNTIME_DIR=%s
 Environment=VOLANT_LOG_DIR=%s
+Environment=VOLANT_KERNEL=%s
 ExecStart=%s
 Restart=always
 RestartSec=5
@@ -237,10 +274,12 @@ StandardError=append:%s
 [Install]
 WantedBy=multi-user.target
 `,
+        workDir,
 		opts.BridgeName,
 		opts.SubnetCIDR,
 		runtimeDir,
 		logDir,
+        kernelPath,
 		binaryPath,
 		logFile,
 		logFile,

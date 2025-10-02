@@ -34,7 +34,7 @@ For full reference, embed `docs/api/openapi.yaml` in your docs site. Highlights:
 | `ANY /api/v1/vms/{name}/agent/*` | Proxy to agent inside VM |
 | `GET /ws/v1/vms/{name}/devtools/*` | CDP proxy |
 | `GET /ws/v1/vms/{name}/logs` | WebSocket JSON log stream |
-| `GET /ws/v1/agui` | AG-UI WebSocket events (run state) |
+<!-- AG-UI was removed; no WebSocket endpoint is exposed for AG-UI -->
 | `POST /api/v1/vms/{name}/actions/*` | Legacy manifest action proxy (new plugins prefer direct OpenAPI endpoints) |
 
 ## Environment Variables
@@ -42,7 +42,7 @@ For full reference, embed `docs/api/openapi.yaml` in your docs site. Highlights:
 - `VOLANT_API_BASE`: Override server base URL (client only)
 - `VOLANT_API_KEY`: API token
 - `VOLANT_API_ALLOW_CIDR`: Comma-separated CIDR whitelist for REST access
-- `VOLANT_KERNEL`, `VOLANT_INITRAMFS`: Default kernel artifacts for service templates
+- `VOLANT_KERNEL`: Kernel image for service template (initramfs is baked into the kernel)
 
 ## HTTP Status Codes
 

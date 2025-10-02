@@ -33,3 +33,6 @@ find . -print0 | cpio --null -ov --format=newc | gzip -9 > "$ROOT_DIR/volant-ini
 popd >/dev/null
 
 echo "Initramfs written to $ROOT_DIR/volant-initramfs.cpio.gz"
+echo "Next step: rebuild the Cloud Hypervisor Linux kernel with CONFIG_INITRAMFS_SOURCE pointing to this archive."
+echo "Kernel repo: https://github.com/cloud-hypervisor/linux"
+echo "Place the resulting bzImage under kernels/<arch>/bzImage in this repo or install to /var/lib/volant/kernel/bzImage on target hosts."

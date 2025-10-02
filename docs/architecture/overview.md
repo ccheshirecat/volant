@@ -1,24 +1,24 @@
 # Architecture Overview
 
 ## System Components
-- **volantd**: Native orchestrator responsible for lifecycle management of Cloud Hypervisor microVMs, static IP allocation, plugin manifest registry, and API exposure (REST, MCP, AG-UI).
+- **volantd**: Native orchestrator responsible for lifecycle management of Cloud Hypervisor microVMs, static IP allocation, plugin manifest registry, and API exposure (REST, MCP).
 - **volary**: In-VM Go agent that hydrates the runtime declared by the manifest (no longer hard-wired to Chrome). It mounts plugin-defined HTTP/WebSocket routes and manages optional DevTools/log streaming based on the workload contract.
 - **Plugin Runtime Artifacts**: Signed manifests, rootfs bundles, and optional OCI images distributed per plugin. The orchestrator injects manifest payloads into the VM kernel cmdline and mounts artifacts from the runtime directory.
-- **Client Tooling**: Dual-mode `volar` CLI (Cobra) and interactive Bubble Tea TUI providing operator and automation entry points.
+- **Client Tooling**: `volar` CLI providing operator and automation entry points.
 
 ## Control Flow Summary
 1. **VM Creation**
    - REST/MCP request hits `volantd`.
    - Server begins SQLite transaction, leases deterministic IP, and persists VM metadata.
    - Engine loads the plugin manifest, encodes it into kernel cmdline parameters (`volant.manifest`, `volant.runtime`, `volant.plugin`), and launches Cloud Hypervisor with the declared rootfs/kernel artifacts.
-   - Event bus broadcasts VM lifecycle event for TUI, AG-UI, and other subscribers.
+- Event bus broadcasts VM lifecycle event for subscribers.
 
 2. **In-VM Boot**
    - Kernel executes `/bin/volant-init` which mounts virtual filesystems, parses `ip=` from `/proc/cmdline`, configures `eth0`, and `exec`s `volary`.
    - Agent decodes the manifest, hydrates the declared workload (entrypoint, environment, base URL), launches the process, and exposes whatever interfaces the manifest describes (REST, WebSocket, DevTools, etc.). No legacy browser assumptions remain.
 
 3. **Task Execution**
-   - CLI/TUI/MCP clients call workload endpoints directly based on manifest metadata. Legacy action proxies (`/api/v1/plugins/{plugin}/actions/{action}`) remain for older manifests but are no longer required.
+   - CLI/MCP clients call workload endpoints directly based on manifest metadata. Legacy action proxies (`/api/v1/plugins/{plugin}/actions/{action}`) remain for older manifests but are no longer required.
    - Results, logs, and artifacts stream back through the proxy and event bus.
 
 4. **Teardown**
@@ -44,7 +44,7 @@
 - `DestroyVM` tears down VM metadata and releases the associated IP in the same transaction.
 - Public queries (`ListVMs`, `GetVM`) surface persisted state ahead of REST exposure.
 - A pluggable runtime layer (`internal/server/orchestrator/runtime`) defines the launch contract; the `cloudhypervisor.Launcher` assembles the `cloud-hypervisor` command, manages API sockets/logs, injects manifest kernel parameters, and exposes graceful shutdown hooks.
-- Lifecycle changes emit structured events on `eventbus.Bus` (`internal/server/orchestrator/events`), enabling REST/MCP/AG-UI layers to stream `VM_CREATED`, `VM_RUNNING`, `VM_STOPPED`, and `VM_CRASHED` notifications.
+- Lifecycle changes emit structured events on `eventbus.Bus` (`internal/server/orchestrator/events`), enabling REST/MCP layers to stream `VM_CREATED`, `VM_RUNNING`, `VM_STOPPED`, and `VM_CRASHED` notifications.
 
 ## Networking Model
 - Host bridge `vbr0` at `192.168.127.1/24` created by `volar setup`.
@@ -65,9 +65,7 @@
 - Request/response payloads are JSON; future work will introduce authn/z, pagination, and richer error semantics.
 
 ## Eventing & Protocols
-- Internal event bus fan-outs lifecycle events to:
-  - REST SSE/WebSocket endpoints for TUI.
-  - AG-UI WebSocket emitter translating internal events into protocol schema.
+- Internal event bus fan-outs lifecycle events to REST SSE subscribers and VM WebSocket endpoints (e.g., logs, DevTools).
 - MCP handler for AI orchestration. Plugin manifests are exposed via the protocol for discovery so agents can determine required runtimes before execution.
 - Future work: durable event log for replay/audit.
 

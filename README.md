@@ -23,7 +23,7 @@
 
 > **The modular microVM orchestration engine.**
 
-Volant turns microVMs into a first-class runtime surface. The project ships a control plane, CLI/TUI, and agent that speak a common plugin manifest so teams can run secure, stateful workloads without stitching together networking, scheduling, and lifecycle plumbing themselves.
+Volant turns microVMs into a first-class runtime surface. The project ships a control plane, CLI, and agent that speak a common plugin manifest so teams can run secure, stateful workloads without stitching together networking, scheduling, and lifecycle plumbing themselves.
 
 Runtime-specific behavior lives in signed manifests and their associated artifacts. The core engine stays lean while plugin authors ship the kernels/initramfs overlays and workload processes their runtime requires. Operators decide which manifests to install and must reference one whenever a VM is created.
 
@@ -31,9 +31,9 @@ Runtime-specific behavior lives in signed manifests and their associated artifac
 
 ## Overview
 
-- **Control plane (`volantd`)** manages SQLite-backed state, static IP leasing, orchestration, REST/MCP/AG-UI APIs, and the plugin registry.
+- **Control plane (`volantd`)** manages SQLite-backed state, static IP leasing, orchestration, REST/MCP APIs, and the plugin registry.
 - **Agent (`volary`)** boots inside each microVM, hydrates the declared runtime, and mounts plugin-defined HTTP/WebSocket routes.
-- **CLI & TUI (`volar`)** provide a dual-mode operator experience: scriptable Cobra commands and a Bubble Tea dashboard.
+- **CLI (`volar`)** provides a scriptable operator experience.
 - **Plugins** declare resources, workloads, and optional OpenAPI/action metadata via manifests—letting browser automation, AI inference, worker pools, or custom stacks share the same engine.
 
 ---
@@ -43,7 +43,7 @@ Runtime-specific behavior lives in signed manifests and their associated artifac
 - 🛡 **Hardware isolation first** – every workload runs inside a Cloud Hypervisor microVM with static network bridging.
 - 🧩 **Plugin contract** – manifests capture runtime requirements, workload entrypoints, and optional OpenAPI metadata.
 - 🔌 **Universal proxy** – the control plane can forward REST, SSE, or WebSocket traffic to runtime agents without exposing private IPs.
-- 📡 **AI-native APIs** – REST, Model Context Protocol, and AG-UI event streams ship in the box.
+- 📡 **AI-native APIs** – REST and Model Context Protocol ship in the box.
 - 🧰 **Operator ergonomics** – one binary installs networking, bootstraps the database, and exposes both CLI and TUI surfaces.
 
 ---

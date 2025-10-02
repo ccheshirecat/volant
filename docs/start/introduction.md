@@ -26,9 +26,9 @@ Container sandboxes were built for short-lived stateless jobs. Long-running auto
 
 ## Core components
 
-- **Control plane (`volantd`)** – manages scheduling, IPAM, eventing, SQLite-backed state, and the plugin registry. Exposes REST, MCP, and AG-UI interfaces.
+- **Control plane (`volantd`)** – manages scheduling, IPAM, eventing, SQLite-backed state, and the plugin registry. Exposes REST and MCP interfaces.
 - **Agent (`volary`)** – runs inside each microVM, boots the declared runtime, and mounts plugin-defined HTTP/WebSocket routes.
-- **CLI & TUI (`volar`)** – a dual-mode operator interface: scriptable Cobra commands plus an interactive Bubble Tea dashboard.
+- **CLI (`volar`)** – a scriptable operator interface (the TUI has been removed).
 - **Runtime plugins** – manifests describe required artifacts, CPU/memory envelopes, health checks, workload contract, and optional OpenAPI/action metadata. The engine treats every plugin uniformly.
 
 ---
@@ -69,7 +69,7 @@ The control plane persists manifests, enforces enablement/disablement, and proxi
 
 - [Installation](installation.md) – bootstrap the engine and database.
 - [Control Plane Overview](../guides/control-plane.md) – internal architecture of `volantd`.
-- [CLI & TUI](../guides/cli-and-tui.md) – scriptable commands and interactive ops surface.
+- [CLI](../guides/cli-and-tui.md) – scriptable commands.
 - [Plugin Guide](../guides/plugins.md) – authoring and distributing runtime manifests.
 
 When you are ready to integrate with tooling, explore the [REST API](../api/rest-api.md) and [MCP interface](../api/mcp.md).
