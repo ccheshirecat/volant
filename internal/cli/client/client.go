@@ -570,7 +570,6 @@ func (c *Client) BaseURL() *url.URL {
 	return &clone
 }
 
-
 func (c *Client) MCP(ctx context.Context, request MCPRequest) (*MCPResponse, error) {
 	var response MCPResponse
 	req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/mcp", request)

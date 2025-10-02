@@ -79,10 +79,10 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-    // Serve OpenAPI spec at /openapi (JSON)
-    r.GET("/openapi", func(c *gin.Context) {
-        api.serveOpenAPI(c.Writer, c.Request)
-    })
+	// Serve OpenAPI spec at /openapi (JSON)
+	r.GET("/openapi", func(c *gin.Context) {
+		api.serveOpenAPI(c.Writer, c.Request)
+	})
 
 	v1 := r.Group("/api/v1")
 	{
@@ -889,132 +889,132 @@ func (api *apiServer) handleMCP(c *gin.Context) {
 // getVMOpenAPI serves the VM plugin's OpenAPI document.
 // Precedence: 1) agent http://<vm.ip>:8080/v1/openapi, 2) manifest.OpenAPI URL, else 404.
 func (api *apiServer) getVMOpenAPI(c *gin.Context) {
-    name := c.Param("name")
-    if strings.TrimSpace(name) == "" {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "vm name required"})
-        return
-    }
+	name := c.Param("name")
+	if strings.TrimSpace(name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "vm name required"})
+		return
+	}
 
-    // Try agent first if VM is running with an IP
-    vm, err := api.engine.GetVM(c.Request.Context(), name)
-    if err != nil {
-        api.logger.Error("get vm openapi", "vm", name, "error", err)
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve vm"})
-        return
-    }
+	// Try agent first if VM is running with an IP
+	vm, err := api.engine.GetVM(c.Request.Context(), name)
+	if err != nil {
+		api.logger.Error("get vm openapi", "vm", name, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve vm"})
+		return
+	}
 
-    // helper to write a raw document
-    writeDoc := func(contentType string, data []byte) {
-        if contentType == "" {
-            contentType = http.DetectContentType(data)
-        }
-        // Prefer JSON/YAML types when possible
-        lower := strings.ToLower(contentType)
-        if !strings.Contains(lower, "json") && !strings.Contains(lower, "yaml") && !strings.Contains(lower, "yml") {
-            // best-effort guess by content
-            ct := "application/json"
-            trimmed := strings.TrimSpace(string(data))
-            if len(trimmed) > 0 && trimmed[0] != '{' && trimmed[0] != '[' {
-                ct = "application/yaml"
-            }
-            contentType = ct
-        }
-        c.Header("Content-Type", contentType)
-        c.Status(http.StatusOK)
-        _, _ = c.Writer.Write(data)
-    }
+	// helper to write a raw document
+	writeDoc := func(contentType string, data []byte) {
+		if contentType == "" {
+			contentType = http.DetectContentType(data)
+		}
+		// Prefer JSON/YAML types when possible
+		lower := strings.ToLower(contentType)
+		if !strings.Contains(lower, "json") && !strings.Contains(lower, "yaml") && !strings.Contains(lower, "yml") {
+			// best-effort guess by content
+			ct := "application/json"
+			trimmed := strings.TrimSpace(string(data))
+			if len(trimmed) > 0 && trimmed[0] != '{' && trimmed[0] != '[' {
+				ct = "application/yaml"
+			}
+			contentType = ct
+		}
+		c.Header("Content-Type", contentType)
+		c.Status(http.StatusOK)
+		_, _ = c.Writer.Write(data)
+	}
 
-    if vm != nil && vm.Status == db.VMStatusRunning && strings.TrimSpace(vm.IPAddress) != "" {
-        req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, api.agentURL(vm, "/v1/openapi"), nil)
-        if err == nil {
-            resp, err := api.agentClient.Do(req)
-            if err == nil && resp != nil {
-                defer resp.Body.Close()
-                if resp.StatusCode == http.StatusOK {
-                    data, _ := io.ReadAll(resp.Body)
-                    writeDoc(resp.Header.Get("Content-Type"), data)
-                    return
-                }
-            }
-        }
-    }
+	if vm != nil && vm.Status == db.VMStatusRunning && strings.TrimSpace(vm.IPAddress) != "" {
+		req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, api.agentURL(vm, "/v1/openapi"), nil)
+		if err == nil {
+			resp, err := api.agentClient.Do(req)
+			if err == nil && resp != nil {
+				defer resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					data, _ := io.ReadAll(resp.Body)
+					writeDoc(resp.Header.Get("Content-Type"), data)
+					return
+				}
+			}
+		}
+	}
 
-    // Fallback to manifest.OpenAPI URL from stored VM config
-    versioned, err := api.engine.GetVMConfig(c.Request.Context(), name)
-    if err != nil {
-        api.logger.Error("get vm config for openapi", "vm", name, "error", err)
-        c.JSON(statusFromError(err), gin.H{"error": err.Error()})
-        return
-    }
-    if versioned == nil || versioned.Config.Manifest == nil {
-        c.JSON(http.StatusNotFound, gin.H{"error": "openapi spec unavailable"})
-        return
-    }
-    ref := strings.TrimSpace(versioned.Config.Manifest.OpenAPI)
-    if ref == "" {
-        c.JSON(http.StatusNotFound, gin.H{"error": "openapi spec unavailable"})
-        return
-    }
+	// Fallback to manifest.OpenAPI URL from stored VM config
+	versioned, err := api.engine.GetVMConfig(c.Request.Context(), name)
+	if err != nil {
+		api.logger.Error("get vm config for openapi", "vm", name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	if versioned == nil || versioned.Config.Manifest == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "openapi spec unavailable"})
+		return
+	}
+	ref := strings.TrimSpace(versioned.Config.Manifest.OpenAPI)
+	if ref == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "openapi spec unavailable"})
+		return
+	}
 
-    // Support http(s), file://, and absolute path
-    if strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://") {
-        req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, ref, nil)
-        if err != nil {
-            c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch manifest openapi"})
-            return
-        }
-        resp, err := api.agentClient.Do(req)
-        if err != nil {
-            c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch manifest openapi"})
-            return
-        }
-        defer resp.Body.Close()
-        if resp.StatusCode != http.StatusOK {
-            c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("manifest openapi returned %d", resp.StatusCode)})
-            return
-        }
-        data, err := io.ReadAll(resp.Body)
-        if err != nil {
-            c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read manifest openapi"})
-            return
-        }
-        ct := resp.Header.Get("Content-Type")
-        if ct == "" {
-            lower := strings.ToLower(ref)
-            switch {
-            case strings.HasSuffix(lower, ".yaml"), strings.HasSuffix(lower, ".yml"):
-                ct = "application/yaml"
-            default:
-                ct = "application/json"
-            }
-        }
-        writeDoc(ct, data)
-        return
-    }
+	// Support http(s), file://, and absolute path
+	if strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://") {
+		req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, ref, nil)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch manifest openapi"})
+			return
+		}
+		resp, err := api.agentClient.Do(req)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch manifest openapi"})
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("manifest openapi returned %d", resp.StatusCode)})
+			return
+		}
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read manifest openapi"})
+			return
+		}
+		ct := resp.Header.Get("Content-Type")
+		if ct == "" {
+			lower := strings.ToLower(ref)
+			switch {
+			case strings.HasSuffix(lower, ".yaml"), strings.HasSuffix(lower, ".yml"):
+				ct = "application/yaml"
+			default:
+				ct = "application/json"
+			}
+		}
+		writeDoc(ct, data)
+		return
+	}
 
-    // file:// or absolute path
-    path := ref
-    if strings.HasPrefix(ref, "file://") {
-        if u, err := url.Parse(ref); err == nil {
-            path = u.Path
-        }
-    }
-    if !strings.HasPrefix(path, "/") {
-        // not a supported scheme/path
-        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid openapi reference in manifest"})
-        return
-    }
-    data, err := os.ReadFile(path)
-    if err != nil {
-        c.JSON(http.StatusNotFound, gin.H{"error": "openapi file not found"})
-        return
-    }
-    ct := "application/json"
-    lower := strings.ToLower(path)
-    if strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml") {
-        ct = "application/yaml"
-    }
-    writeDoc(ct, data)
+	// file:// or absolute path
+	path := ref
+	if strings.HasPrefix(ref, "file://") {
+		if u, err := url.Parse(ref); err == nil {
+			path = u.Path
+		}
+	}
+	if !strings.HasPrefix(path, "/") {
+		// not a supported scheme/path
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid openapi reference in manifest"})
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "openapi file not found"})
+		return
+	}
+	ct := "application/json"
+	lower := strings.ToLower(path)
+	if strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml") {
+		ct = "application/yaml"
+	}
+	writeDoc(ct, data)
 }
 
 type devToolsInfo struct {

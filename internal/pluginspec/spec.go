@@ -70,11 +70,11 @@ type Disk struct {
 }
 
 type CloudInit struct {
-	Datasource string        `json:"datasource,omitempty"`
-	SeedMode   string        `json:"seed_mode,omitempty"`
-	UserData   CloudInitDoc  `json:"user_data,omitempty"`
-	MetaData   CloudInitDoc  `json:"meta_data,omitempty"`
-	NetworkCfg CloudInitDoc  `json:"network_config,omitempty"`
+	Datasource string       `json:"datasource,omitempty"`
+	SeedMode   string       `json:"seed_mode,omitempty"`
+	UserData   CloudInitDoc `json:"user_data,omitempty"`
+	MetaData   CloudInitDoc `json:"meta_data,omitempty"`
+	NetworkCfg CloudInitDoc `json:"network_config,omitempty"`
 }
 
 type CloudInitDoc struct {

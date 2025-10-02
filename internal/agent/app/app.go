@@ -172,7 +172,7 @@ func (a *App) run(ctx context.Context) error {
 	}
 
 	errCh := make(chan error, 2)
-	
+
 	// TCP listener
 	go func() {
 		a.log.Printf("TCP listener starting on %s", a.cfg.ListenAddr)
@@ -192,16 +192,16 @@ func (a *App) run(ctx context.Context) error {
 			return
 		}
 		defer listener.Close()
-		
+
 		a.log.Printf("vsock listener starting on port %d", vsockPort)
-		
+
 		vsockServer := &http.Server{
 			Handler:      handler,
 			ReadTimeout:  120 * time.Second,
 			WriteTimeout: 120 * time.Second,
 			IdleTimeout:  120 * time.Second,
 		}
-		
+
 		if err := vsockServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- fmt.Errorf("vsock listener: %w", err)
 		}

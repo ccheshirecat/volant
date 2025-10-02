@@ -79,7 +79,7 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 func (c *Client) DoJSON(ctx context.Context, method, path string, reqBody, respBody interface{}) error {
 	// Build URL
 	u := fmt.Sprintf("http://vsock/%s", path)
-	
+
 	// Encode request body if provided
 	var bodyReader io.Reader
 	if reqBody != nil {
@@ -95,7 +95,7 @@ func (c *Client) DoJSON(ctx context.Context, method, path string, reqBody, respB
 	if err != nil {
 		return fmt.Errorf("new request: %w", err)
 	}
-	
+
 	if reqBody != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

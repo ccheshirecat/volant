@@ -24,6 +24,15 @@ build-cli: ## Build the volar CLI binary
 	mkdir -p $(BIN_DIR)
 	$(GO) build -o $(BIN_DIR)/volar ./cmd/volar
 
+.PHONY: build-openapi-export
+build-openapi-export: ## Build the openapi-export utility
+	mkdir -p $(BIN_DIR)
+	$(GO) build -o $(BIN_DIR)/openapi-export ./cmd/openapi-export
+
+.PHONY: openapi-export
+openapi-export: build-openapi-export ## Generate OpenAPI JSON to docs/api-reference/openapi.json
+\t$(BIN_DIR)/openapi-export -server https://docs.volant.cloud -output docs/api-reference/openapi.json
+
 .PHONY: install
 install: build ## Install core binaries into INSTALL_DIR (default: /usr/local/bin)
 	mkdir -p $(INSTALL_DIR)

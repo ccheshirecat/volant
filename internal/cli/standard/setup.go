@@ -21,8 +21,8 @@ func newSetupCmd() *cobra.Command {
 	var runtimeDir string
 	var logDir string
 	var serviceFile string
-    var workDir string
-    var kernelPath string
+	var workDir string
+	var kernelPath string
 
 	cmd := &cobra.Command{
 		Use:   "setup",
