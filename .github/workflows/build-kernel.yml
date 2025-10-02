@@ -1,0 +1,173 @@
+name: build-kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      ch_linux_commit:
+        description: Cloud Hypervisor Linux commit SHA
+        required: true
+  push:
+    tags:
+      - kernel-v*
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:12@sha256:2ed5393f9038b7041e2c7d400d5e0f5a3a0f0f7a74f90cb2d9e04cb9b2e7a3d9
+      options: --cpus=2
+    env:
+      GO_VERSION: '1.24.x'
+      BUSYBOX_URL: 'https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox'
+      BUSYBOX_SHA256: ''
+      CH_LINUX_REPO: 'https://github.com/cloud-hypervisor/linux.git'
+      OUT_DIR: out
+      ARCH: x86_64
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates curl git wget \
+            build-essential bc bison flex libssl-dev libelf-dev dwarves \
+            cpio xz-utils zstd gcc g++ make file \
+            pkg-config
+          update-ca-certificates
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build volary deterministically
+        run: |
+          export CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off GOFLAGS="-trimpath"
+          go build -buildvcs=false -ldflags "-s -w -buildid=" -o build/volary ./cmd/volary
+          file build/volary
+
+      - name: Build init (static, deterministic)
+        run: |
+          gcc -static -s -Wl,--build-id=none -o build/init build/init.c
+          file build/init
+
+      - name: Prepare deterministic initramfs (stage)
+        run: |
+          WORKDIR=/tmp/initramfs
+          rm -rf "$WORKDIR"
+          mkdir -p "$WORKDIR"/{bin,sbin,etc,proc,sys,dev,usr/bin,usr/sbin}
+          cp build/volary "$WORKDIR/bin/volary"
+          cp build/init "$WORKDIR/init"
+          chmod 0755 "$WORKDIR/init" "$WORKDIR/bin/volary"
+          curl -fsSL "$BUSYBOX_URL" -o "$WORKDIR/bin/busybox"
+          if [ -n "$BUSYBOX_SHA256" ]; then echo "$BUSYBOX_SHA256  $WORKDIR/bin/busybox" | sha256sum -c -; fi
+          chmod +x "$WORKDIR/bin/busybox"
+          "$WORKDIR/bin/busybox" --install -s "$WORKDIR/bin"
+          echo "stage_ready=1" >> $GITHUB_OUTPUT
+
+      - name: Clone Cloud Hypervisor Linux
+        id: chlinux
+        run: |
+          set -euo pipefail
+          COMMIT="${{ github.event.inputs.ch_linux_commit || '' }}"
+          if [ -z "$COMMIT" ]; then
+            echo "Provide ch_linux_commit when running workflow_dispatch or use a tag-driven run" >&2
+            exit 1
+          fi
+          git clone --depth=1 "$CH_LINUX_REPO" linux
+          git -C linux fetch --depth=1 origin "$COMMIT"
+          git -C linux checkout "$COMMIT"
+          TS=$(git -C linux show -s --format=%ct "$COMMIT")
+          echo "ts=$TS" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Bake deterministic initramfs
+        run: |
+          set -euo pipefail
+          TS="${{ steps.chlinux.outputs.ts }}"
+          WORKDIR=/tmp/initramfs
+          export SOURCE_DATE_EPOCH="$TS"
+          find "$WORKDIR" -exec touch -h -d @"$SOURCE_DATE_EPOCH" {} +
+          pushd "$WORKDIR" >/dev/null
+          find . -print0 | cpio --null -ov --format=newc | gzip -n -9 > "$GITHUB_WORKSPACE/build/volant-initramfs.cpio.gz"
+          popd >/dev/null
+
+      - name: Configure kernel
+        run: |
+          set -euo pipefail
+          cd linux
+          make ARCH=${{ env.ARCH }} defconfig
+          scripts/config --set-str LOCALVERSION ""
+          scripts/config --disable LOCALVERSION_AUTO
+          scripts/config --enable INITRAMFS_SOURCE
+          scripts/config --set-str INITRAMFS_SOURCE "$GITHUB_WORKSPACE/build/volant-initramfs.cpio.gz"
+          scripts/config --enable INITRAMFS_COMPRESSION_GZIP
+          scripts/config --enable DEBUG_INFO_NONE || true
+          yes "" | make ARCH=${{ env.ARCH }} olddefconfig
+
+      - name: Build kernel (bzImage)
+        run: |
+          set -euo pipefail
+          cd linux
+          export KBUILD_BUILD_USER=volant
+          export KBUILD_BUILD_HOST=gh-actions
+          export KBUILD_BUILD_TIMESTAMP="${{ steps.chlinux.outputs.ts }}"
+          export SOURCE_DATE_EPOCH="$KBUILD_BUILD_TIMESTAMP"
+          make ARCH=${{ env.ARCH }} -j"$(nproc)" bzImage
+          mkdir -p ${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}
+          cp arch/x86/boot/bzImage ${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/bzImage
+
+      - name: Checksums and metadata
+        run: |
+          set -euo pipefail
+          cd ${{ env.OUT_DIR }}
+          sha256sum kernels/${{ env.ARCH }}/bzImage | tee kernels/${{ env.ARCH }}/bzImage.sha256
+          cp ../linux/.config kernels/${{ env.ARCH }}/kernel.config
+          echo "${{ steps.chlinux.outputs.commit }}" > kernels/${{ env.ARCH }}/KERNEL_COMMIT
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ env.ARCH }}
+          path: |
+            ${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/bzImage
+            ${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/bzImage.sha256
+            ${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/kernel.config
+            ${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/KERNEL_COMMIT
+
+  attest-and-release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ env.ARCH }}
+          path: out/kernels/${{ env.ARCH }}
+
+      - name: Generate SLSA provenance
+        uses: slsa-framework/slsa-github-generator/actions/generator@v1.10.0
+        with:
+          base64-subjects: |
+            $(sha256sum out/kernels/${{ env.ARCH }}/bzImage | awk '{print "sha256:"$1}')
+          upload-assets: true
+
+      - name: Attach to GitHub release (if tag run)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/kernels/${{ env.ARCH }}/bzImage
+            out/kernels/${{ env.ARCH }}/bzImage.sha256
+            out/kernels/${{ env.ARCH }}/kernel.config
+            out/kernels/${{ env.ARCH }}/KERNEL_COMMIT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

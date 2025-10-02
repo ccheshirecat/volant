@@ -14,8 +14,9 @@ The Volant control plane exposes a JSON/HTTP API for VM lifecycle management, ev
 
 ## Authentication
 
-- Development builds: unauthenticated (subject to `VOLANT_API_ALLOW_CIDR` whitelist)
-- Production: configure `VOLANT_API_KEY` for API key headers (WIP)
+- Optional CIDR allow-list: `VOLANT_API_ALLOW_CIDR=10.0.0.0/8,192.168.0.0/16`
+- Optional API token: set `VOLANT_API_KEY` and send `X-Volant-API-Key: <token>` or `?api_key=<token>`
+- Recommendation: run behind TLS-terminating proxy for production
 
 ## OpenAPI Specification
 
