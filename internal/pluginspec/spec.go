@@ -48,6 +48,7 @@ type Manifest struct {
 	HealthCheck   HealthCheck       `json:"health_check"`
 	Workload      Workload          `json:"workload"`
 	CloudInit     *CloudInit        `json:"cloud_init,omitempty"`
+	Network       *NetworkConfig    `json:"network,omitempty"`
 	Enabled       bool              `json:"enabled"`
 	OpenAPI       string            `json:"openapi,omitempty"`
 	Labels        map[string]string `json:"labels,omitempty"`
@@ -246,6 +247,11 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("plugin manifest: %w", err)
 		}
 	}
+	if normalized.Network != nil {
+		if err := normalized.Network.Validate(); err != nil {
+			return fmt.Errorf("plugin manifest: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -283,6 +289,10 @@ func (m *Manifest) Normalize() {
 		if strings.TrimSpace(m.CloudInit.SeedMode) == "" {
 			m.CloudInit.SeedMode = "vfat"
 		}
+	}
+
+	if m.Network != nil {
+		m.Network.Normalize()
 	}
 
 	m.Workload.Type = strings.TrimSpace(m.Workload.Type)
@@ -448,4 +458,53 @@ func Decode(value string) (Manifest, error) {
 		return manifest, err
 	}
 	return manifest, nil
+}
+
+// NetworkMode defines how the VM connects to the network.
+type NetworkMode string
+
+const (
+	// NetworkModeVsock provides isolated communication via vsock (no IP networking).
+	NetworkModeVsock NetworkMode = "vsock"
+	// NetworkModeBridged attaches the VM to a bridge with IP networking.
+	NetworkModeBridged NetworkMode = "bridged"
+	// NetworkModeDHCP attaches the VM to a bridge with DHCP-based IP assignment.
+	NetworkModeDHCP NetworkMode = "dhcp"
+)
+
+// NetworkConfig defines plugin-level network configuration defaults.
+type NetworkConfig struct {
+	Mode       NetworkMode `json:"mode"`
+	Subnet     string      `json:"subnet,omitempty"`      // For bridged mode: CIDR (e.g., "10.1.0.0/24")
+	Gateway    string      `json:"gateway,omitempty"`     // For bridged mode: gateway IP
+	AutoAssign bool        `json:"auto_assign,omitempty"` // For bridged mode: auto-allocate IPs from subnet
+}
+
+// Normalize trims and normalizes network configuration fields.
+func (n *NetworkConfig) Normalize() {
+	if n == nil {
+		return
+	}
+	n.Mode = NetworkMode(strings.ToLower(strings.TrimSpace(string(n.Mode))))
+	n.Subnet = strings.TrimSpace(n.Subnet)
+	n.Gateway = strings.TrimSpace(n.Gateway)
+}
+
+// Validate checks network configuration for semantic correctness.
+func (n NetworkConfig) Validate() error {
+	mode := strings.ToLower(strings.TrimSpace(string(n.Mode)))
+	switch NetworkMode(mode) {
+	case NetworkModeVsock:
+		// No additional fields needed for vsock
+	case NetworkModeBridged:
+		// Subnet and gateway are optional (can be auto-assigned by orchestrator)
+		if n.Subnet != "" && n.Gateway == "" && !n.AutoAssign {
+			return fmt.Errorf("network: bridged mode with subnet requires gateway or auto_assign")
+		}
+	case NetworkModeDHCP:
+		// DHCP mode needs no additional config
+	default:
+		return fmt.Errorf("network: unsupported mode %q (must be vsock, bridged, or dhcp)", n.Mode)
+	}
+	return nil
 }
