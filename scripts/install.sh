@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-INSTALL_VERSION="${volant_VERSION:-latest}"
+INSTALL_VERSION="${VOLANT_VERSION:-latest}"
 INSTALL_FORCE=no
 RUN_SETUP=yes
 NONINTERACTIVE=no
@@ -171,8 +171,8 @@ detect_arch() {
 }
 
 check_existing_install() {
-  if command -v volant >/dev/null 2>&1 && [[ "$INSTALL_FORCE" != "yes" ]]; then
-    log_info "volant appears to be installed already (use --force to reinstall)."
+  if command -v volar >/dev/null 2>&1 && [[ "$INSTALL_FORCE" != "yes" ]]; then
+    log_info "Volant CLI appears to be installed already (use --force to reinstall)."
     exit 0
   fi
 }
