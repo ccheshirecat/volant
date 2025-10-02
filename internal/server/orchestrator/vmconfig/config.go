@@ -32,15 +32,16 @@ type Expose struct {
 
 // Config represents the persisted, user-editable configuration of a VM.
 type Config struct {
-    Plugin        string               `json:"plugin"`
-    Runtime       string               `json:"runtime,omitempty"`
-    KernelCmdline string               `json:"kernel_cmdline,omitempty"`
-    Resources     Resources            `json:"resources"`
-    API           API                  `json:"api,omitempty"`
-    Manifest      *pluginspec.Manifest `json:"manifest,omitempty"`
-    Metadata      map[string]any       `json:"metadata,omitempty"`
-    Expose        []Expose             `json:"expose,omitempty"`
-    CloudInit     *pluginspec.CloudInit `json:"cloud_init,omitempty"`
+    Plugin        string                    `json:"plugin"`
+    Runtime       string                    `json:"runtime,omitempty"`
+    KernelCmdline string                    `json:"kernel_cmdline,omitempty"`
+    Resources     Resources                 `json:"resources"`
+    API           API                       `json:"api,omitempty"`
+    Manifest      *pluginspec.Manifest      `json:"manifest,omitempty"`
+    Metadata      map[string]any            `json:"metadata,omitempty"`
+    Expose        []Expose                  `json:"expose,omitempty"`
+    CloudInit     *pluginspec.CloudInit     `json:"cloud_init,omitempty"`
+    Network       *pluginspec.NetworkConfig `json:"network,omitempty"`
 }
 
 // Versioned associates a configuration with its version metadata.
@@ -60,14 +61,15 @@ type HistoryEntry struct {
 
 // Patch represents a partial configuration update request.
 type Patch struct {
-	Runtime       *string              `json:"runtime,omitempty"`
-	KernelCmdline *string              `json:"kernel_cmdline,omitempty"`
-	Resources     *ResourcesPatch      `json:"resources,omitempty"`
-	API           *APIPatch            `json:"api,omitempty"`
-	Manifest      *pluginspec.Manifest `json:"manifest,omitempty"`
-	Metadata      *map[string]any      `json:"metadata,omitempty"`
-	Expose        *[]Expose            `json:"expose,omitempty"`
-	CloudInit     *pluginspec.CloudInit `json:"cloud_init,omitempty"`
+	Runtime       *string                   `json:"runtime,omitempty"`
+	KernelCmdline *string                   `json:"kernel_cmdline,omitempty"`
+	Resources     *ResourcesPatch           `json:"resources,omitempty"`
+	API           *APIPatch                 `json:"api,omitempty"`
+	Manifest      *pluginspec.Manifest      `json:"manifest,omitempty"`
+	Metadata      *map[string]any           `json:"metadata,omitempty"`
+	Expose        *[]Expose                 `json:"expose,omitempty"`
+	CloudInit     *pluginspec.CloudInit     `json:"cloud_init,omitempty"`
+	Network       *pluginspec.NetworkConfig `json:"network,omitempty"`
 }
 
 // ResourcesPatch allows partial updates of compute resources.
@@ -162,6 +164,11 @@ func (c Config) Validate() error {
 	}
 	if c.CloudInit != nil {
 		if err := c.CloudInit.Validate(); err != nil {
+			return fmt.Errorf("vmconfig: %w", err)
+		}
+	}
+	if c.Network != nil {
+		if err := c.Network.Validate(); err != nil {
 			return fmt.Errorf("vmconfig: %w", err)
 		}
 	}
