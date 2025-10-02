@@ -12,10 +12,11 @@ description: "Common issues and fixes for Volant installations."
 - The CLI now expands `~` by falling back to `/root` when `$HOME` is missing.
 - If running as root in minimal environments, ensure `/root` exists or pass explicit paths (`--runtime-dir /var/lib/volant/run`).
 
-### Kernel/initramfs missing
+### Kernel missing
 
-- Ensure `make build-images` has produced `build/artifacts/vmlinux-x86_64` and `volant-initramfs.cpio.gz`.
-- Pass `--kernel` / `--initramfs` or set `VOLANT_KERNEL` / `VOLANT_INITRAMFS` env variables.
+- Ensure a Cloud Hypervisor compatible kernel with embedded initramfs exists at `/var/lib/volant/kernel/bzImage`.
+- You can build the initramfs with `build/bake.sh` and then rebuild the kernel from https://github.com/cloud-hypervisor/linux using `CONFIG_INITRAMFS_SOURCE`.
+- Alternatively, provide a URL to a prebuilt `bzImage` via the installer (`--kernel-url`) or place it manually at the expected path.
 
 ### systemd service launches CLI
 
@@ -34,10 +35,9 @@ description: "Common issues and fixes for Volant installations."
 - Ensure `cloud-hypervisor` process is active.
 - Check agent logs via `volar browsers proxy` or `/ws/v1/vms/{name}/logs`.
 
-## CLI/TUI problems
+## CLI problems
 
 - Run with `--api` if server not on localhost.
-- For TUI freeze, update to latest version (improved focus and reconnect handling).
 - Logs appear in `~/.volant/logs/` and `/var/log/volant/server.log`.
 
 ## Installer issues
