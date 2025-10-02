@@ -110,3 +110,13 @@ The engine stays stable and universal; plugins can iterate independently.
 - Publish installation instructions referencing `volar plugins install`.
 
 (Comprehensive plugin author documentation will live in the plugin toolkit repository.)
+
+---
+
+## Examples and Schema
+
+- Working example manifest (nginx):
+  - https://raw.githubusercontent.com/ccheshirecat/volant/main/docs/examples/plugins/nginx.manifest.json
+
+- JSON Schema for validation:
+  - https://raw.githubusercontent.com/ccheshirecat/volant/main/docs/schemas/plugin-manifest-v1.json

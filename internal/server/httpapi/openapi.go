@@ -14,7 +14,16 @@ import (
 
 // serveOpenAPI returns an OpenAPI v3 JSON document generated from server types.
 func (api *apiServer) serveOpenAPI(w http.ResponseWriter, r *http.Request) {
-	spec, err := api.buildOpenAPISpec(r)
+	baseURL := ""
+	if r != nil && r.Host != "" {
+		scheme := "http"
+		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+			scheme = "https"
+		}
+		baseURL = fmt.Sprintf("%s://%s", scheme, r.Host)
+	}
+
+	spec, err := BuildOpenAPISpec(baseURL)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to build openapi: %v", err), http.StatusInternalServerError)
 		return
@@ -29,16 +38,9 @@ func (api *apiServer) serveOpenAPI(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
-func (api *apiServer) buildOpenAPISpec(r *http.Request) (*openapi3.T, error) {
-	baseURL := ""
-	if r != nil && r.Host != "" {
-		scheme := "http"
-		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-			scheme = "https"
-		}
-		baseURL = fmt.Sprintf("%s://%s", scheme, r.Host)
-	}
 
+// BuildOpenAPISpec constructs the OpenAPI spec. If baseURL is non-empty, it will be set as the server URL.
+func BuildOpenAPISpec(baseURL string) (*openapi3.T, error) {
 	// Initialize spec
 	spec := &openapi3.T{
 		OpenAPI: "3.0.3",
