@@ -23,7 +23,7 @@ jobs:
     env:
       GO_VERSION: '1.24.x'
       BUSYBOX_URL: 'https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox'
-      BUSYBOX_SHA256: ''
+      BUSYBOX_SHA256: '6e123e7f3202a8c1e9b1f94d8941580a25135382b99e8d3e34fb858bba311348'
       CH_LINUX_REPO: 'https://github.com/cloud-hypervisor/linux.git'
       OUT_DIR: out
       ARCH: x86_64
