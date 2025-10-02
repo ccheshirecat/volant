@@ -1,5 +1,6 @@
 //go:build ignore
 
+// Package tui was the Bubble Tea interactive interface. It is disabled and slated for deletion.
 package tui
 
 import (
