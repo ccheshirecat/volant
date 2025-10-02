@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,8 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,7 +48,7 @@ var hopHeaders = map[string]struct{}{
 	"upgrade":             {},
 }
 
-func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plugins *plugins.Registry, artifactRoot string) http.Handler {
+func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plugins *plugins.Registry) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -71,16 +68,12 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 	}
 
 	api := &apiServer{
-		logger:       logger,
-		engine:       engine,
-		bus:          bus,
-		agentPort:    agentDefaultPort,
-		agentClient:  &http.Client{Timeout: 120 * time.Second},
-		plugins:      plugins,
-		artifactRoot: strings.TrimSpace(artifactRoot),
-	}
-	if api.artifactRoot == "" {
-		api.artifactRoot = filepath.Join(os.TempDir(), "volant-artifacts")
+		logger:      logger,
+		engine:      engine,
+		bus:         bus,
+		agentPort:   agentDefaultPort,
+		agentClient: &http.Client{Timeout: 120 * time.Second},
+		plugins:     plugins,
 	}
 
 	r.GET("/healthz", func(c *gin.Context) {
@@ -97,7 +90,6 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 			vms.GET("", api.listVMs)
 			vms.POST("", api.createVM)
 			vms.GET(":name", api.getVM)
-			vms.GET(":name/openapi", api.getVMOpenAPI)
 			vms.GET(":name/config", api.getVMConfig)
 			vms.GET(":name/config/history", api.getVMConfigHistory)
 			vms.PATCH(":name/config", api.updateVMConfig)
@@ -106,6 +98,12 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 			vms.POST(":name/stop", api.stopVM)
 			vms.POST(":name/restart", api.restartVM)
 			vms.Any(":name/agent/*path", api.proxyAgent)
+			vms.POST(":name/actions/:plugin/:action", api.postVMPluginAction)
+		}
+
+		deployments := v1.Group("/deployments")
+		{
+			deployments.GET("", api.listDeployments)
 			deployments.POST("", api.createDeployment)
 			deployments.GET(":name", api.getDeployment)
 			deployments.PATCH(":name", api.patchDeployment)
@@ -115,11 +113,12 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 		pluginsGroup := v1.Group("/plugins")
 		{
 			pluginsGroup.GET("", api.listPlugins)
-			pluginsGroup.GET(":plugin", api.getPlugin)
 			pluginsGroup.POST("", api.installPlugin)
-			pluginsGroup.DELETE(":plugin", api.uninstallPlugin)
-			pluginsGroup.POST(":plugin/enable", api.enablePlugin)
-			pluginsGroup.POST(":plugin/disable", api.disablePlugin)
+			pluginsGroup.GET(":plugin", api.describePlugin)
+			pluginsGroup.GET(":plugin/manifest", api.getPluginManifest)
+			pluginsGroup.DELETE(":plugin", api.removePlugin)
+			pluginsGroup.POST(":plugin/enabled", api.setPluginEnabled)
+			pluginsGroup.POST(":plugin/actions/:action", api.postPluginAction)
 		}
 
 		events := v1.Group("/events")
@@ -237,13 +236,42 @@ func apiKeyMiddleware(expected string) gin.HandlerFunc {
 }
 
 type apiServer struct {
-	logger       *slog.Logger
-	engine       orchestrator.Engine
-	bus          eventbus.Bus
-	plugins      *plugins.Registry
-	agentPort    int
-	agentClient  *http.Client
-	artifactRoot string
+	logger      *slog.Logger
+	engine      orchestrator.Engine
+	bus         eventbus.Bus
+	plugins     *plugins.Registry
+	agentPort   int
+	agentClient *http.Client
+}
+
+type navigateActionRequest struct {
+	URL string `json:"url" binding:"required"`
+}
+
+type screenshotActionRequest struct {
+	FullPage bool   `json:"full_page"`
+	Format   string `json:"format"`
+	Quality  int    `json:"quality"`
+}
+
+type execActionRequest struct {
+	Expression string `json:"expression" binding:"required"`
+}
+
+type scrapeActionRequest struct {
+	Selector  string `json:"selector" binding:"required"`
+	Attribute string `json:"attribute"`
+}
+
+type evaluateActionRequest struct {
+	Expression   string `json:"expression" binding:"required"`
+	AwaitPromise bool   `json:"await_promise"`
+}
+
+type graphqlActionRequest struct {
+	Endpoint  string                 `json:"endpoint"`
+	Query     string                 `json:"query" binding:"required"`
+	Variables map[string]interface{} `json:"variables"`
 }
 
 type createDeploymentRequest struct {
@@ -569,6 +597,63 @@ func (api *apiServer) getVMConfigHistory(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, entries)
+}
+
+func (api *apiServer) startVM(c *gin.Context) {
+	name := c.Param("name")
+	vm, err := api.engine.StartVM(c.Request.Context(), name)
+	if err != nil {
+		api.logger.Error("start vm", "vm", name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, vmToResponse(vm))
+}
+
+func (api *apiServer) stopVM(c *gin.Context) {
+	name := c.Param("name")
+	vm, err := api.engine.StopVM(c.Request.Context(), name)
+	if err != nil {
+		api.logger.Error("stop vm", "vm", name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, vmToResponse(vm))
+}
+
+func (api *apiServer) restartVM(c *gin.Context) {
+	name := c.Param("name")
+	vm, err := api.engine.RestartVM(c.Request.Context(), name)
+	if err != nil {
+		api.logger.Error("restart vm", "vm", name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, vmToResponse(vm))
+}
+
+func (api *apiServer) deleteVM(c *gin.Context) {
+	name := c.Param("name")
+	if err := api.engine.DestroyVM(c.Request.Context(), name); err != nil {
+		api.logger.Error("destroy vm", "vm", name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (api *apiServer) getDeployment(c *gin.Context) {
+	name := c.Param("name")
+	deployment, err := api.engine.GetDeployment(c.Request.Context(), name)
+	if err != nil {
+		api.logger.Error("get deployment", "deployment", name, "error", err)
+		c.JSON(statusFromError(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, deploymentToResponse(*deployment))
+}
+
+func (api *apiServer) patchDeployment(c *gin.Context) {
 	name := c.Param("name")
 	var req patchDeploymentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -586,45 +671,6 @@ func (api *apiServer) getVMConfigHistory(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, deploymentToResponse(*deployment))
-}
-
-func (api *apiServer) getVMOpenAPI(c *gin.Context) {
-	ctx := c.Request.Context()
-	name := c.Param("name")
-	versioned, err := api.engine.GetVMConfig(ctx, name)
-	if err != nil {
-		status := statusFromError(err)
-		c.JSON(status, gin.H{"error": err.Error()})
-		return
-	}
-	if versioned == nil || versioned.Config.Manifest == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "manifest not available"})
-		return
-	}
-
-	specURL := strings.TrimSpace(versioned.Config.Manifest.OpenAPI)
-	if specURL == "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "openapi document not declared"})
-		return
-	}
-
-	data, contentType, fetchErr := fetchOpenAPIDocument(ctx, specURL)
-	if fetchErr != nil {
-		api.logger.Error("fetch openapi", "vm", name, "url", specURL, "error", fetchErr)
-		c.JSON(http.StatusBadGateway, gin.H{"error": fetchErr.Error()})
-		return
-	}
-
-	if contentType == "" {
-		contentType = inferOpenAPIContentType(data)
-	}
-	if contentType != "" {
-		c.Header("Content-Type", contentType)
-	}
-	c.Writer.WriteHeader(http.StatusOK)
-	if _, err := c.Writer.Write(data); err != nil {
-		api.logger.Debug("write openapi response", "vm", name, "error", err)
-	}
 }
 
 func (api *apiServer) deleteDeployment(c *gin.Context) {
@@ -1464,44 +1510,6 @@ func (api *apiServer) resolveVM(c *gin.Context) (*db.VM, bool) {
 	return vm, true
 }
 
-func fetchOpenAPIDocument(ctx context.Context, specURL string) ([]byte, string, error) {
-	if !strings.HasPrefix(specURL, "http://") && !strings.HasPrefix(specURL, "https://") {
-		return nil, "", fmt.Errorf("unsupported openapi url: %s", specURL)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, specURL, nil)
-	if err != nil {
-		return nil, "", err
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		return nil, "", fmt.Errorf("openapi fetch returned %d", resp.StatusCode)
-	}
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, "", err
-	}
-	return data, resp.Header.Get("Content-Type"), nil
-}
-
-func inferOpenAPIContentType(data []byte) string {
-	trimmed := strings.TrimSpace(string(data))
-	if trimmed == "" {
-		return "application/json"
-	}
-	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
-		return "application/json"
-	}
-	return "application/yaml"
-}
-
 func statusFromError(err error) int {
 	switch {
 	case errors.Is(err, orchestrator.ErrVMNotFound):
@@ -1515,6 +1523,100 @@ func statusFromError(err error) int {
 	default:
 		return http.StatusInternalServerError
 	}
+}
+
+func (api *apiServer) postVMPluginAction(c *gin.Context) {
+	vmName := c.Param("name")
+	api.dispatchPluginAction(c, vmName)
+}
+
+func (api *apiServer) dispatchPluginAction(c *gin.Context, vmName string) {
+	if api.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "plugin registry unavailable"})
+		return
+	}
+
+	pluginName := c.Param("plugin")
+	actionName := c.Param("action")
+	manifest, action, err := api.plugins.ResolveAction(pluginName, actionName)
+	if err != nil {
+		api.logger.Error("resolve plugin action", "plugin", pluginName, "action", actionName, "error", err)
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	var payload map[string]any
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var vm *db.VM
+	if vmName != "" {
+		var ok bool
+		vm, ok = api.resolveVMByName(c, vmName)
+		if !ok {
+			return
+		}
+		if manifest.Runtime != vm.Runtime {
+			c.JSON(http.StatusConflict, gin.H{"error": "vm runtime does not match plugin"})
+			return
+		}
+	}
+
+	targetPath := action.Path
+	if !strings.HasPrefix(targetPath, "/") {
+		targetPath = "/" + targetPath
+	}
+
+	method := action.Method
+	if method == "" {
+		method = http.MethodPost
+	}
+
+	var respBody map[string]any
+	if vm != nil {
+		if err := api.agentAction(c, vm, method, targetPath, payload, &respBody); err != nil {
+			return
+		}
+	} else {
+		resp, err := api.forwardPluginAction(c.Request.Context(), manifest, method, targetPath, payload)
+		if err != nil {
+			api.logger.Error("plugin action forward", "plugin", pluginName, "action", actionName, "error", err)
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		respBody = resp
+	}
+
+	if respBody == nil {
+		c.Status(http.StatusAccepted)
+		return
+	}
+	c.JSON(http.StatusOK, respBody)
+}
+
+func (api *apiServer) resolveVMByName(c *gin.Context, name string) (*db.VM, bool) {
+	vm, err := api.engine.GetVM(c.Request.Context(), name)
+	if err != nil {
+		api.logger.Error("resolve vm", "vm", name, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve vm"})
+		return nil, false
+	}
+	if vm == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "vm not found"})
+		return nil, false
+	}
+	if vm.Status != db.VMStatusRunning || vm.IPAddress == "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "vm not ready"})
+		return nil, false
+	}
+	return vm, true
+}
+
+func (api *apiServer) forwardPluginAction(ctx context.Context, manifest pluginspec.Manifest, method, path string, payload map[string]any) (map[string]any, error) {
+	// placeholder for future non-VM plugin action dispatch (e.g. pooled runtimes)
+	return map[string]any{"status": "accepted"}, nil
 }
 
 func (api *apiServer) listPlugins(c *gin.Context) {
@@ -1542,6 +1644,10 @@ func (api *apiServer) describePlugin(c *gin.Context) {
 	c.JSON(http.StatusOK, manifest)
 }
 
+func (api *apiServer) postPluginAction(c *gin.Context) {
+	api.dispatchPluginAction(c, "")
+}
+
 func (api *apiServer) installPlugin(c *gin.Context) {
 	if api.plugins == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "plugin registry unavailable"})
@@ -1559,23 +1665,14 @@ func (api *apiServer) installPlugin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := os.MkdirAll(api.artifactRoot, 0o755); err != nil {
+
+	if err := api.persistPluginManifest(c.Request.Context(), manifest, true); err != nil {
 		api.logger.Error("install plugin", "plugin", manifest.Name, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	updatedManifest, artifacts, err := api.preparePluginArtifacts(c.Request.Context(), manifest)
-	if err != nil {
-		api.logger.Error("prepare plugin artifacts", "plugin", manifest.Name, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if err := api.storePluginWithArtifacts(c.Request.Context(), updatedManifest, artifacts); err != nil {
-		api.logger.Error("install plugin", "plugin", manifest.Name, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	api.plugins.Register(updatedManifest)
+
+	api.plugins.Register(manifest)
 	c.Status(http.StatusCreated)
 }
 
@@ -1626,7 +1723,16 @@ func (api *apiServer) persistPluginManifest(ctx context.Context, manifest plugin
 	}
 
 	return store.WithTx(ctx, func(q db.Queries) error {
-		return persistPluginManifestTx(ctx, q, manifest, enabled)
+		data, err := json.Marshal(manifest)
+		if err != nil {
+			return err
+		}
+		return q.Plugins().Upsert(ctx, db.Plugin{
+			Name:     manifest.Name,
+			Version:  manifest.Version,
+			Enabled:  enabled,
+			Metadata: data,
+		})
 	})
 }
 
@@ -1636,20 +1742,9 @@ func (api *apiServer) deletePluginManifest(ctx context.Context, name string) err
 		return fmt.Errorf("store not configured")
 	}
 
-	if err := store.WithTx(ctx, func(q db.Queries) error {
-		if err := q.PluginArtifacts().DeleteByPlugin(ctx, name); err != nil {
-			return err
-		}
+	return store.WithTx(ctx, func(q db.Queries) error {
 		return q.Plugins().Delete(ctx, name)
-	}); err != nil {
-		return err
-	}
-
-	artifactDir := filepath.Join(api.artifactRoot, name)
-	if err := os.RemoveAll(artifactDir); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
+	})
 }
 
 func (api *apiServer) togglePlugin(ctx context.Context, name string, enabled bool) error {
@@ -1674,284 +1769,6 @@ func (api *apiServer) togglePlugin(ctx context.Context, name string, enabled boo
 		}
 		return nil
 	})
-}
-
-func (api *apiServer) preparePluginArtifacts(ctx context.Context, manifest pluginspec.Manifest) (pluginspec.Manifest, []db.PluginArtifact, error) {
-	updated := manifest
-	pluginDir := filepath.Join(api.artifactRoot, manifest.Name, manifest.Version)
-	if err := os.RemoveAll(pluginDir); err != nil {
-		return manifest, nil, fmt.Errorf("cleanup plugin directory: %w", err)
-	}
-	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
-		return manifest, nil, fmt.Errorf("create plugin directory: %w", err)
-	}
-
-	artifacts := make([]db.PluginArtifact, 0, 1+len(manifest.Disks))
-	rootArtifact, err := api.materializeArtifact(ctx, pluginDir, manifest.Name, manifest.Version, "rootfs", "rootfs", manifest.RootFS.URL, manifest.RootFS.Checksum, manifest.RootFS.Format)
-	if err != nil {
-		_ = os.RemoveAll(pluginDir)
-		return manifest, nil, err
-	}
-	updated.RootFS.URL = rootArtifact.LocalPath
-	updated.RootFS.Checksum = rootArtifact.Checksum
-	updated.RootFS.Format = rootArtifact.Format
-	artifacts = append(artifacts, rootArtifact)
-
-	artifactMap := map[string]db.PluginArtifact{
-		"rootfs": rootArtifact,
-	}
-
-	for i := range updated.Disks {
-		disk := updated.Disks[i]
-		sourceKey := strings.TrimSpace(disk.Source)
-		if existing, ok := artifactMap[sourceKey]; ok {
-			disk.Source = existing.LocalPath
-			disk.Checksum = existing.Checksum
-			disk.Format = existing.Format
-			updated.Disks[i] = disk
-			alias := db.PluginArtifact{
-				PluginName:   manifest.Name,
-				Version:      manifest.Version,
-				ArtifactName: disk.Name,
-				Kind:         "disk",
-				SourceURL:    existing.SourceURL,
-				Checksum:     existing.Checksum,
-				Format:       existing.Format,
-				LocalPath:    existing.LocalPath,
-				SizeBytes:    existing.SizeBytes,
-				CreatedAt:    existing.CreatedAt,
-				UpdatedAt:    existing.UpdatedAt,
-			}
-			artifacts = append(artifacts, alias)
-			artifactMap[disk.Name] = alias
-			continue
-		}
-
-		artifact, err := api.materializeArtifact(ctx, pluginDir, manifest.Name, manifest.Version, disk.Name, "disk", disk.Source, disk.Checksum, disk.Format)
-		if err != nil {
-			_ = os.RemoveAll(pluginDir)
-			return manifest, nil, err
-		}
-		disk.Source = artifact.LocalPath
-		disk.Checksum = artifact.Checksum
-		disk.Format = artifact.Format
-		updated.Disks[i] = disk
-		artifacts = append(artifacts, artifact)
-		artifactMap[disk.Name] = artifact
-	}
-
-	updated.Normalize()
-	return updated, artifacts, nil
-}
-
-func (api *apiServer) materializeArtifact(ctx context.Context, pluginDir, pluginName, version, artifactName, kind, sourceURL, expectedChecksum, format string) (db.PluginArtifact, error) {
-	artifact := db.PluginArtifact{
-		PluginName:   pluginName,
-		Version:      version,
-		ArtifactName: artifactName,
-		Kind:         kind,
-		SourceURL:    sourceURL,
-	}
-
-	normalizedFormat := strings.ToLower(strings.TrimSpace(format))
-	if normalizedFormat == "" {
-		normalizedFormat = "raw"
-	}
-
-	var tempPath string
-	var err error
-	if normalizedFormat == "qcow2" {
-		tempPath = filepath.Join(pluginDir, fmt.Sprintf("%s.qcow2", artifactName))
-		if err = api.fetchArtifact(ctx, sourceURL, tempPath); err != nil {
-			return artifact, err
-		}
-		if err = verifyChecksum(tempPath, expectedChecksum); err != nil {
-			return artifact, err
-		}
-		finalPath := filepath.Join(pluginDir, fmt.Sprintf("%s.img", artifactName))
-		if err = convertQCOWToRaw(ctx, tempPath, finalPath); err != nil {
-			return artifact, err
-		}
-		_ = os.Remove(tempPath)
-		tempPath = finalPath
-		normalizedFormat = "raw"
-	} else {
-		tempPath = filepath.Join(pluginDir, fmt.Sprintf("%s.img", artifactName))
-		if err = api.fetchArtifact(ctx, sourceURL, tempPath); err != nil {
-			return artifact, err
-		}
-		if err = verifyChecksum(tempPath, expectedChecksum); err != nil {
-			return artifact, err
-		}
-	}
-
-	sum, size, err := computeSHA256(tempPath)
-	if err != nil {
-		return artifact, err
-	}
-	artifact.Checksum = fmt.Sprintf("sha256:%s", sum)
-	artifact.Format = normalizedFormat
-	artifact.LocalPath = tempPath
-	artifact.SizeBytes = size
-	return artifact, nil
-}
-
-func (api *apiServer) storePluginWithArtifacts(ctx context.Context, manifest pluginspec.Manifest, artifacts []db.PluginArtifact) error {
-	store := api.engine.Store()
-	if store == nil {
-		return fmt.Errorf("store not configured")
-	}
-	return store.WithTx(ctx, func(q db.Queries) error {
-		if err := q.PluginArtifacts().DeleteByPluginVersion(ctx, manifest.Name, manifest.Version); err != nil {
-			return err
-		}
-		for _, artifact := range artifacts {
-			if err := q.PluginArtifacts().Upsert(ctx, artifact); err != nil {
-				return err
-			}
-		}
-		return persistPluginManifestTx(ctx, q, manifest, true)
-	})
-}
-
-func persistPluginManifestTx(ctx context.Context, q db.Queries, manifest pluginspec.Manifest, enabled bool) error {
-	data, err := json.Marshal(manifest)
-	if err != nil {
-		return err
-	}
-	return q.Plugins().Upsert(ctx, db.Plugin{
-		Name:     manifest.Name,
-		Version:  manifest.Version,
-		Enabled:  enabled,
-		Metadata: data,
-	})
-}
-
-func (api *apiServer) fetchArtifact(ctx context.Context, source, dest string) error {
-	if strings.TrimSpace(source) == "" {
-		return fmt.Errorf("artifact source required")
-	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return err
-	}
-	cleanDest := filepath.Clean(dest)
-	switch {
-	case strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://"):
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
-		if err != nil {
-			return err
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode >= 300 {
-			return fmt.Errorf("download %s: %s", source, resp.Status)
-		}
-		out, err := os.Create(cleanDest)
-		if err != nil {
-			return err
-		}
-		defer out.Close()
-		if _, err := io.Copy(out, resp.Body); err != nil {
-			return err
-		}
-	case strings.HasPrefix(source, "file://"):
-		srcPath := filepath.Clean(strings.TrimPrefix(source, "file://"))
-		if err := copyFile(srcPath, cleanDest); err != nil {
-			return err
-		}
-	default:
-		srcPath := filepath.Clean(source)
-		if !filepath.IsAbs(srcPath) {
-			return fmt.Errorf("artifact path must be absolute: %s", source)
-		}
-		if err := copyFile(srcPath, cleanDest); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func verifyChecksum(path, expected string) error {
-	expected = strings.TrimSpace(expected)
-	if expected == "" {
-		return nil
-	}
-	algo := "sha256"
-	value := expected
-	if parts := strings.SplitN(expected, ":", 2); len(parts) == 2 {
-		algo = strings.ToLower(parts[0])
-		value = parts[1]
-	}
-	if algo != "sha256" {
-		return fmt.Errorf("unsupported checksum algorithm %q", algo)
-	}
-	actual, _, err := computeSHA256(path)
-	if err != nil {
-		return err
-	}
-	if !strings.EqualFold(value, actual) {
-		return fmt.Errorf("checksum mismatch: expected %s got %s", value, actual)
-	}
-	return nil
-}
-
-func computeSHA256(path string) (string, int64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer f.Close()
-	hasher := sha256.New()
-	n, err := io.Copy(hasher, f)
-	if err != nil {
-		return "", 0, err
-	}
-	return fmt.Sprintf("%x", hasher.Sum(nil)), n, nil
-}
-
-func convertQCOWToRaw(ctx context.Context, src, dest string) error {
-	if err := os.Remove(dest); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	binary, err := exec.LookPath("qemu-img")
-	if err != nil {
-		return fmt.Errorf("qemu-img not found: %w", err)
-	}
-	cmd := exec.CommandContext(ctx, binary, "convert", "-O", "raw", src, dest)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("qemu-img convert: %w", err)
-	}
-	return nil
-}
-
-func copyFile(src, dest string) error {
-	cleanSrc := filepath.Clean(src)
-	cleanDest := filepath.Clean(dest)
-	if cleanSrc == cleanDest {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(cleanDest), 0o755); err != nil {
-		return err
-	}
-	input, err := os.Open(cleanSrc)
-	if err != nil {
-		return err
-	}
-	defer input.Close()
-	output, err := os.Create(cleanDest)
-	if err != nil {
-		return err
-	}
-	defer output.Close()
-	if _, err := io.Copy(output, input); err != nil {
-		return err
-	}
-	return nil
 }
 
 func cloneLabelMap(labels map[string]string) map[string]string {

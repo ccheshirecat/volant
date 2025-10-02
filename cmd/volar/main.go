@@ -5,18 +5,11 @@ import (
 	"os"
 
 	"github.com/ccheshirecat/volant/internal/cli/standard"
-	"github.com/ccheshirecat/volant/internal/cli/tui"
 )
 
 func main() {
-	if len(os.Args) == 1 {
-		if err := tui.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "tui error: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
+	// TUI temporarily disabled - using standard CLI for all invocations
+	// When invoked without arguments, will show help instead of TUI
 	if err := standard.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "command error: %v\n", err)
 		os.Exit(1)

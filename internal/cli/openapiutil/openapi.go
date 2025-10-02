@@ -49,7 +49,7 @@ func ListOperations(doc *openapi3.T) []Operation {
 		return ops
 	}
 
-	for path, item := range doc.Paths {
+	for path, item := range doc.Paths.Map() {
 		if item == nil {
 			continue
 		}
