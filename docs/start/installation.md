@@ -24,10 +24,10 @@ What the installer does:
 1. Detects OS + architecture.
 2. Installs prerequisites via the native package manager (prompted unless `--yes`).
 3. Downloads the latest `volar` CLI / `volantd` daemon / `volary` binaries from GitHub releases.
-4. Provisions the kernel at `/var/lib/volant/kernel/bzImage` (download from repo `kernels/<arch>/bzImage` if available or use `--kernel-url`).
+4. Provisions kernels at `/var/lib/volant/kernel/{bzImage,vmlinux}` as available. By default it fetches `bzImage` from repo `kernels/<arch>/bzImage` if available or use `--kernel-url`.
 5. Verifies SHA-256 checksums.
 6. Installs binaries to `/usr/local/bin/`.
-7. Runs `sudo volar setup` (unless `--skip-setup`) which writes a systemd unit with `WorkingDirectory=/var/lib/volant` and `VOLANT_KERNEL=/var/lib/volant/kernel/bzImage`, then enables and starts it.
+7. Runs `sudo volar setup` (unless `--skip-setup`) which writes a systemd unit with `WorkingDirectory=/var/lib/volant` and kernel envs `VOLANT_KERNEL_BZIMAGE` and `VOLANT_KERNEL_VMLINUX` (when present), then enables and starts it.
 
 > Use `VOLANT_VERSION=v2.0.0` to pin a release, or download `install.sh` manually for review.
 
@@ -58,7 +58,8 @@ volary --help
 ```
 sudo volar setup \
   --work-dir /var/lib/volant \
-  --kernel /var/lib/volant/kernel/bzImage
+  --bzimage /var/lib/volant/kernel/bzImage \
+  --vmlinux /var/lib/volant/kernel/vmlinux
 ```
 
 Key responsibilities:
@@ -70,7 +71,7 @@ Key responsibilities:
 5. Write `/etc/systemd/system/volantd.service` with:
    - `ExecStart=/usr/local/bin/volantd`
    - `WorkingDirectory=/var/lib/volant`
-   - `Environment` variables for kernel/bridge/runtime dirs (`VOLANT_KERNEL=/var/lib/volant/kernel/bzImage`)
+   - `Environment` variables for bridge/runtime dirs and kernels (`VOLANT_KERNEL_BZIMAGE=/var/lib/volant/kernel/bzImage`, `VOLANT_KERNEL_VMLINUX=/var/lib/volant/kernel/vmlinux` if present)
    - Log redirection to `~/.volant/logs/volantd.log`.
 6. `systemctl daemon-reload && systemctl enable --now volantd`.
 

@@ -52,13 +52,13 @@ func main() {
 	runtimeDir := expandPath(cfg.RuntimeDir, logger)
 	logDir := expandPath(cfg.LogDir, logger)
 
-	launcher := cloudhypervisor.New(
-		cfg.HypervisorBinary,
-		expandPath(cfg.KernelImagePath, logger),
-		expandPath(cfg.InitramfsPath, logger),
-		runtimeDir,
-		logDir,
-	)
+    launcher := cloudhypervisor.New(
+        cfg.HypervisorBinary,
+        expandPath(cfg.BZImagePath, logger),
+        expandPath(cfg.VMLinuxPath, logger),
+        runtimeDir,
+        logDir,
+    )
 
 	runtimeRegistry := plugins.NewRegistry(store.Queries().Plugins())
 

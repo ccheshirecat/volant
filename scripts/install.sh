@@ -7,9 +7,11 @@ INSTALL_FORCE=no
 RUN_SETUP=yes
 NONINTERACTIVE=no
 KERNEL_URL="${VOLANT_KERNEL_URL:-}"
+VMLINUX_URL="${VOLANT_VMLINUX_URL:-}"
 WORK_DIR="/var/lib/volant"
 KERNEL_DIR="${WORK_DIR}/kernel"
-KERNEL_PATH="${KERNEL_DIR}/bzImage"
+BZIMAGE_PATH="${KERNEL_DIR}/bzImage"
+VMLINUX_PATH="${KERNEL_DIR}/vmlinux"
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TMP_DIR=""
@@ -37,6 +39,7 @@ Options:
   --force             Reinstall even if volant is already present
   --skip-setup        Skip running 'volar setup' after installation
   --kernel-url <url>  Download kernel bzImage from URL (default attempts repo kernels path)
+  --vmlinux-url <url> Download vmlinux kernel from URL (optional)
   --yes               Non-interactive mode (assume yes to prompts)
   --help              Show this message
 EOF
@@ -53,6 +56,8 @@ parse_args() {
         RUN_SETUP=no; shift ;;
       --kernel-url)
         KERNEL_URL="$2"; shift 2 ;;
+      --vmlinux-url)
+        VMLINUX_URL="$2"; shift 2 ;;
       --yes|-y)
         NONINTERACTIVE=yes; shift ;;
       --help|-h)
@@ -296,13 +301,19 @@ run_volant_setup() {
   fi
   if prompt_yes_no "Run 'sudo volar setup' now?"; then
     log_info "Running 'sudo volar setup'..."
-    local kernel_flag=( )
-    if [[ -f "$KERNEL_PATH" ]]; then
-      kernel_flag=(--kernel "$KERNEL_PATH")
+    local kernel_flags=( )
+    local env_prefix=( VOLANT_WORK_DIR="$WORK_DIR" )
+    if [[ -f "$BZIMAGE_PATH" ]]; then
+      kernel_flags+=( --bzimage "$BZIMAGE_PATH" )
+      env_prefix+=( VOLANT_KERNEL_BZIMAGE="$BZIMAGE_PATH" )
     else
-      log_warn "Kernel not present at $KERNEL_PATH; systemd service will reference it but may fail to start until provided."
+      log_warn "bzImage not present at $BZIMAGE_PATH; you can provide one later."
     fi
-    if ! sudo VOLANT_WORK_DIR="$WORK_DIR" VOLANT_KERNEL="$KERNEL_PATH" volar setup "${kernel_flag[@]}" --work-dir "$WORK_DIR"; then
+    if [[ -f "$VMLINUX_PATH" ]]; then
+      kernel_flags+=( --vmlinux "$VMLINUX_PATH" )
+      env_prefix+=( VOLANT_KERNEL_VMLINUX="$VMLINUX_PATH" )
+    fi
+    if ! sudo "${env_prefix[@]}" volar setup "${kernel_flags[@]}" --work-dir "$WORK_DIR"; then
       log_warn "'volar setup' failed. You can rerun it manually later."
     fi
   else
@@ -323,21 +334,32 @@ default_kernel_url() {
 
 provision_kernel() {
   sudo mkdir -p "$KERNEL_DIR"
-  if [[ -f "$KERNEL_PATH" ]]; then
-    log_info "Kernel already present at $KERNEL_PATH"
-    return
-  fi
-  local url="$KERNEL_URL"
-  if [[ -z "$url" ]]; then
-    url=$(default_kernel_url)
-  fi
-  log_info "Attempting to download kernel from: $url"
-  if curl -fL "$url" -o "$TMP_DIR/bzImage"; then
-    sudo install -m 0644 "$TMP_DIR/bzImage" "$KERNEL_PATH"
-    log_info "Kernel installed to $KERNEL_PATH"
+  # bzImage
+  if [[ -f "$BZIMAGE_PATH" ]]; then
+    log_info "bzImage already present at $BZIMAGE_PATH"
   else
-    log_warn "Failed to fetch kernel from $url"
-    log_warn "You must place a bzImage at $KERNEL_PATH before starting volantd."
+    local url="$KERNEL_URL"
+    if [[ -z "$url" ]]; then
+      url=$(default_kernel_url)
+    fi
+    log_info "Attempting to download bzImage from: $url"
+    if curl -fL "$url" -o "$TMP_DIR/bzImage"; then
+      sudo install -m 0644 "$TMP_DIR/bzImage" "$BZIMAGE_PATH"
+      log_info "bzImage installed to $BZIMAGE_PATH"
+    else
+      log_warn "Failed to fetch bzImage from $url"
+      log_warn "You can place a bzImage at $BZIMAGE_PATH later."
+    fi
+  fi
+  # vmlinux (optional)
+  if [[ -n "$VMLINUX_URL" && ! -f "$VMLINUX_PATH" ]]; then
+    log_info "Attempting to download vmlinux from: $VMLINUX_URL"
+    if curl -fL "$VMLINUX_URL" -o "$TMP_DIR/vmlinux"; then
+      sudo install -m 0644 "$TMP_DIR/vmlinux" "$VMLINUX_PATH"
+      log_info "vmlinux installed to $VMLINUX_PATH"
+    else
+      log_warn "Failed to fetch vmlinux from $VMLINUX_URL"
+    fi
   fi
 }
 

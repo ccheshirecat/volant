@@ -11,6 +11,7 @@
     "version": { "type": "string", "minLength": 1 },
     "runtime": { "type": "string" },
     "rootfs": { "$ref": "#/$defs/rootfs" },
+    "initramfs": { "$ref": "#/$defs/initramfs" },
     "disks": { "type": "array", "items": { "$ref": "#/$defs/disk" } },
     "image": { "type": "string" },
     "image_digest": { "type": "string" },
@@ -46,6 +47,26 @@
           "workload": { "required": ["base_url", "entrypoint"] }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "rootfs": { "required": ["url"] }
+        }
+      },
+      "then": {
+        "not": { "required": ["initramfs"] }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "initramfs": { "required": ["url"] }
+        }
+      },
+      "then": {
+        "not": { "required": ["rootfs"] }
+      }
     }
   ],
   "$defs": {
@@ -56,6 +77,15 @@
         "url": { "type": "string", "minLength": 1 },
         "checksum": { "type": "string" },
         "format": { "type": "string", "enum": ["raw", "qcow2"] }
+      },
+      "required": ["url"]
+    },
+    "initramfs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": { "type": "string", "minLength": 1 },
+        "checksum": { "type": "string" }
       },
       "required": ["url"]
     },
