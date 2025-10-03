@@ -41,7 +41,6 @@ jobs:
             cpio xz-utils zstd gcc g++ make file \
             pkg-config
           update-ca-certificates
-
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -52,12 +51,10 @@ jobs:
           export CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off GOFLAGS="-trimpath"
           go build -buildvcs=false -ldflags "-s -w -buildid=" -o build/volary ./cmd/volary
           file build/volary
-
       - name: Build init (static, deterministic)
         run: |
           gcc -static -s -Wl,--build-id=none -o build/init build/init.c
           file build/init
-
       - name: Prepare deterministic initramfs (stage)
         run: |
           WORKDIR=/tmp/initramfs
@@ -80,7 +77,6 @@ jobs:
           chmod +x "$WORKDIR/bin/busybox"
           "$WORKDIR/bin/busybox" --install -s "$WORKDIR/bin"
           echo "stage_ready=1" >> $GITHUB_OUTPUT
-
       - name: Clone Cloud Hypervisor Linux
         id: chlinux
         run: |
@@ -96,7 +92,6 @@ jobs:
           TS=$(git -C linux show -s --format=%ct "$COMMIT")
           echo "ts=$TS" >> "$GITHUB_OUTPUT"
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
-
       - name: Bake deterministic initramfs
         run: |
           set -eu
@@ -105,7 +100,6 @@ jobs:
           export SOURCE_DATE_EPOCH="$TS"
           find "$WORKDIR" -exec touch -h -d @"$SOURCE_DATE_EPOCH" {} +
           ( cd "$WORKDIR" && find . -print0 | cpio --null -ov --format=newc | gzip -n -9 > "$GITHUB_WORKSPACE/build/volant-initramfs.cpio.gz" )
-
       - name: Configure kernel
         run: |
           set -eu
@@ -118,7 +112,6 @@ jobs:
           scripts/config --enable INITRAMFS_COMPRESSION_GZIP
           scripts/config --enable DEBUG_INFO_NONE || true
           yes "" | make ARCH=${{ env.ARCH }} olddefconfig
-
       - name: Build kernel (bzImage)
         run: |
           set -eu
@@ -130,14 +123,18 @@ jobs:
           make ARCH=${{ env.ARCH }} -j"$(nproc)" bzImage
           mkdir -p "$GITHUB_WORKSPACE/${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}"
           cp arch/x86/boot/bzImage "$GITHUB_WORKSPACE/${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/bzImage"
-
       - name: Checksums and metadata
+        id: checksums
         run: |
           set -eu
           cd ${{ env.OUT_DIR }}
           sha256sum kernels/${{ env.ARCH }}/bzImage | tee kernels/${{ env.ARCH }}/bzImage.sha256
           cp ../linux/.config kernels/${{ env.ARCH }}/kernel.config
           echo "${{ steps.chlinux.outputs.commit }}" > kernels/${{ env.ARCH }}/KERNEL_COMMIT
+          
+          # Calculate the hash and set it as a workflow environment variable
+          BASE64_SUBJECTS=$(sha256sum kernels/${{ env.ARCH }}/bzImage | awk '{print "sha256:"$1}' | base64 -w0)
+          echo "BASE64_SUBJECTS=$BASE64_SUBJECTS" >> $GITHUB_ENV
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -186,6 +183,31 @@ JSON
           fi
           echo "b64_subjects=$B64" >> "$GITHUB_OUTPUT"
 
+  provenance:
+    needs: attest-and-release
+    permissions:
+      contents: write
+      id-token: write
+      packages: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.10.0
+    with:
+      base64-subjects: ${{ env.BASE64_SUBJECTS }}
+      upload-assets: true
+    if: success() && startsWith(github.ref, 'refs/tags/')
+
+  attach-release:
+    needs: provenance
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ env.ARCH }}
+          path: out/kernels/${{ env.ARCH }}
+      
       - name: Attach to GitHub release (if tag run)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
