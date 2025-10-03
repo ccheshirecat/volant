@@ -4,20 +4,20 @@ on:
   push:
     tags:
       - 'v*'
-      
+
 permissions:
   contents: write
   id-token: write
   attestations: write
-  
+
 env:
   GO_VERSION: "1.24.x"
   BUSYBOX_URL: "https://github.com/shutingrz/busybox-static-binaries-fat/raw/refs/heads/main/busybox-x86_64-linux-gnu"
   BUSYBOX_SHA256: "5c566ba50a12d8020a391346575534e818a1f5b6f729a53b7b241262fe1d1b4e"
   CH_LINUX_REPO: "https://github.com/cloud-hypervisor/linux.git"
+  CH_LINUX_COMMIT: "46b5aab6f24a7e31a861d66dfe9b559b310a6c2d"
   OUT_DIR: out
   ARCH: x86_64
-  CH_LINUX_COMMIT: "46b5aab6f24a7e31a861d66dfe9b559b310a6c2d"
 
 jobs:
   build-and-release:
@@ -31,7 +31,6 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      # Build your Go binaries
       - name: Build Go Binaries
         run: |
           mkdir -p bin
@@ -113,14 +112,19 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/${{ env.OUT_DIR }}/"
           cp arch/x86/boot/bzImage "$GITHUB_WORKSPACE/${{ env.OUT_DIR }}/bzImage"
 
-      - name: Checksums and metadata for kernel
+      - name: Create kernel metadata
         run: |
           set -eu
           cd ${{ env.OUT_DIR }}
-          sha256sum bzImage | tee bzImage.sha256
+          sha256sum bzImage > bzImage.sha256
           cp ../linux/.config ./kernel.config
           echo "${{ steps.chlinux.outputs.commit }}" > ./KERNEL_COMMIT
-      
+
+      - name: Generate Checksums For All Artifacts
+        run: |
+          (cd bin && sha256sum volar volary volantd) > checksums.txt
+          (cd ${{ env.OUT_DIR }} && sha256sum bzImage) >> checksums.txt
+
       - name: Generate build provenance for all artifacts
         id: attest
         uses: actions/attest-build-provenance@v3
@@ -133,6 +137,7 @@ jobs:
             ${{ env.OUT_DIR }}/bzImage.sha256
             ${{ env.OUT_DIR }}/kernel.config
             ${{ env.OUT_DIR }}/KERNEL_COMMIT
+            checksums.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -147,4 +152,5 @@ jobs:
             ${{ env.OUT_DIR }}/bzImage.sha256
             ${{ env.OUT_DIR }}/kernel.config
             ${{ env.OUT_DIR }}/KERNEL_COMMIT
+            checksums.txt
             ${{ steps.attest.outputs.bundle-path }}
