@@ -1,0 +1,150 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+      
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  
+env:
+  GO_VERSION: "1.24.x"
+  BUSYBOX_URL: "https://github.com/shutingrz/busybox-static-binaries-fat/raw/refs/heads/main/busybox-x86_64-linux-gnu"
+  BUSYBOX_SHA256: "5c566ba50a12d8020a391346575534e818a1f5b6f729a53b7b241262fe1d1b4e"
+  CH_LINUX_REPO: "https://github.com/cloud-hypervisor/linux.git"
+  OUT_DIR: out
+  ARCH: x86_64
+  CH_LINUX_COMMIT: "46b5aab6f24a7e31a861d66dfe9b559b310a6c2d"
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      # Build your Go binaries
+      - name: Build Go Binaries
+        run: |
+          mkdir -p bin
+          CGO_ENABLED=0 go build -o bin/volar ./cmd/volar
+          CGO_ENABLED=0 go build -o bin/volary ./cmd/volary
+          CGO_ENABLED=0 go build -o bin/volantd ./cmd/volantd
+
+      - name: Install Kernel Build Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates curl git wget \
+            build-essential bc bison flex libssl-dev libelf-dev dwarves \
+            cpio xz-utils zstd gcc g++ make file pkg-config
+          sudo update-ca-certificates
+
+      - name: Build init (static, deterministic)
+        run: |
+          mkdir -p build
+          gcc -static -s -Wl,--build-id=none -o build/init build/init.c
+
+      - name: Prepare deterministic initramfs (stage)
+        run: |
+          set -eu
+          WORKDIR=/tmp/initramfs
+          rm -rf "$WORKDIR"
+          mkdir -p "$WORKDIR/bin" "$WORKDIR/sbin" "$WORKDIR/etc" "$WORKDIR/proc" "$WORKDIR/sys" "$WORKDIR/dev" "$WORKDIR/usr/bin" "$WORKDIR/usr/sbin"
+          cp bin/volary "$WORKDIR/bin/volary"
+          cp build/init "$WORKDIR/init"
+          chmod 0755 "$WORKDIR/init" "$WORKDIR/bin/volary"
+          curl -fsSL "$BUSYBOX_URL" -o "$WORKDIR/bin/busybox"
+          if [ -n "$BUSYBOX_SHA256" ]; then echo "$BUSYBOX_SHA256  $WORKDIR/bin/busybox" | sha256sum -c -; fi
+          chmod +x "$WORKDIR/bin/busybox"
+          "$WORKDIR/bin/busybox" --install -s "$WORKDIR/bin"
+
+      - name: Clone Cloud Hypervisor Linux
+        id: chlinux
+        run: |
+          set -eu
+          COMMIT="${{ env.CH_LINUX_COMMIT }}"
+          git clone --depth=1 "$CH_LINUX_REPO" linux
+          git -C linux fetch --depth=1 origin "$COMMIT"
+          git -C linux checkout "$COMMIT"
+          TS=$(git -C linux show -s --format=%ct "$COMMIT")
+          echo "ts=$TS" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Bake deterministic initramfs
+        run: |
+          set -eu
+          TS="${{ steps.chlinux.outputs.ts }}"
+          WORKDIR=/tmp/initramfs
+          export SOURCE_DATE_EPOCH="$TS"
+          find "$WORKDIR" -exec touch -h -d @"$SOURCE_DATE_EPOCH" {} +
+          ( cd "$WORKDIR" && find . -print0 | cpio --null -ov --format=newc | gzip -n -9 > "$GITHUB_WORKSPACE/build/volant-initramfs.cpio.gz" )
+
+      - name: Configure kernel
+        run: |
+          set -eu
+          cd linux
+          make ch_defconfig
+          scripts/config --set-str LOCALVERSION ""
+          scripts/config --disable LOCALVERSION_AUTO
+          scripts/config --enable INITRAMFS_SOURCE
+          scripts/config --set-str INITRAMFS_SOURCE "$GITHUB_WORKSPACE/build/volant-initramfs.cpio.gz"
+          scripts/config --enable INITRAMFS_COMPRESSION_GZIP
+          scripts/config --enable DEBUG_INFO_NONE || true
+          yes "" | make ARCH=${{ env.ARCH }} olddefconfig
+
+      - name: Build kernel (bzImage)
+        run: |
+          set -eu
+          cd linux
+          export KBUILD_BUILD_USER=volant
+          export KBUILD_BUILD_HOST=gh-actions
+          export KBUILD_BUILD_TIMESTAMP="${{ steps.chlinux.outputs.ts }}"
+          export SOURCE_DATE_EPOCH="$KBUILD_BUILD_TIMESTAMP"
+          make ARCH=${{ env.ARCH }} -j"$(nproc)" bzImage
+          mkdir -p "$GITHUB_WORKSPACE/${{ env.OUT_DIR }}/"
+          cp arch/x86/boot/bzImage "$GITHUB_WORKSPACE/${{ env.OUT_DIR }}/bzImage"
+
+      - name: Checksums and metadata for kernel
+        run: |
+          set -eu
+          cd ${{ env.OUT_DIR }}
+          sha256sum bzImage | tee bzImage.sha256
+          cp ../linux/.config ./kernel.config
+          echo "${{ steps.chlinux.outputs.commit }}" > ./KERNEL_COMMIT
+      
+      - name: Generate build provenance for all artifacts
+        id: attest
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: |
+            bin/volar
+            bin/volary
+            bin/volantd
+            ${{ env.OUT_DIR }}/bzImage
+            ${{ env.OUT_DIR }}/bzImage.sha256
+            ${{ env.OUT_DIR }}/kernel.config
+            ${{ env.OUT_DIR }}/KERNEL_COMMIT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            bin/volar
+            bin/volary
+            bin/volantd
+            ${{ env.OUT_DIR }}/bzImage
+            ${{ env.OUT_DIR }}/bzImage.sha256
+            ${{ env.OUT_DIR }}/kernel.config
+            ${{ env.OUT_DIR }}/KERNEL_COMMIT
+            ${{ steps.attest.outputs.bundle-path }}
