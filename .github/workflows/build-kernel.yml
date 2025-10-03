@@ -131,6 +131,7 @@ jobs:
           cp ../linux/.config kernels/${{ env.ARCH }}/kernel.config
           echo "${{ steps.chlinux.outputs.commit }}" > kernels/${{ env.ARCH }}/KERNEL_COMMIT
           
+          # Calculate the hash and set it as a workflow environment variable
           BASE64_SUBJECTS=$(sha256sum kernels/${{ env.ARCH }}/bzImage | awk '{print "sha256:"$1}' | base64 -w0)
           echo "BASE64_SUBJECTS=$BASE64_SUBJECTS" >> $GITHUB_ENV
 
@@ -158,11 +159,33 @@ jobs:
           path: out/kernels/${{ env.ARCH }}
       
       - name: Generate SLSA provenance
-        uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.10.0
-        with:
-          base64-subjects: ${{ env.BASE64_SUBJECTS }}
-          upload-assets: true
+        run: echo "Call SLSA generator in the next job"
 
+  provenance:
+    needs: attest-and-release
+    permissions:
+      contents: write
+      id-token: write
+      packages: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.10.0
+    with:
+      base64-subjects: ${{ env.BASE64_SUBJECTS }}
+      upload-assets: true
+    if: success() && startsWith(github.ref, 'refs/tags/')
+
+  attach-release:
+    needs: provenance
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ env.ARCH }}
+          path: out/kernels/${{ env.ARCH }}
+      
       - name: Attach to GitHub release (if tag run)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
