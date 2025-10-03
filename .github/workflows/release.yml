@@ -34,9 +34,9 @@ jobs:
       - name: Build Go Binaries
         run: |
           mkdir -p bin
-          CGO_ENABLED=0 go build -o bin/volar ./cmd/volar
-          CGO_ENABLED=0 go build -o bin/volary ./cmd/volary
-          CGO_ENABLED=0 go build -o bin/volantd ./cmd/volantd
+          CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o bin/volar ./cmd/volar
+          CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o bin/volary ./cmd/volary
+          CGO_ENABLED=1 go build -ldflags="-s -w" -o bin/volantd ./cmd/volantd
 
       - name: Install Kernel Build Toolchain
         run: |

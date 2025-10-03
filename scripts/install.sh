@@ -8,11 +8,13 @@ INSTALL_FORCE=no
 RUN_SETUP=yes
 NONINTERACTIVE=no
 REPO="ccheshirecat/volant"
+VMLINUX_URL="https://github.com/cloud-hypervisor/linux/releases/download/ch-release-v6.12.8-20250613/vmlinux-x86_64"
 
 # Install paths
 WORK_DIR="/var/lib/volant"
 KERNEL_DIR="${WORK_DIR}/kernel"
 BZIMAGE_PATH="${KERNEL_DIR}/bzImage"
+VMLINUX_PATH="${KERNEL_DIR}/vmlinux"
 
 # Globals
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -40,13 +42,13 @@ usage() {
   cat <<EOF
 volant Installer
 
-Downloads and installs volant binaries and the required kernel directly from
-GitHub releases.
+Downloads and installs volant binaries from its GitHub release and the vmlinux
+kernel directly from the official Cloud Hypervisor release page.
 
 Usage: install.sh [options]
 
 Options:
-  --version <ver>     Install a specific version (e.g., v0.1.0, default: latest)
+  --version <ver>     Install a specific volant version (e.g., v0.1.0, default: latest)
   --force             Reinstall even if volant is already present
   --skip-setup        Skip running 'volar setup' after installation
   --yes, -y           Non-interactive mode (assume yes to prompts)
@@ -140,9 +142,6 @@ detect_arch() {
   case "$(uname -m)" in
     x86_64|amd64)
       ARCH="x86_64" ;;
-    # Future-proofing for ARM, though your build is x86 only right now
-    # arm64|aarch64)
-    #   ARCH="aarch64" ;;
     *)
       log_error "Unsupported architecture: $(uname -m). Only x86_64 is supported."
       exit 1
@@ -162,7 +161,6 @@ ensure_dependencies() {
   local dependencies=(cloud-hypervisor qemu-utils bridge-utils iptables coreutils)
 
   for dep in "${dependencies[@]}"; do
-    # Check for binary, not package name
     local bin_name="$dep"
     if [[ "$dep" == "qemu-utils" ]]; then bin_name="qemu-img"; fi
     if [[ "$dep" == "bridge-utils" ]]; then bin_name="brctl"; fi
@@ -196,38 +194,45 @@ create_temp_dir() {
 resolve_version() {
   if [[ "$INSTALL_VERSION" != "latest" ]]; then
     RESOLVED_VERSION="$INSTALL_VERSION"
-    log_info "Installing specified version: ${RESOLVED_VERSION}"
+    log_info "Installing specified volant version: ${RESOLVED_VERSION}"
     return
   fi
 
-  log_info "Finding latest release version..."
+  log_info "Finding latest volant release version..."
   local api_url="https://api.github.com/repos/${REPO}/releases/latest"
-  if ! latest_tag=$(curl -sSL "$api_url" | grep -m1 '"tag_name"' | cut -d '"' -f4); then
-    log_error "Unable to determine latest release. Please specify a version with --version."
-    exit 1
+  
+  local api_response
+  if ! api_response=$(curl --fail -sSL "$api_url"); then
+      log_error "Failed to contact GitHub API. Please check network or specify a version with --version."
+      exit 1
   fi
+
+  local latest_tag
+  latest_tag=$(echo "$api_response" | grep -m1 '"tag_name"' | cut -d '"' -f4)
+
   if [[ -z "$latest_tag" ]]; then
-    log_error "GitHub API did not return a tag. Please specify a version with --version."
+    log_error "GitHub API did not return a valid tag. Please specify a version with --version."
     exit 1
   fi
+  
   RESOLVED_VERSION="$latest_tag"
-  log_info "Latest version is: ${RESOLVED_VERSION}"
+  log_info "Latest volant version is: ${RESOLVED_VERSION}"
 }
 
 download_and_install_artifacts() {
   local base_url="https://github.com/${REPO}/releases/download/${RESOLVED_VERSION}"
   local artifacts=("volar" "volary" "volantd" "bzImage" "checksums.txt")
 
-  log_info "Downloading artifacts from release ${RESOLVED_VERSION}..."
+  log_info "Downloading volant artifacts from release ${RESOLVED_VERSION}..."
   for artifact in "${artifacts[@]}"; do
     log_info "Downloading ${artifact}..."
     if ! curl -fL "${base_url}/${artifact}" -o "${TMP_DIR}/${artifact}"; then
-      log_error "Failed to download ${artifact}. Please check the release assets."
+      log_error "Failed to download ${artifact}. Please check release assets for version ${RESOLVED_VERSION}."
       exit 1
     fi
   done
 
-  log_info "Verifying checksums..."
+  log_info "Verifying volant checksums..."
   pushd "$TMP_DIR" >/dev/null
   if ! sha256sum -c --strict checksums.txt; then
     log_error "Checksum verification failed! Files are corrupted or have been tampered with."
@@ -235,16 +240,23 @@ download_and_install_artifacts() {
     exit 1
   fi
   popd >/dev/null
-  log_info "Checksums verified successfully."
+  log_info "Volant checksums verified successfully."
+  
+  log_info "Downloading vmlinux kernel from Cloud Hypervisor..."
+  if ! curl -fL "${VMLINUX_URL}" -o "${TMP_DIR}/vmlinux"; then
+      log_error "Failed to download vmlinux from ${VMLINUX_URL}."
+      exit 1
+  fi
 
   log_info "Installing binaries to /usr/local/bin..."
   sudo install -m 0755 "${TMP_DIR}/volar" /usr/local/bin/volar
   sudo install -m 0755 "${TMP_DIR}/volary" /usr/local/bin/volary
   sudo install -m 0755 "${TMP_DIR}/volantd" /usr/local/bin/volantd
 
-  log_info "Installing kernel to ${BZIMAGE_PATH}..."
+  log_info "Installing kernel files to ${KERNEL_DIR}..."
   sudo mkdir -p "$KERNEL_DIR"
   sudo install -m 0644 "${TMP_DIR}/bzImage" "$BZIMAGE_PATH"
+  sudo install -m 0644 "${TMP_DIR}/vmlinux" "$VMLINUX_PATH"
 }
 
 run_volant_setup() {
@@ -256,7 +268,12 @@ run_volant_setup() {
   log_info "The installer needs to run 'sudo volar setup' to configure the system."
   if prompt_yes_no "Run setup now?"; then
     log_info "Running 'sudo volar setup'..."
-    if ! sudo volar setup --work-dir "$WORK_DIR"; then
+    local setup_cmd=(sudo volar setup --work-dir "$WORK_DIR")
+    if [[ -f "$VMLINUX_PATH" ]]; then
+      setup_cmd+=(--vmlinux "$VMLINUX_PATH")
+    fi
+
+    if ! "${setup_cmd[@]}"; then
       log_warn "'volar setup' failed. You can rerun it manually later."
     fi
   else
