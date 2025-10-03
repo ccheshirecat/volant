@@ -1,5 +1,5 @@
 {
-  "$id": "https://volant.dev/schemas/plugin-manifest-v1.json",
+  "$id": "https://raw.githubusercontent.com/volantvm/plugin-toolkit/refs/heads/main/plugin-manifest-v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Volant Plugin Manifest v1",
   "type": "object",
@@ -141,7 +141,10 @@
           "items": { "type": "string" },
           "minItems": 1
         },
-        "env": { "type": "object", "additionalProperties": { "type": "string" } },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
         "workdir": { "type": "string" }
       },
       "required": ["type"]
@@ -169,11 +172,17 @@
         { "not": { "required": ["content", "path"] } },
         {
           "if": { "required": ["content"] },
-          "then": { "properties": { "inline": { "const": true } }, "required": ["inline"] }
+          "then": {
+            "properties": { "inline": { "const": true } },
+            "required": ["inline"]
+          }
         },
         {
           "if": { "required": ["path"] },
-          "then": { "properties": { "inline": { "const": false } }, "required": ["inline"] }
+          "then": {
+            "properties": { "inline": { "const": false } },
+            "required": ["inline"]
+          }
         }
       ]
     },
