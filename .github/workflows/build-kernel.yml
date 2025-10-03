@@ -174,7 +174,7 @@ jobs:
               "digest": { "sha256": "__SHA256__" }
             }
           ]
-          JSON
+JSON
           sed -i "s/__SHA256__/$SHA/" subjects.json
           if base64 --help 2>/dev/null | grep -q "-w"; then
             B64=$(base64 -w0 subjects.json)
@@ -184,20 +184,15 @@ jobs:
           echo "b64_subjects=$B64" >> "$GITHUB_OUTPUT"
 
   provenance:
-    needs: attest-and-release
+    needs: compute-subjects
     permissions:
       contents: write
       id-token: write
-      packages: write
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.10.0
     with:
-      base64-subjects: ${{ env.b64_subjects }}
+      base64-subjects: ${{ needs.compute-subjects.outputs.b64_subjects }}
       upload-assets: true
-    if: success() && startsWith(github.ref, 'refs/tags/')
-
-  attest-and-release:
-    needs: provenance
-    runs-on: ubuntu-latest
+    secrets: inherit
     permissions:
       contents: write
       id-token: write
