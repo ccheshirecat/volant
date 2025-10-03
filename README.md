@@ -67,7 +67,7 @@ volar vms create demo --plugin steel-browser --cpu 2 --memory 2048
 volar plugins manifest steel-browser --summary
 ```
 
-Refer to `docs/guides/plugins.md` for manifest structure, validation, and distribution workflows.
+Refer to `docs/Guides/Plugins.md` for manifest structure, validation, and distribution workflows.
 
 ### Dual-kernel modes
 
@@ -142,10 +142,10 @@ See `docs/guides/development.md` for deeper instructions.
 The latest guides live in [`docs/`](docs) and at [docs.volant.cloud](https://docs.volant.cloud) once published.
 
 Key entry points:
-- [Start here](docs/start/introduction.md)
-- [Plugin authoring](docs/guides/plugins.md)
-- [REST API](docs/api/rest-api.md)
-- [MCP interface](docs/api/mcp.md)
+- [Start here](docs/Start/introduction.md)
+- [Plugin authoring](docs/Guides/Plugins.md)
+- [REST API](docs/API/Rest%20API.md)
+- [MCP interface](docs/API/MCP.md)
 
 ---
 
