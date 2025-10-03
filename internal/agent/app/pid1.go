@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ccheshirecat/volant/internal/pluginspec"
+	"github.com/volantvm/volant/internal/pluginspec"
 	"golang.org/x/sys/unix"
 )
 

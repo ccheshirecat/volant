@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ccheshirecat/volant/internal/pluginspec"
-	"github.com/ccheshirecat/volant/internal/server/db"
+	"github.com/volantvm/volant/internal/pluginspec"
+	"github.com/volantvm/volant/internal/server/db"
 )
 
 // Registry manages plugin manifests at runtime.

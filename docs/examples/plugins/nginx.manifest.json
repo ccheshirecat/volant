@@ -1,5 +1,5 @@
 {
-  "$schema": "https://volant.dev/schemas/plugin-manifest-v1.json",
+  "$schema": "https://github.com/volantvm/volant/blob/main/docs/schemas/plugin-manifest-v1.json",
   "schema_version": "1.0",
   "name": "nginx",
   "version": "0.1.0",

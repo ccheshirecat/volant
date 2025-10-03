@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ccheshirecat/volant/internal/setup"
+	"github.com/volantvm/volant/internal/setup"
 )
 
 func newSetupCmd() *cobra.Command {

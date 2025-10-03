@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	httpapi "github.com/ccheshirecat/volant/internal/server/httpapi"
 	openapi3 "github.com/getkin/kin-openapi/openapi3"
+	httpapi "github.com/volantvm/volant/internal/server/httpapi"
 )
 
 func main() {

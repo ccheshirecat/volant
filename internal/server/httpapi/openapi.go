@@ -9,7 +9,7 @@ import (
 	openapi3 "github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3gen"
 
-	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
+	orchestratorevents "github.com/volantvm/volant/internal/server/orchestrator/events"
 )
 
 // serveOpenAPI returns an OpenAPI v3 JSON document generated from server types.

@@ -1,6 +1,6 @@
 package pluginspec
 
-import internal "github.com/ccheshirecat/volant/internal/pluginspec"
+import internal "github.com/volantvm/volant/internal/pluginspec"
 
 const (
 	CmdlineKey        = internal.CmdlineKey

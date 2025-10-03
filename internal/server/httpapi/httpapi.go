@@ -21,13 +21,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"github.com/ccheshirecat/volant/internal/pluginspec"
-	"github.com/ccheshirecat/volant/internal/server/db"
-	"github.com/ccheshirecat/volant/internal/server/eventbus"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator"
-	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
-	"github.com/ccheshirecat/volant/internal/server/plugins"
+	"github.com/volantvm/volant/internal/pluginspec"
+	"github.com/volantvm/volant/internal/server/db"
+	"github.com/volantvm/volant/internal/server/eventbus"
+	"github.com/volantvm/volant/internal/server/orchestrator"
+	orchestratorevents "github.com/volantvm/volant/internal/server/orchestrator/events"
+	"github.com/volantvm/volant/internal/server/orchestrator/vmconfig"
+	"github.com/volantvm/volant/internal/server/plugins"
 )
 
 const (

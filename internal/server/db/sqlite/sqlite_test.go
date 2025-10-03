@@ -8,7 +8,8 @@ import (
 	"time"
 
 	"database/sql"
-	"github.com/ccheshirecat/volant/internal/server/db"
+
+	"github.com/volantvm/volant/internal/server/db"
 )
 
 func TestVMRepositoryCRUD(t *testing.T) {

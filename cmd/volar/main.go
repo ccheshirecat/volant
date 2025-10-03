@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ccheshirecat/volant/internal/cli/standard"
+	"github.com/volantvm/volant/internal/cli/standard"
 )
 
 func main() {

@@ -16,14 +16,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ccheshirecat/volant/internal/pluginspec"
-	"github.com/ccheshirecat/volant/internal/server/db"
-	"github.com/ccheshirecat/volant/internal/server/eventbus"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator/cloudinit"
-	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator/network"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator/runtime"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
+	"github.com/volantvm/volant/internal/pluginspec"
+	"github.com/volantvm/volant/internal/server/db"
+	"github.com/volantvm/volant/internal/server/eventbus"
+	"github.com/volantvm/volant/internal/server/orchestrator/cloudinit"
+	orchestratorevents "github.com/volantvm/volant/internal/server/orchestrator/events"
+	"github.com/volantvm/volant/internal/server/orchestrator/network"
+	"github.com/volantvm/volant/internal/server/orchestrator/runtime"
+	"github.com/volantvm/volant/internal/server/orchestrator/vmconfig"
 )
 
 // Engine represents the VM orchestration core.

@@ -17,9 +17,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ccheshirecat/volant/internal/cli/client"
-	"github.com/ccheshirecat/volant/internal/cli/openapiutil"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
+	"github.com/volantvm/volant/internal/cli/client"
+	"github.com/volantvm/volant/internal/cli/openapiutil"
+	"github.com/volantvm/volant/internal/server/orchestrator/vmconfig"
 	"golang.org/x/term"
 )
 

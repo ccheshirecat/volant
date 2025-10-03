@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ccheshirecat/volant/internal/server/db"
+	"github.com/volantvm/volant/internal/server/db"
 )
 
 var timestampLayouts = []string{

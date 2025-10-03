@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ccheshirecat/volant/internal/pluginspec"
+	"github.com/volantvm/volant/internal/pluginspec"
 )
 
 // Loader handles manifest discovery and parsing.

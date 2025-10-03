@@ -7,7 +7,7 @@ INSTALL_VERSION="${VOLANT_VERSION:-latest}"
 INSTALL_FORCE=no
 RUN_SETUP=yes
 NONINTERACTIVE=no
-REPO="ccheshirecat/volant"
+REPO="volantvm/volant"
 VMLINUX_URL="https://github.com/cloud-hypervisor/linux/releases/download/ch-release-v6.12.8-20250613/vmlinux-x86_64"
 
 # Install paths
@@ -200,7 +200,7 @@ resolve_version() {
 
   log_info "Finding latest volant release version..."
   local api_url="https://api.github.com/repos/${REPO}/releases/latest"
-  
+
   local api_response
   if ! api_response=$(curl --fail -sSL "$api_url"); then
       log_error "Failed to contact GitHub API. Please check network or specify a version with --version."
@@ -214,7 +214,7 @@ resolve_version() {
     log_error "GitHub API did not return a valid tag. Please specify a version with --version."
     exit 1
   fi
-  
+
   RESOLVED_VERSION="$latest_tag"
   log_info "Latest volant version is: ${RESOLVED_VERSION}"
 }
@@ -241,7 +241,7 @@ download_and_install_artifacts() {
   fi
   popd >/dev/null
   log_info "Volant checksums verified successfully."
-  
+
   log_info "Downloading vmlinux kernel from Cloud Hypervisor..."
   if ! curl -fL "${VMLINUX_URL}" -o "${TMP_DIR}/vmlinux"; then
       log_error "Failed to download vmlinux from ${VMLINUX_URL}."

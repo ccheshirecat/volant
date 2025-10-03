@@ -3,16 +3,16 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ccheshirecat/volant/actions">
-    <img src="https://img.shields.io/github/actions/workflow/status/ccheshirecat/volant/ci.yml?branch=main&style=flat-square&label=tests" alt="Build Status">
+  <a href="https://github.com/volantvm/volant/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/volantvm/volant/ci.yml?branch=main&style=flat-square&label=tests" alt="Build Status">
   </a>
-  <a href="https://github.com/ccheshirecat/volant/releases">
-    <img src="https://img.shields.io/github/v/release/ccheshirecat/volant.svg?style=flat-square" alt="Latest Release">
+  <a href="https://github.com/volantvm/volant/releases">
+    <img src="https://img.shields.io/github/v/release/volantvm/volant.svg?style=flat-square" alt="Latest Release">
   </a>
   <a href="https://golang.org/">
     <img src="https://img.shields.io/badge/Go-1.22+-black.svg?style=flat-square" alt="Go Version">
   </a>
-  <a href="https://github.com/ccheshirecat/volant/blob/main/LICENSE">
+  <a href="https://github.com/volantvm/volant/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/License-Apache_2.0-black.svg?style=flat-square" alt="License">
   </a>
 </p>

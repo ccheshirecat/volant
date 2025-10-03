@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ccheshirecat/volant/internal/server/orchestrator/runtime"
+	"github.com/volantvm/volant/internal/server/orchestrator/runtime"
 )
 
 // Launcher knows how to boot Cloud Hypervisor microVMs.

@@ -1,4 +1,4 @@
-module github.com/ccheshirecat/volant
+module github.com/volantvm/volant
 
 go 1.24.0
 

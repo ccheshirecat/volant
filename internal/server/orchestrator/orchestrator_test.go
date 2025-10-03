@@ -9,11 +9,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ccheshirecat/volant/internal/pluginspec"
-	"github.com/ccheshirecat/volant/internal/server/db/sqlite"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator/network"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator/runtime"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
+	"github.com/volantvm/volant/internal/pluginspec"
+	"github.com/volantvm/volant/internal/server/db/sqlite"
+	"github.com/volantvm/volant/internal/server/orchestrator/network"
+	"github.com/volantvm/volant/internal/server/orchestrator/runtime"
+	"github.com/volantvm/volant/internal/server/orchestrator/vmconfig"
 )
 
 func TestEngineCreateAndDestroyVM(t *testing.T) {

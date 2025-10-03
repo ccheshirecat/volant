@@ -16,10 +16,10 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/ccheshirecat/volant/internal/pluginspec"
-	orchestratorevents "github.com/ccheshirecat/volant/internal/server/orchestrator/events"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
-	"github.com/ccheshirecat/volant/internal/vsock"
+	"github.com/volantvm/volant/internal/pluginspec"
+	orchestratorevents "github.com/volantvm/volant/internal/server/orchestrator/events"
+	"github.com/volantvm/volant/internal/server/orchestrator/vmconfig"
+	"github.com/volantvm/volant/internal/vsock"
 )
 
 // Client wraps REST access to the volantd API.

@@ -13,7 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ccheshirecat/volant/internal/pluginspec"
+	"github.com/volantvm/volant/internal/pluginspec"
 )
 
 func newPluginsCmd() *cobra.Command {

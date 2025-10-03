@@ -24,7 +24,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/mdlayher/vsock"
 
-	"github.com/ccheshirecat/volant/internal/pluginspec"
+	"github.com/volantvm/volant/internal/pluginspec"
 )
 
 const (

@@ -17,7 +17,7 @@ Volant ships a "zero-configuration" installer that bootstraps the host and launc
 ## Quick Install
 
 ```bash
-curl -sSL https://github.com/ccheshirecat/volant/releases/latest/download/install.sh | bash
+curl -sSL https://github.com/volantvm/volant/releases/latest/download/install.sh | bash
 ```
 
 What the installer does:

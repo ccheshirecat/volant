@@ -12,16 +12,16 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/ccheshirecat/volant/internal/server/app"
-	"github.com/ccheshirecat/volant/internal/server/config"
-	"github.com/ccheshirecat/volant/internal/server/db/sqlite"
-	"github.com/ccheshirecat/volant/internal/server/eventbus/memory"
-	"github.com/ccheshirecat/volant/internal/server/httpapi"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator/cloudhypervisor"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator/network"
-	"github.com/ccheshirecat/volant/internal/server/plugins"
-	"github.com/ccheshirecat/volant/internal/shared/logging"
+	"github.com/volantvm/volant/internal/server/app"
+	"github.com/volantvm/volant/internal/server/config"
+	"github.com/volantvm/volant/internal/server/db/sqlite"
+	"github.com/volantvm/volant/internal/server/eventbus/memory"
+	"github.com/volantvm/volant/internal/server/httpapi"
+	"github.com/volantvm/volant/internal/server/orchestrator"
+	"github.com/volantvm/volant/internal/server/orchestrator/cloudhypervisor"
+	"github.com/volantvm/volant/internal/server/orchestrator/network"
+	"github.com/volantvm/volant/internal/server/plugins"
+	"github.com/volantvm/volant/internal/shared/logging"
 )
 
 func main() {

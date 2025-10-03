@@ -4,9 +4,9 @@ import (
 	"context"
 	"os"
 
-	"github.com/ccheshirecat/volant/internal/server/db"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
+	"github.com/volantvm/volant/internal/server/db"
+	"github.com/volantvm/volant/internal/server/orchestrator"
+	"github.com/volantvm/volant/internal/server/orchestrator/vmconfig"
 )
 
 type Engine struct{}

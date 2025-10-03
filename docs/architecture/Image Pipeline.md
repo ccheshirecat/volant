@@ -76,7 +76,7 @@ Plugin authors focus on their runtime artifacts and HTTP contract. A minimal roo
 - SquashFS images work well for read-only runtimes, but writable formats (ext4 raw disks) are also supported because the disk is attached as a standard virtio-blk device.
 
 ## Building Rootfs Images
-The Volant repo does not bundle a generic rootfs build system, but the companion [`fsify`](https://github.com/ccheshirecat/fsify) tool converts OCI/Docker images into bootable filesystem artifacts (squashfs, ext4, raw disks). A typical workflow is:
+The Volant repo does not bundle a generic rootfs build system, but the companion [`fsify`](https://github.com/volantvm/fsify) tool converts OCI/Docker images into bootable filesystem artifacts (squashfs, ext4, raw disks). A typical workflow is:
 
 ```bash
 # Convert an OCI image to a squashfs rootfs and publish it

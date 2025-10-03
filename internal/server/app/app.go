@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ccheshirecat/volant/internal/server/config"
-	"github.com/ccheshirecat/volant/internal/server/db"
-	"github.com/ccheshirecat/volant/internal/server/eventbus"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator"
-	"github.com/ccheshirecat/volant/internal/server/plugins"
+	"github.com/volantvm/volant/internal/server/config"
+	"github.com/volantvm/volant/internal/server/db"
+	"github.com/volantvm/volant/internal/server/eventbus"
+	"github.com/volantvm/volant/internal/server/orchestrator"
+	"github.com/volantvm/volant/internal/server/plugins"
 )
 
 // App wires the config, persistence, orchestrator, and HTTP transport.

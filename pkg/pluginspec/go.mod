@@ -1,3 +1,3 @@
-module github.com/ccheshirecat/volant/pkg/pluginspec
+module github.com/volantvm/volant/pkg/pluginspec
 
 go 1.24

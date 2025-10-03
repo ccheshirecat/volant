@@ -3,8 +3,8 @@ package orchestrator
 import (
 	"testing"
 
-	"github.com/ccheshirecat/volant/internal/pluginspec"
-	"github.com/ccheshirecat/volant/internal/server/orchestrator/vmconfig"
+	"github.com/volantvm/volant/internal/pluginspec"
+	"github.com/volantvm/volant/internal/server/orchestrator/vmconfig"
 )
 
 func TestResolveNetworkConfig(t *testing.T) {
