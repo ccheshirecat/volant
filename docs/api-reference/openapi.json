@@ -80,7 +80,13 @@
             },
             "type": "array"
           },
+          "initramfs": {
+            "$ref": "#/components/schemas/Initramfs"
+          },
           "kernel_cmdline": {
+            "type": "string"
+          },
+          "kernel_override": {
             "type": "string"
           },
           "manifest": {
@@ -98,6 +104,9 @@
           },
           "resources": {
             "$ref": "#/components/schemas/Resources"
+          },
+          "rootfs": {
+            "$ref": "#/components/schemas/RootFS"
           },
           "runtime": {
             "type": "string"
@@ -171,6 +180,18 @@
         },
         "type": "object"
       },
+      "Initramfs": {
+        "nullable": true,
+        "properties": {
+          "checksum": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Manifest": {
         "nullable": true,
         "properties": {
@@ -200,6 +221,9 @@
           },
           "image_digest": {
             "type": "string"
+          },
+          "initramfs": {
+            "$ref": "#/components/schemas/Initramfs"
           },
           "labels": {
             "additionalProperties": {
@@ -1081,7 +1105,7 @@
   },
   "servers": [
     {
-      "url": "https://docs.volant.cloud"
+      "url": "http://127.0.0.1:7777"
     }
   ]
 }

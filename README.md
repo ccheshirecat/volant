@@ -44,21 +44,21 @@ Runtime-specific behavior lives in signed manifests and their associated artifac
 - 🧩 **Plugin contract** – manifests capture runtime requirements, workload entrypoints, and optional OpenAPI metadata.
 - 🔌 **Universal proxy** – the control plane can forward REST, SSE, or WebSocket traffic to runtime agents without exposing private IPs.
 - 📡 **AI-native APIs** – REST and Model Context Protocol ship in the box.
-- 🧰 **Operator ergonomics** – one binary installs networking, bootstraps the database, and exposes both CLI and TUI surfaces.
+- 🧰 **Operator ergonomics** – one binary installs networking, bootstraps the database, and exposes a clean CLI.
 
 ---
 
 ## Quick start
 
 ```bash
-# Install the Volant toolchain (binaries, kernel, initramfs)
+# Install the Volant toolchain (binaries and dual kernels)
 curl -sSL https://install.volant.cloud | bash
 
 # Configure the host (bridge networking, NAT, systemd service)
 sudo volar setup
 
-# Install a plugin manifest (Steel browser)
-volar plugins install --manifest ./manifests/steel-browser.json
+# Install a plugin manifest
+volar plugins install --manifest ./docs/examples/plugins/nginx.manifest.json
 
 # Create a microVM referencing that plugin
 volar vms create demo --plugin steel-browser --cpu 2 --memory 2048
@@ -69,6 +69,13 @@ volar plugins manifest steel-browser --summary
 
 Refer to `docs/guides/plugins.md` for manifest structure, validation, and distribution workflows.
 
+### Dual-kernel modes
+
+- bzImage + rootfs: Docker-friendly; boot kernel at `/var/lib/volant/kernel/bzImage` and attach plugin `rootfs` as virtio‑blk.
+- vmlinux + initramfs: Native; boot kernel at `/var/lib/volant/kernel/vmlinux` and pass plugin `initramfs` via `--initramfs`.
+
+Manifests must specify exactly one of `rootfs` or `initramfs`. Operators can override per‑VM via the REST API or CLI.
+
 ---
 
 ## Architecture at a glance
@@ -78,7 +85,7 @@ Refer to `docs/guides/plugins.md` for manifest structure, validation, and distri
 | Control plane | Persist state (SQLite), lease IPs, spawn microVMs, proxy agent traffic, emit events |
 | Agent | Boot runtime, expose plugin routes, stream logs, surface DevTools info when available |
 | Plugins | Provide kernels/initramfs overlays, declare resources/actions, publish OpenAPI metadata |
-| Tooling | `volar` CLI/TUI + REST/MCP clients consuming the same manifests |
+| Tooling | `volar` CLI + REST/MCP clients consuming the same manifests |
 
 ---
 

@@ -4,13 +4,13 @@ import "context"
 
 // LaunchSpec contains the information required to boot a microVM.
 type LaunchSpec struct {
-	Name           string
-	CPUCores       int
-	MemoryMB       int
-	KernelCmdline  string
-    // KernelOverride allows per-VM kernel selection; when empty, the launcher chooses
-    // a default based on the presence of Initramfs (vmlinux) or RootFS (bzImage).
-    KernelOverride string
+	Name          string
+	CPUCores      int
+	MemoryMB      int
+	KernelCmdline string
+	// KernelOverride allows per-VM kernel selection; when empty, the launcher chooses
+	// a default based on the presence of Initramfs (vmlinux) or RootFS (bzImage).
+	KernelOverride string
 	TapDevice      string
 	MACAddress     string
 	IPAddress      string
@@ -20,13 +20,13 @@ type LaunchSpec struct {
 	Args           map[string]string
 	RootFS         string
 	RootFSChecksum string
-    // Initramfs, when set, is fetched and used as the initramfs image for the VM.
-    // If provided, the launcher will prefer a vmlinux kernel (unless KernelOverride is set).
-    Initramfs         string
-    InitramfsChecksum string
-	SerialSocket   string
-	Disks          []Disk
-	SeedDisk       *Disk
+	// Initramfs, when set, is fetched and used as the initramfs image for the VM.
+	// If provided, the launcher will prefer a vmlinux kernel (unless KernelOverride is set).
+	Initramfs         string
+	InitramfsChecksum string
+	SerialSocket      string
+	Disks             []Disk
+	SeedDisk          *Disk
 }
 
 type Disk struct {

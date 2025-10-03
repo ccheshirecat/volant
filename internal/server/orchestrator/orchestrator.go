@@ -526,11 +526,11 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		spec.SeedDisk = seedDisk
 	}
 
-    cmdArgs := map[string]string{
-        pluginspec.RuntimeKey: req.Runtime,
-        pluginspec.APIHostKey: apiHost,
-        pluginspec.APIPortKey: apiPort,
-    }
+	cmdArgs := map[string]string{
+		pluginspec.RuntimeKey: req.Runtime,
+		pluginspec.APIHostKey: apiHost,
+		pluginspec.APIPortKey: apiPort,
+	}
 	if pluginName != "" {
 		cmdArgs[pluginspec.PluginKey] = pluginName
 	}
@@ -544,21 +544,46 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 	}
 	spec.Args = cmdArgs
 
-    if req.Manifest != nil {
-        // Default selection: manifest drives boot media
-        if url := strings.TrimSpace(req.Manifest.Initramfs.URL); url != "" {
-            // Initramfs mode => prefer vmlinux; suppress default rootfs args
-            spec.Initramfs = url
-            spec.InitramfsChecksum = strings.TrimSpace(req.Manifest.Initramfs.Checksum)
-        } else if url := strings.TrimSpace(req.Manifest.RootFS.URL); url != "" {
-            // RootFS mode => bzImage + attach disk
-            spec.RootFS = url
-            spec.RootFSChecksum = strings.TrimSpace(req.Manifest.RootFS.Checksum)
-            // Provide defaults for rootfs device/fstype via cmdline args if not already set by overrides
-            cmdArgs[pluginspec.RootFSDeviceKey] = "vda"
-            cmdArgs[pluginspec.RootFSFSTypeKey] = "ext4"
-        }
-    }
+	if req.Manifest != nil {
+		// Start from manifest defaults
+		if url := strings.TrimSpace(req.Manifest.Initramfs.URL); url != "" {
+			spec.Initramfs = url
+			spec.InitramfsChecksum = strings.TrimSpace(req.Manifest.Initramfs.Checksum)
+		} else if url := strings.TrimSpace(req.Manifest.RootFS.URL); url != "" {
+			spec.RootFS = url
+			spec.RootFSChecksum = strings.TrimSpace(req.Manifest.RootFS.Checksum)
+		}
+	}
+	// Apply per-VM overrides from config when provided
+	if configToStore.Initramfs != nil {
+		if url := strings.TrimSpace(configToStore.Initramfs.URL); url != "" {
+			spec.Initramfs = url
+			spec.InitramfsChecksum = strings.TrimSpace(configToStore.Initramfs.Checksum)
+			// Clear RootFS if present to avoid conflicting boot media
+			spec.RootFS = ""
+			spec.RootFSChecksum = ""
+		}
+	}
+	if configToStore.RootFS != nil {
+		if url := strings.TrimSpace(configToStore.RootFS.URL); url != "" {
+			spec.RootFS = url
+			spec.RootFSChecksum = strings.TrimSpace(configToStore.RootFS.Checksum)
+			// Clear Initramfs if present to avoid conflicting boot media
+			spec.Initramfs = ""
+			spec.InitramfsChecksum = ""
+		}
+	}
+	// Kernel override per-VM
+	spec.KernelOverride = strings.TrimSpace(configToStore.KernelOverride)
+	// If RootFS is set, ensure default device/fstype args unless already supplied by the runtime
+	if spec.RootFS != "" {
+		if _, ok := cmdArgs[pluginspec.RootFSDeviceKey]; !ok {
+			cmdArgs[pluginspec.RootFSDeviceKey] = "vda"
+		}
+		if _, ok := cmdArgs[pluginspec.RootFSFSTypeKey]; !ok {
+			cmdArgs[pluginspec.RootFSFSTypeKey] = "ext4"
+		}
+	}
 	e.logger.Info("launch kernel cmdline", "vm", req.Name, "cmdline", spec.KernelCmdline)
 
 	launchCtx := e.launchContext()
@@ -949,11 +974,11 @@ func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
 		spec.SeedDisk = seedDisk
 	}
 
-    cmdArgs := map[string]string{
-        pluginspec.RuntimeKey: cfg.Runtime,
-        pluginspec.APIHostKey: apiHost,
-        pluginspec.APIPortKey: apiPort,
-    }
+	cmdArgs := map[string]string{
+		pluginspec.RuntimeKey: cfg.Runtime,
+		pluginspec.APIHostKey: apiHost,
+		pluginspec.APIPortKey: apiPort,
+	}
 	pluginName := strings.TrimSpace(cfg.Plugin)
 	if pluginName != "" {
 		cmdArgs[pluginspec.PluginKey] = pluginName
@@ -966,15 +991,38 @@ func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
 	}
 	cmdArgs[pluginspec.CmdlineKey] = encodedManifest
 	spec.Args = cmdArgs
-    if url := strings.TrimSpace(manifest.Initramfs.URL); url != "" {
-        spec.Initramfs = url
-        spec.InitramfsChecksum = strings.TrimSpace(manifest.Initramfs.Checksum)
-    } else if url := strings.TrimSpace(manifest.RootFS.URL); url != "" {
-        spec.RootFS = url
-        spec.RootFSChecksum = strings.TrimSpace(manifest.RootFS.Checksum)
-        cmdArgs[pluginspec.RootFSDeviceKey] = "vda"
-        cmdArgs[pluginspec.RootFSFSTypeKey] = "ext4"
-    }
+	if url := strings.TrimSpace(manifest.Initramfs.URL); url != "" {
+		spec.Initramfs = url
+		spec.InitramfsChecksum = strings.TrimSpace(manifest.Initramfs.Checksum)
+	} else if url := strings.TrimSpace(manifest.RootFS.URL); url != "" {
+		spec.RootFS = url
+		spec.RootFSChecksum = strings.TrimSpace(manifest.RootFS.Checksum)
+	}
+	if cfg.Initramfs != nil {
+		if url := strings.TrimSpace(cfg.Initramfs.URL); url != "" {
+			spec.Initramfs = url
+			spec.InitramfsChecksum = strings.TrimSpace(cfg.Initramfs.Checksum)
+			spec.RootFS = ""
+			spec.RootFSChecksum = ""
+		}
+	}
+	if cfg.RootFS != nil {
+		if url := strings.TrimSpace(cfg.RootFS.URL); url != "" {
+			spec.RootFS = url
+			spec.RootFSChecksum = strings.TrimSpace(cfg.RootFS.Checksum)
+			spec.Initramfs = ""
+			spec.InitramfsChecksum = ""
+		}
+	}
+	spec.KernelOverride = strings.TrimSpace(cfg.KernelOverride)
+	if spec.RootFS != "" {
+		if _, ok := cmdArgs[pluginspec.RootFSDeviceKey]; !ok {
+			cmdArgs[pluginspec.RootFSDeviceKey] = "vda"
+		}
+		if _, ok := cmdArgs[pluginspec.RootFSFSTypeKey]; !ok {
+			cmdArgs[pluginspec.RootFSFSTypeKey] = "ext4"
+		}
+	}
 
 	if cloudInitToStore != nil {
 		cloudInitToStore.VMID = vmRecord.ID
