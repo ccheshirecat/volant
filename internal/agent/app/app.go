@@ -79,14 +79,14 @@ func Run(ctx context.Context) error {
 	var bootLog *log.Logger
 	consoleFile, consoleErr := os.OpenFile("/dev/console", os.O_WRONLY, 0)
 	if consoleErr != nil {
-		bootLog = log.New(os.Stdout, "volary-boot: ", log.LstdFlags|log.LUTC)
+		bootLog = log.New(os.Stdout, "kestrel-boot: ", log.LstdFlags|log.LUTC)
 		bootLog.Printf("warning: could not open /dev/console: %v", consoleErr)
 	} else {
-		bootLog = log.New(consoleFile, "volary-boot: ", log.LstdFlags|log.LUTC)
+		bootLog = log.New(consoleFile, "kestrel-boot: ", log.LstdFlags|log.LUTC)
 	}
 
 	cfg := loadConfig()
-	logger := log.New(os.Stdout, "volary: ", log.LstdFlags|log.LUTC)
+	logger := log.New(os.Stdout, "kestrel: ", log.LstdFlags|log.LUTC)
 
 	app := &App{
 		cfg:     cfg,

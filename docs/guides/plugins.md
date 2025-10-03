@@ -49,9 +49,9 @@ A manifest (`plugin.yaml`/`plugin.json`) typically looks like:
 
 ```json
 {
-  "name": "steel-browser",
+  "name": "nginx",
   "version": "0.1.0",
-  "runtime": "steel",
+  "runtime": "nginx",
   "resources": {
     "cpu_cores": 2,
     "memory_mb": 2048

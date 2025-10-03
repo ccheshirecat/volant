@@ -5,7 +5,7 @@ description: Launch and inspect a microVM with the Volant engine.
 
 # Your First VM
 
-This quickstart walks through provisioning a microVM with the Volant engine, inspecting its state, and cleaning it up. It assumes you have already installed the engine (`volar`, `volantd`, `volary`), run `volar setup` on the host, and installed at least one runtime manifest.
+This quickstart walks through provisioning a microVM with the Volant engine, inspecting its state, and cleaning it up. It assumes you have already installed the engine (`volar`, `volantd`, `kestrel`), run `volar setup` on the host, and installed at least one runtime manifest.
 
 ---
 
@@ -45,7 +45,7 @@ You’ll see runtime, IP, MAC, resource allocation, and process PID. To stream l
 
 ## 4. Connect to the agent (optional)
 
-Every VM runs the agent (`volary`) on port 8080 inside the microVM. Most plugins expose their own HTTP or WebSocket APIs—inspect the manifest to discover the exact endpoints:
+Every VM runs the agent (`kestrel`) on port 8080 inside the microVM. Most plugins expose their own HTTP or WebSocket APIs—inspect the manifest to discover the exact endpoints:
 
 ```bash
 volar plugins list

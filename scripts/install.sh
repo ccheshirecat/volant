@@ -221,7 +221,7 @@ resolve_version() {
 
 download_and_install_artifacts() {
   local base_url="https://github.com/${REPO}/releases/download/${RESOLVED_VERSION}"
-  local artifacts=("volar" "volary" "volantd" "bzImage" "checksums.txt")
+  local artifacts=("volar" "kestrel" "volantd" "bzImage" "checksums.txt")
 
   log_info "Downloading volant artifacts from release ${RESOLVED_VERSION}..."
   for artifact in "${artifacts[@]}"; do
@@ -250,7 +250,7 @@ download_and_install_artifacts() {
 
   log_info "Installing binaries to /usr/local/bin..."
   sudo install -m 0755 "${TMP_DIR}/volar" /usr/local/bin/volar
-  sudo install -m 0755 "${TMP_DIR}/volary" /usr/local/bin/volary
+  sudo install -m 0755 "${TMP_DIR}/kestrel" /usr/local/bin/kestrel
   sudo install -m 0755 "${TMP_DIR}/volantd" /usr/local/bin/volantd
 
   log_info "Installing kernel files to ${KERNEL_DIR}..."

@@ -3,7 +3,7 @@ name: release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write
@@ -35,7 +35,7 @@ jobs:
         run: |
           mkdir -p bin
           CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o bin/volar ./cmd/volar
-          CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o bin/volary ./cmd/volary
+          CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o bin/kestrel ./cmd/kestrel
           CGO_ENABLED=1 go build -ldflags="-s -w" -o bin/volantd ./cmd/volantd
 
       - name: Install Kernel Build Toolchain
@@ -58,9 +58,9 @@ jobs:
           WORKDIR=/tmp/initramfs
           rm -rf "$WORKDIR"
           mkdir -p "$WORKDIR/bin" "$WORKDIR/sbin" "$WORKDIR/etc" "$WORKDIR/proc" "$WORKDIR/sys" "$WORKDIR/dev" "$WORKDIR/usr/bin" "$WORKDIR/usr/sbin"
-          cp bin/volary "$WORKDIR/bin/volary"
+          cp bin/kestrel "$WORKDIR/bin/kestrel"
           cp build/init "$WORKDIR/init"
-          chmod 0755 "$WORKDIR/init" "$WORKDIR/bin/volary"
+          chmod 0755 "$WORKDIR/init" "$WORKDIR/bin/kestrel"
           curl -fsSL "$BUSYBOX_URL" -o "$WORKDIR/bin/busybox"
           if [ -n "$BUSYBOX_SHA256" ]; then echo "$BUSYBOX_SHA256  $WORKDIR/bin/busybox" | sha256sum -c -; fi
           chmod +x "$WORKDIR/bin/busybox"
@@ -122,7 +122,7 @@ jobs:
 
       - name: Generate Checksums For All Artifacts
         run: |
-          (cd bin && sha256sum volar volary volantd) > checksums.txt
+          (cd bin && sha256sum volar kestrel volantd) > checksums.txt
           (cd ${{ env.OUT_DIR }} && sha256sum bzImage) >> checksums.txt
 
       - name: Generate build provenance for all artifacts
@@ -131,7 +131,7 @@ jobs:
         with:
           subject-path: |
             bin/volar
-            bin/volary
+            bin/kestrel
             bin/volantd
             ${{ env.OUT_DIR }}/bzImage
             ${{ env.OUT_DIR }}/bzImage.sha256
@@ -146,7 +146,7 @@ jobs:
           generate_release_notes: true
           files: |
             bin/volar
-            bin/volary
+            bin/kestrel
             bin/volantd
             ${{ env.OUT_DIR }}/bzImage
             ${{ env.OUT_DIR }}/bzImage.sha256

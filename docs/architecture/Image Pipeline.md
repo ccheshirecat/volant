@@ -2,7 +2,7 @@
 
 Volant supports dual boot modes:
 
-- bzImage + rootfs: Default Docker-friendly mode. A Cloud Hypervisor compatible bzImage embeds our initramfs and the `volary` agent; plugins provide an external root filesystem (read-only squashfs or writable ext4/raw) attached as a virtio disk.
+- bzImage + rootfs: Default Docker-friendly mode. A Cloud Hypervisor compatible bzImage embeds our initramfs and the `kestrel` agent; plugins provide an external root filesystem (read-only squashfs or writable ext4/raw) attached as a virtio disk.
 - vmlinux + initramfs: High-performance native mode. A raw vmlinux image is paired with a plugin-provided initramfs, enabling ultra-fast boot and minimal I/O, ideal for native plugins that don't need a disk rootfs.
 
 The orchestrator no longer expects plugins to bring a kernel; plugins specify exactly one of `rootfs` or `initramfs`. Operators can override boot media per-VM.
@@ -21,8 +21,8 @@ Releases publish the `kernels/<arch>/bzImage` and `kernels/<arch>/vmlinux` paths
 2. **Create VM** – On `createVM`, the orchestrator resolves the manifest and assembles a `LaunchSpec`. Core kernel args always include the IP lease and the identifiers `volant.runtime`, `volant.plugin`, `volant.api_host`, and `volant.api_port` so the agent can crawl back to the control plane. Per‑VM overrides can specify a `kernel_override`, or switch between `initramfs` and `rootfs` boot media.
 3. **Boot media hydration** – If `rootfs.url` is set, `cloudhypervisor.Launcher` streams it into the runtime directory before boot. HTTP(S), `file://`, and absolute paths are supported. If `rootfs.checksum` is present, it is verified as a `sha256` (with or without the `sha256:` prefix). If `initramfs.url` is set instead, it is staged and passed to the hypervisor as `--initramfs` along with the `vmlinux` kernel.
 4. **Launching Cloud Hypervisor** – The launcher selects `bzImage` when `rootfs` is used, and `vmlinux` when `initramfs` is used. With `rootfs`, the disk is attached as a virtio‑blk device; with `initramfs`, no disk is required.
-5. **In-VM init** – Our tiny C init (`build/init.c`) configures the console, brings up `/dev`, `/proc`, `/sys`, and `/run`, and then hydrates the runtime. If a rootfs image was declared it is mounted (loopback or squashfs depending on the build), `stage-volary.sh` copies the agent into `/usr/local/bin`, and control pivots into the plugin filesystem via `switch_root`. Should mounting fail, the initramfs copy of `volary` is used as a safe fallback.
-6. **Agent startup** – `volary` reads the kernel command line, fetches the manifest over HTTP, and starts the runtime-specific router. The registered actions are exposed under `/api/v1/plugins/{plugin}/actions/{action}` for legacy compatibility; new plugins should expose their own HTTP/OpenAPI surfaces.
+5. **In-VM init** – Our tiny C init (`build/init.c`) configures the console, brings up `/dev`, `/proc`, `/sys`, and `/run`, and then hydrates the runtime. If a rootfs image was declared it is mounted (loopback or squashfs depending on the build), `stage-kestrel.sh` copies the agent into `/usr/local/bin`, and control pivots into the plugin filesystem via `switch_root`. Should mounting fail, the initramfs copy of `kestrel` is used as a safe fallback.
+6. **Agent startup** – `kestrel` reads the kernel command line, fetches the manifest over HTTP, and starts the runtime-specific router. The registered actions are exposed under `/api/v1/plugins/{plugin}/actions/{action}` for legacy compatibility; new plugins should expose their own HTTP/OpenAPI surfaces.
 
 ```mermaid
 graph TD
@@ -30,7 +30,7 @@ graph TD
     B --> C[Resolve manifest & rootfs metadata]
     C --> D[Stream rootfs to runtime dir & verify checksum]
     D --> E[Launch Cloud Hypervisor with bzImage + virtio disk]
-    E --> F[Init mounts rootfs & stages volary]
+    E --> F[Init mounts rootfs & stages kestrel]
     F --> G[Agent exposes manifest-defined routes]
 ```
 
@@ -71,7 +71,7 @@ Plugin authors focus on their runtime artifacts and HTTP contract. A minimal roo
 
 ## Rootfs Expectations
 - Include the binaries, assets, and services your runtime needs. At minimum, provide the HTTP routes declared in the manifest.
-- Placing `volary` in the image is optional; `stage-volary.sh` copies the embedded agent into `/usr/local/bin` before the switch_root happens.
+- Placing `kestrel` in the image is optional; `stage-kestrel.sh` copies the embedded agent into `/usr/local/bin` before the switch_root happens.
 - Network is preconfigured by the kernel parameters, so services can bind to `0.0.0.0` or `127.0.0.1` immediately.
 - SquashFS images work well for read-only runtimes, but writable formats (ext4 raw disks) are also supported because the disk is attached as a standard virtio-blk device.
 
@@ -100,4 +100,4 @@ The script preserves mtimes with `SOURCE_DATE_EPOCH` and strips gzip timestamps 
 ## Troubleshooting
 - **Rootfs fetch failures** – Verify the URL is reachable from the host and the checksum matches. Errors are surfaced from `cloudhypervisor.Launcher` before boot.
 - **Manifest fetch failures inside the VM** – Ensure `volant.api_host`, `volant.api_port`, and `volant.plugin` were set. The control plane automatically injects them, but custom kernel flags can accidentally shadow them.
-- **Agent fallback** – If your image does not contain `volary`, the initramfs copy will run instead. Check the serial log (`~/.volant/logs/<vm>.log`) for mount errors.
+- **Agent fallback** – If your image does not contain `kestrel`, the initramfs copy will run instead. Check the serial log (`~/.volant/logs/<vm>.log`) for mount errors.

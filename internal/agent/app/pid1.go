@@ -114,7 +114,7 @@ func (a *App) bootstrapPID1Inner() error {
 
 	// Re-execute via switch_root so it performs pivot + exec safely
 	a.log.Printf("Handing off to switch_root to pivot and re-execute for Stage 2...")
-	err := syscall.Exec("/bin/busybox", []string{"/bin/busybox", "switch_root", rootMountPoint, "/usr/local/bin/volary", "stage2"}, os.Environ())
+	err := syscall.Exec("/bin/busybox", []string{"/bin/busybox", "switch_root", rootMountPoint, "/usr/local/bin/kestrel", "stage2"}, os.Environ())
 
 	// This line should never be reached if exec succeeds
 	if err != nil {
@@ -216,7 +216,7 @@ func copySelfToRoot() error {
 	}
 	defer src.Close()
 
-	destPath := filepath.Join(rootMountPoint, "usr", "local", "bin", "volary")
+	destPath := filepath.Join(rootMountPoint, "usr", "local", "bin", "kestrel")
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return err
 	}

@@ -58,9 +58,9 @@ if [[ -n "$BUSYBOX_SHA256" ]]; then
 fi
 echo "SOURCE_DATE_EPOCH=$SDE"
 
-# Build volary deterministically (static CGO off, trim paths, no buildid)
+# Build kestrel deterministically (static CGO off, trim paths, no buildid)
 export CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off GOFLAGS="-trimpath"
-go build -buildvcs=false -ldflags "-s -w -buildid=" -o "$ROOT_DIR/volary" ../cmd/volary
+go build -buildvcs=false -ldflags "-s -w -buildid=" -o "$ROOT_DIR/kestrel" ../cmd/kestrel
 
 # Prepare staging directory
 WORKDIR=/tmp/initramfs
@@ -71,9 +71,9 @@ mkdir -p "$WORKDIR"/{bin,sbin,etc,proc,sys,dev,usr/bin,usr/sbin}
 gcc -static -s -Wl,--build-id=none "$ROOT_DIR/init.c" -o "$WORKDIR/init"
 chmod 0755 "$WORKDIR/init"
 
-# 2) Place volary
-cp "$ROOT_DIR/volary" "$WORKDIR/bin/volary"
-chmod 0755 "$WORKDIR/bin/volary"
+# 2) Place kestrel
+cp "$ROOT_DIR/kestrel" "$WORKDIR/bin/kestrel"
+chmod 0755 "$WORKDIR/bin/kestrel"
 
 # 3) BusyBox (pinned download + optional sha256 verification)
 curl -fsSL "$BUSYBOX_URL" -o "$WORKDIR/bin/busybox"

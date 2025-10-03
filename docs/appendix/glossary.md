@@ -7,7 +7,7 @@ description: "Terminology used throughout the Volant documentation."
 
 - **Volant** – MicroVM orchestration engine focused on secure, plugin-driven runtimes.
 - **volantd** – Go binary providing REST/MCP APIs and managing Cloud Hypervisor VMs.
-- **volary** – In-VM Go agent that hydrates plugin-defined workloads and exposes HTTP/WebSocket routes.
+- **kestrel** – In-VM Go agent that hydrates plugin-defined workloads and exposes HTTP/WebSocket routes.
 - **volar CLI** – Cobra command-line tooling for scripts.
 - **TUI** – Previously an interactive Bubble Tea dashboard; removed to focus on core orchestration.
 - **Cloud Hypervisor** – Lightweight VMM used for launching microVMs.

@@ -2,7 +2,7 @@
 
 ## System Components
 - **volantd**: Native orchestrator responsible for lifecycle management of Cloud Hypervisor microVMs, static IP allocation, plugin manifest registry, and API exposure (REST, MCP).
-- **volary**: In-VM Go agent that hydrates the runtime declared by the manifest (no longer hard-wired to Chrome). It mounts plugin-defined HTTP/WebSocket routes and manages optional DevTools/log streaming based on the workload contract.
+- **kestrel**: In-VM Go agent that hydrates the runtime declared by the manifest (no longer hard-wired to Chrome). It mounts plugin-defined HTTP/WebSocket routes and manages optional DevTools/log streaming based on the workload contract.
 - **Plugin Runtime Artifacts**: Signed manifests, rootfs bundles, and optional OCI images distributed per plugin. The orchestrator injects manifest payloads into the VM kernel cmdline and mounts artifacts from the runtime directory.
 - **Client Tooling**: `volar` CLI providing operator and automation entry points.
 
@@ -14,7 +14,7 @@
 - Event bus broadcasts VM lifecycle event for subscribers.
 
 2. **In-VM Boot**
-   - Kernel executes `/bin/volant-init` which mounts virtual filesystems, parses `ip=` from `/proc/cmdline`, configures `eth0`, and `exec`s `volary`.
+   - Kernel executes `/bin/volant-init` which mounts virtual filesystems, parses `ip=` from `/proc/cmdline`, configures `eth0`, and `exec`s `kestrel`.
    - Agent decodes the manifest, hydrates the declared workload (entrypoint, environment, base URL), launches the process, and exposes whatever interfaces the manifest describes (REST, WebSocket, DevTools, etc.). No legacy browser assumptions remain.
 
 3. **Task Execution**

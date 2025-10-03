@@ -15,9 +15,9 @@ build-server: ## Build the volantd binary
 	$(GO) build -o $(BIN_DIR)/volantd ./cmd/volantd
 
 .PHONY: build-agent
-build-agent: ## Build the volary agent binary
+build-agent: ## Build the kestrel agent binary
 	mkdir -p $(BIN_DIR)
-	$(GO) build -o $(BIN_DIR)/volary ./cmd/volary
+	$(GO) build -o $(BIN_DIR)/kestrel ./cmd/kestrel
 
 .PHONY: build-cli
 build-cli: ## Build the volar CLI binary
@@ -37,7 +37,7 @@ openapi-export: build-openapi-export ## Generate OpenAPI JSON to docs/api-refere
 install: build ## Install core binaries into INSTALL_DIR (default: /usr/local/bin)
 	mkdir -p $(INSTALL_DIR)
 	install -m 0755 $(BIN_DIR)/volantd $(INSTALL_DIR)/volantd
-	install -m 0755 $(BIN_DIR)/volary $(INSTALL_DIR)/volary
+	install -m 0755 $(BIN_DIR)/kestrel $(INSTALL_DIR)/kestrel
 	install -m 0755 $(BIN_DIR)/volar $(INSTALL_DIR)/volar
 
 .PHONY: test

@@ -72,7 +72,7 @@ int main(int argc, char *argv[]) {
     mkdir("/proc", 0755);
     mkdir("/sys", 0755);
     mkdir("/dev", 0755);
-    mkdir("/bin", 0755); // For volary
+    mkdir("/bin", 0755); // For kestrel
 
     // Set up the essential filesystems
     mount_filesystems();
@@ -80,15 +80,15 @@ int main(int argc, char *argv[]) {
     // Now that /dev is mounted, ensure we have a console
     ensure_console();
 
-    printf("C INIT: Basic environment is up. Handing off to Volary...\n");
+    printf("C INIT: Basic environment is up. Handing off to kestrel...\n");
 
     // Hand over control to our real Go init program.
     // This will now become the new PID 1.
-    char *const volary_argv[] = {"/bin/volary", NULL};
-    execv("/bin/volary", volary_argv);
+    char *const kestrel_argv[] = {"/bin/kestrel", NULL};
+    execv("/bin/kestrel", kestrel_argv);
 
     // If execv returns, it failed. This is a catastrophe.
-    panic("execv(/bin/volary)");
+    panic("execv(/bin/kestrel)");
 
     return 1; // Unreachable
 }

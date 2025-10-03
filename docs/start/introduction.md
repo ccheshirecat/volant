@@ -5,7 +5,7 @@ description: Meet Volant, the modular microVM orchestration engine.
 
 # Volant
 
-Volant is a **modular microVM orchestration engine**. It pairs a production-grade control plane with a manifest-driven runtime plugin system so teams can launch secure workloads inside Cloud Hypervisor microVMs without wiring together networking, scheduling, or lifecycle management by hand.
+Volant is a **modular microVM orchestration engine**. It pairs a production-grade control plane with a manifest-driven runtime plugin system so teams can launch secure workloads inside Cloud Hypervisor(or any vmm of your choice) microVMs without wiring together networking, scheduling, or lifecycle management by hand.
 
 The engine delivers sane defaults out of the box while remaining intentionally neutral about what runs inside each VM. Browser automation, AI inference, protocol bridges, and bespoke workloads all live behind manifests that declare their needs and expose their own HTTP/WebSocket interfaces.
 
@@ -27,7 +27,7 @@ Container sandboxes were built for short-lived stateless jobs. Long-running auto
 ## Core components
 
 - **Control plane (`volantd`)** – manages scheduling, IPAM, eventing, SQLite-backed state, and the plugin registry. Exposes REST and MCP interfaces.
-- **Agent (`volary`)** – runs inside each microVM, boots the declared runtime, and mounts plugin-defined HTTP/WebSocket routes.
+- **Agent (`kestrel`)** – runs inside each microVM, boots the declared runtime, and mounts plugin-defined HTTP/WebSocket routes.
 - **CLI (`volar`)** – a scriptable operator interface (the TUI has been removed).
 - **Runtime plugins** – manifests describe required artifacts, CPU/memory envelopes, health checks, workload contract, and optional OpenAPI/action metadata. The engine treats every plugin uniformly.
 

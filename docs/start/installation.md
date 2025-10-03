@@ -23,7 +23,7 @@ curl -sSL https://github.com/volantvm/volant/releases/latest/download/install.sh
 What the installer does:
 1. Detects OS + architecture.
 2. Installs prerequisites via the native package manager (prompted unless `--yes`).
-3. Downloads the latest `volar` CLI / `volantd` daemon / `volary` binaries from GitHub releases.
+3. Downloads the latest `volar` CLI / `volantd` daemon / `kestrel` binaries from GitHub releases.
 4. Provisions kernels at `/var/lib/volant/kernel/{bzImage,vmlinux}` as available. By default it fetches `bzImage` from repo `kernels/<arch>/bzImage` if available or use `--kernel-url`.
 5. Verifies SHA-256 checksums.
 6. Installs binaries to `/usr/local/bin/`.
@@ -48,7 +48,7 @@ install.sh [--version v2.0.0] [--force] [--skip-setup] [--kernel-url <url>] [--y
 ```bash
 volar --version
 volantd --help
-volary --help
+kestrel --help
 ```
 
 ## Post-Install: `volar setup`
@@ -85,7 +85,7 @@ sudo rm -f /etc/systemd/system/volantd.service
 sudo ip link delete vbr0
 sudo iptables -t nat -D POSTROUTING -s 192.168.127.0/24 ! -o vbr0 -j MASQUERADE || true
 rm -rf ~/.volant
-sudo rm -f /usr/local/bin/volar /usr/local/bin/volantd /usr/local/bin/volary
+sudo rm -f /usr/local/bin/volar /usr/local/bin/volantd /usr/local/bin/kestrel
 ```
 
 Adjust the iptables/bridge commands if you changed defaults.

@@ -32,7 +32,7 @@ Runtime-specific behavior lives in signed manifests and their associated artifac
 ## Overview
 
 - **Control plane (`volantd`)** manages SQLite-backed state, static IP leasing, orchestration, REST/MCP APIs, and the plugin registry.
-- **Agent (`volary`)** boots inside each microVM, hydrates the declared runtime, and mounts plugin-defined HTTP/WebSocket routes.
+- **Agent (`kestrel`)** boots inside each microVM, hydrates the declared runtime, and mounts plugin-defined HTTP/WebSocket routes.
 - **CLI (`volar`)** provides a scriptable operator experience.
 - **Plugins** declare resources, workloads, and optional OpenAPI/action metadata via manifests—letting browser automation, AI inference, worker pools, or custom stacks share the same engine.
 
@@ -106,7 +106,7 @@ The engine persists manifests, enforces enablement state, and resolves action ro
 ## Repository layout
 
 ```
-cmd/               # Entry points (volantd, volar, volary)
+cmd/               # Entry points (volantd, volar, kestrel)
 internal/          # Control plane, agent runtime, CLI/TUI, protocols
   agent/
   cli/
@@ -124,7 +124,7 @@ go.mod / go.sum
 ## Development
 
 1. Install **Go 1.22+** and Docker.
-2. Build binaries: `make build` (or `make volantd volar volary`).
+2. Build binaries: `make build` (or `make volantd volar kestrel`).
 3. Build artifacts (kernel/initramfs): `make build-images`.
 4. Run integration SQLite migrations: `make migrate`.
 5. Launch the control plane locally:
