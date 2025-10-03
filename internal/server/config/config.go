@@ -9,16 +9,16 @@ import (
 )
 
 const (
-    defaultDBPath        = "~/.volant/state.db"
-    defaultAPIPort       = "7777"
-    defaultAPIListenAddr = "0.0.0.0:" + defaultAPIPort
-    defaultBridgeName    = "vbr0"
-    defaultSubnetCIDR    = "192.168.127.0/24"
-    defaultHostIP        = "192.168.127.1"
-    defaultRuntimeDir    = "~/.volant/run"
-    defaultLogDir        = "~/.volant/logs"
-    defaultBZImagePath   = "/var/lib/volant/kernel/bzImage"
-    defaultVMLinuxPath   = "/var/lib/volant/kernel/vmlinux"
+	defaultDBPath        = "~/.volant/state.db"
+	defaultAPIPort       = "7777"
+	defaultAPIListenAddr = "0.0.0.0:" + defaultAPIPort
+	defaultBridgeName    = "vbr0"
+	defaultSubnetCIDR    = "192.168.127.0/24"
+	defaultHostIP        = "192.168.127.1"
+	defaultRuntimeDir    = "~/.volant/run"
+	defaultLogDir        = "~/.volant/logs"
+	defaultBZImagePath   = "/var/lib/volant/kernel/bzImage"
+	defaultVMLinuxPath   = "/var/lib/volant/kernel/vmlinux"
 )
 
 // ServerConfig captures the runtime configuration required by the daemon.
@@ -28,8 +28,8 @@ type ServerConfig struct {
 	APIAdvertiseAddr string
 	BridgeName       string
 	SubnetCIDR       string
-    BZImagePath      string
-    VMLinuxPath      string
+	BZImagePath      string
+	VMLinuxPath      string
 	HypervisorBinary string
 	HostIP           string
 	RuntimeDir       string
@@ -51,25 +51,25 @@ func FromEnv() (ServerConfig, error) {
 		LogDir:           getenv("VOLANT_LOG_DIR", defaultLogDir),
 	}
 
-    // New dual-kernel config
-    bz := strings.TrimSpace(os.Getenv("VOLANT_KERNEL_BZIMAGE"))
-    vm := strings.TrimSpace(os.Getenv("VOLANT_KERNEL_VMLINUX"))
-    if bz == "" {
-        bz = defaultBZImagePath
-    }
-    if vm == "" {
-        vm = defaultVMLinuxPath
-    }
-    bz = expandPath(bz)
-    vm = expandPath(vm)
-    // Only require at least one to exist
-    bzExists := fileExists(bz)
-    vmExists := fileExists(vm)
-    if !bzExists && !vmExists {
-        return ServerConfig{}, fmt.Errorf("no kernel images found: expected bzImage at %s or vmlinux at %s", bz, vm)
-    }
-    cfg.BZImagePath = bz
-    cfg.VMLinuxPath = vm
+	// New dual-kernel config
+	bz := strings.TrimSpace(os.Getenv("VOLANT_KERNEL_BZIMAGE"))
+	vm := strings.TrimSpace(os.Getenv("VOLANT_KERNEL_VMLINUX"))
+	if bz == "" {
+		bz = defaultBZImagePath
+	}
+	if vm == "" {
+		vm = defaultVMLinuxPath
+	}
+	bz = expandPath(bz)
+	vm = expandPath(vm)
+	// Only require at least one to exist
+	bzExists := fileExists(bz)
+	vmExists := fileExists(vm)
+	if !bzExists && !vmExists {
+		return ServerConfig{}, fmt.Errorf("no kernel images found: expected bzImage at %s or vmlinux at %s", bz, vm)
+	}
+	cfg.BZImagePath = bz
+	cfg.VMLinuxPath = vm
 
 	if _, _, err := net.ParseCIDR(cfg.SubnetCIDR); err != nil {
 		return ServerConfig{}, fmt.Errorf("invalid subnet cidr %q: %w", cfg.SubnetCIDR, err)
@@ -142,11 +142,11 @@ func expandPath(path string) string {
 }
 
 func fileExists(path string) bool {
-    if strings.TrimSpace(path) == "" {
-        return false
-    }
-    if _, err := os.Stat(path); err == nil {
-        return true
-    }
-    return false
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	if _, err := os.Stat(path); err == nil {
+		return true
+	}
+	return false
 }

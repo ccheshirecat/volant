@@ -1,20 +1,28 @@
 # Image Pipeline
 
-Volant ships a single kernel artifact (bzImage) that already contains our initramfs and the `volary` agent. The orchestrator no longer expects plugins to bring their own kernel or initrd — plugins only supply a root filesystem bundle and the HTTP surface they want to expose. This document walks through the artifacts we produce, how the host hydrates plugin images, and what the in-VM bootstrap does with them.
+Volant supports dual boot modes:
+
+- bzImage + rootfs: Default Docker-friendly mode. A Cloud Hypervisor compatible bzImage embeds our initramfs and the `volary` agent; plugins provide an external root filesystem (read-only squashfs or writable ext4/raw) attached as a virtio disk.
+- vmlinux + initramfs: High-performance native mode. A raw vmlinux image is paired with a plugin-provided initramfs, enabling ultra-fast boot and minimal I/O, ideal for native plugins that don't need a disk rootfs.
+
+The orchestrator no longer expects plugins to bring a kernel; plugins specify exactly one of `rootfs` or `initramfs`. Operators can override boot media per-VM.
+
+This document walks through the artifacts we produce, how the host hydrates plugin images, and what the in-VM bootstrap does with them.
 
 ## Artifact Layout
 - `kernels/<arch>/bzImage` — Cloud Hypervisor compatible kernel with embedded initramfs committed to the repository for downloads (per release tag). The default runtime path used by the daemon is `kernel/bzImage` relative to the systemd WorkingDirectory. With WorkingDirectory=/var/lib/volant, that resolves to `/var/lib/volant/kernel/bzImage`.
+- `kernels/<arch>/vmlinux` — Raw vmlinux for use with plugin-provided initramfs. Installed to `/var/lib/volant/kernel/vmlinux` when available.
 - `checksums.txt` — SHA256 digests for release validation.
 
-Releases publish the `kernels/<arch>/bzImage` path so the installer can fetch it. Local rebuilds are supported via `build/bake.sh` which produces only the initramfs; you must integrate it into the Linux kernel using `CONFIG_INITRAMFS_SOURCE` on the Cloud Hypervisor kernel fork.
+Releases publish the `kernels/<arch>/bzImage` and `kernels/<arch>/vmlinux` paths so the installer can fetch them. Local rebuilds are supported via `build/bake.sh` (initramfs only) and the Cloud Hypervisor Linux kernel with `CONFIG_INITRAMFS_SOURCE` for bzImage embedding.
 
 ## Host Boot Flow
 1. **Manifest install** – When a plugin manifest is registered, it is persisted and cached by the engine (`internal/server/plugins/registry.go`). The manifest declares a `rootfs` URL, checksum, resource envelope, and action map.
-2. **Create VM** – On `createVM`, the orchestrator resolves the manifest and assembles a `LaunchSpec` (`internal/server/orchestrator/orchestrator.go:241`). Core kernel args always include the IP lease and the identifiers `volant.runtime`, `volant.plugin`, `volant.api_host`, and `volant.api_port` so the agent can crawl back to the control plane.
-3. **Rootfs hydration** – `cloudhypervisor.Launcher` streams the declared `rootfs.url` into the runtime directory before boot (`internal/server/orchestrator/cloudhypervisor/launcher.go:76`). HTTP(S), `file://`, and absolute paths are supported. If `rootfs.checksum` is present, it is verified as a `sha256` (with or without the `sha256:` prefix).
-4. **Launching Cloud Hypervisor** – The launcher stages a per-VM copy of the bzImage and attaches the fetched rootfs as a writable virtio disk. No separate `--initramfs` flag is required because the initramfs is baked into the kernel.
+2. **Create VM** – On `createVM`, the orchestrator resolves the manifest and assembles a `LaunchSpec`. Core kernel args always include the IP lease and the identifiers `volant.runtime`, `volant.plugin`, `volant.api_host`, and `volant.api_port` so the agent can crawl back to the control plane. Per‑VM overrides can specify a `kernel_override`, or switch between `initramfs` and `rootfs` boot media.
+3. **Boot media hydration** – If `rootfs.url` is set, `cloudhypervisor.Launcher` streams it into the runtime directory before boot. HTTP(S), `file://`, and absolute paths are supported. If `rootfs.checksum` is present, it is verified as a `sha256` (with or without the `sha256:` prefix). If `initramfs.url` is set instead, it is staged and passed to the hypervisor as `--initramfs` along with the `vmlinux` kernel.
+4. **Launching Cloud Hypervisor** – The launcher selects `bzImage` when `rootfs` is used, and `vmlinux` when `initramfs` is used. With `rootfs`, the disk is attached as a virtio‑blk device; with `initramfs`, no disk is required.
 5. **In-VM init** – Our tiny C init (`build/init.c`) configures the console, brings up `/dev`, `/proc`, `/sys`, and `/run`, and then hydrates the runtime. If a rootfs image was declared it is mounted (loopback or squashfs depending on the build), `stage-volary.sh` copies the agent into `/usr/local/bin`, and control pivots into the plugin filesystem via `switch_root`. Should mounting fail, the initramfs copy of `volary` is used as a safe fallback.
-6. **Agent startup** – `volary` reads the kernel command line, fetches the manifest over HTTP, and starts the runtime-specific router (`internal/agent/app/app.go:170-420`). The registered actions are exposed under `/api/v1/plugins/{plugin}/actions/{action}` and must correspond to OpenAPI metadata advertised by the manifest.
+6. **Agent startup** – `volary` reads the kernel command line, fetches the manifest over HTTP, and starts the runtime-specific router. The registered actions are exposed under `/api/v1/plugins/{plugin}/actions/{action}` for legacy compatibility; new plugins should expose their own HTTP/OpenAPI surfaces.
 
 ```mermaid
 graph TD
@@ -27,7 +35,7 @@ graph TD
 ```
 
 ## Manifest Responsibilities
-Plugin authors now focus on their runtime filesystem and HTTP contract. A minimal manifest looks like:
+Plugin authors focus on their runtime artifacts and HTTP contract. A minimal rootfs-based manifest looks like:
 
 ```json
 {
@@ -57,7 +65,7 @@ Plugin authors now focus on their runtime filesystem and HTTP contract. A minima
 }
 ```
 
-- `rootfs.url` accepts HTTP(S), `file://`, or absolute host paths. Leaving it blank boots straight into the initramfs, which is useful for debugging but not for production runtimes.
+- `rootfs.url` accepts HTTP(S), `file://`, or absolute host paths. For initramfs mode, specify `initramfs.url` instead. Exactly one of `rootfs` or `initramfs` must be provided.
 - `rootfs.checksum` is optional but recommended. Provide a bare SHA256 or prefix it with `sha256:`.
 - `actions` must point at real HTTP endpoints inside the VM. The control plane proxies requests verbatim, so the manifest’s OpenAPI document should describe the same surface.
 
@@ -77,6 +85,17 @@ sha256sum ./rootfs.squashfs
 ```
 
 Upload the resulting artifact to your distribution channel, record the SHA256 in the manifest, and the engine takes care of staging it for each VM.
+
+## Injecting files into the initramfs (development)
+
+Use the bake script to add files during initramfs build:
+
+```
+./build/bake.sh --copy ./extras/startup.sh:/usr/local/bin/startup.sh \
+                --copy ./config/app.yaml:/etc/app.yaml
+```
+
+The script preserves mtimes with `SOURCE_DATE_EPOCH` and strips gzip timestamps for reproducibility.
 
 ## Troubleshooting
 - **Rootfs fetch failures** – Verify the URL is reachable from the host and the checksum matches. Errors are surfaced from `cloudhypervisor.Launcher` before boot.

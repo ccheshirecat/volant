@@ -19,23 +19,23 @@ import (
 
 // Launcher knows how to boot Cloud Hypervisor microVMs.
 type Launcher struct {
-	Binary        string
-    // Default kernel paths; launcher may pick based on spec
-    BZImagePath   string
-    VMLinuxPath   string
-	RuntimeDir    string
-	LogDir        string
-	ConsoleDir    string
+	Binary string
+	// Default kernel paths; launcher may pick based on spec
+	BZImagePath string
+	VMLinuxPath string
+	RuntimeDir  string
+	LogDir      string
+	ConsoleDir  string
 }
 
 // New returns a configured Launcher.
 func New(binary, bzImage, vmlinux, runtimeDir, logDir string) *Launcher {
 	return &Launcher{
-		Binary:        binary,
-        BZImagePath:   bzImage,
-        VMLinuxPath:   vmlinux,
-		RuntimeDir:    runtimeDir,
-		LogDir:        logDir,
+		Binary:      binary,
+		BZImagePath: bzImage,
+		VMLinuxPath: vmlinux,
+		RuntimeDir:  runtimeDir,
+		LogDir:      logDir,
 	}
 }
 
@@ -57,33 +57,33 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	apiSocket := filepath.Join(l.RuntimeDir, fmt.Sprintf("%s.sock", spec.Name))
 	_ = os.Remove(apiSocket)
 
-    // Select kernel: explicit override > mode default (initramfs -> vmlinux, else bzImage)
-    kernelSrc := strings.TrimSpace(spec.KernelOverride)
-    if kernelSrc == "" {
-        if strings.TrimSpace(spec.Initramfs) != "" && l.VMLinuxPath != "" {
-            kernelSrc = l.VMLinuxPath
-        } else {
-            kernelSrc = l.BZImagePath
-        }
-    }
-    if kernelSrc == "" {
-        return nil, fmt.Errorf("cloudhypervisor: kernel path required")
-    }
+	// Select kernel: explicit override > mode default (initramfs -> vmlinux, else bzImage)
+	kernelSrc := strings.TrimSpace(spec.KernelOverride)
+	if kernelSrc == "" {
+		if strings.TrimSpace(spec.Initramfs) != "" && l.VMLinuxPath != "" {
+			kernelSrc = l.VMLinuxPath
+		} else {
+			kernelSrc = l.BZImagePath
+		}
+	}
+	if kernelSrc == "" {
+		return nil, fmt.Errorf("cloudhypervisor: kernel path required")
+	}
 
-    // Preserve extension for readability
-    ext := filepath.Ext(kernelSrc)
-    if ext == "" {
-        ext = ".vmlinux"
-    }
-    kernelCopy := filepath.Join(l.RuntimeDir, fmt.Sprintf("%s%s", spec.Name, ext))
-    if err := copyFile(kernelSrc, kernelCopy); err != nil {
+	// Preserve extension for readability
+	ext := filepath.Ext(kernelSrc)
+	if ext == "" {
+		ext = ".vmlinux"
+	}
+	kernelCopy := filepath.Join(l.RuntimeDir, fmt.Sprintf("%s%s", spec.Name, ext))
+	if err := copyFile(kernelSrc, kernelCopy); err != nil {
 		return nil, fmt.Errorf("cloudhypervisor: stage kernel: %w", err)
 	}
 
 	var initramfsCopy string
-    if strings.TrimSpace(spec.Initramfs) != "" {
-        initramfsCopy = filepath.Join(l.RuntimeDir, fmt.Sprintf("%s.initramfs", spec.Name))
-        if err := streamFile(ctx, spec.Initramfs, initramfsCopy, spec.InitramfsChecksum); err != nil {
+	if strings.TrimSpace(spec.Initramfs) != "" {
+		initramfsCopy = filepath.Join(l.RuntimeDir, fmt.Sprintf("%s.initramfs", spec.Name))
+		if err := streamFile(ctx, spec.Initramfs, initramfsCopy, spec.InitramfsChecksum); err != nil {
 			_ = os.Remove(kernelCopy)
 			return nil, fmt.Errorf("cloudhypervisor: stage initramfs: %w", err)
 		}
@@ -152,7 +152,7 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 
 	serialMode := fmt.Sprintf("socket=%s", spec.SerialSocket)
 
-    args := []string{
+	args := []string{
 		"--api-socket", fmt.Sprintf("path=%s", apiSocket),
 		"--cpus", fmt.Sprintf("boot=%d", spec.CPUCores),
 		"--memory", fmt.Sprintf("size=%dM", spec.MemoryMB),
@@ -169,7 +169,7 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		vsockArg := fmt.Sprintf("cid=%d", spec.VsockCID)
 		args = append(args, "--vsock", vsockArg)
 	}
-    if initramfsCopy != "" {
+	if initramfsCopy != "" {
 		args = append(args, "--initramfs", initramfsCopy)
 	}
 	if rootfsPath != "" {

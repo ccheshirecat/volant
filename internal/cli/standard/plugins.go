@@ -111,37 +111,37 @@ func newPluginsDisableCmd() *cobra.Command {
 }
 
 func newPluginsInstallCmd() *cobra.Command {
-    var manifestPath string
-    var manifestURL string
+	var manifestPath string
+	var manifestURL string
 
 	cmd := &cobra.Command{
-        Use:   "install [manifest]",
-        Short: "Install a plugin from manifest JSON (file path or URL)",
+		Use:   "install [manifest]",
+		Short: "Install a plugin from manifest JSON (file path or URL)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-            // Allow positional arg as shorthand for --manifest or --url
-            if len(args) == 1 {
-                token := strings.TrimSpace(args[0])
-                if strings.HasPrefix(token, "http://") || strings.HasPrefix(token, "https://") {
-                    manifestURL = token
-                } else {
-                    manifestPath = token
-                }
-            }
-            var data []byte
-            var err error
-            if strings.TrimSpace(manifestURL) != "" {
-                data, err = fetchURL(cmd.Context(), manifestURL)
-                if err != nil {
-                    return err
-                }
-            } else if strings.TrimSpace(manifestPath) != "" {
-                data, err = os.ReadFile(manifestPath)
-                if err != nil {
-                    return err
-                }
-            } else {
-                return fmt.Errorf("provide a manifest via --manifest, --url, or positional argument")
-            }
+			// Allow positional arg as shorthand for --manifest or --url
+			if len(args) == 1 {
+				token := strings.TrimSpace(args[0])
+				if strings.HasPrefix(token, "http://") || strings.HasPrefix(token, "https://") {
+					manifestURL = token
+				} else {
+					manifestPath = token
+				}
+			}
+			var data []byte
+			var err error
+			if strings.TrimSpace(manifestURL) != "" {
+				data, err = fetchURL(cmd.Context(), manifestURL)
+				if err != nil {
+					return err
+				}
+			} else if strings.TrimSpace(manifestPath) != "" {
+				data, err = os.ReadFile(manifestPath)
+				if err != nil {
+					return err
+				}
+			} else {
+				return fmt.Errorf("provide a manifest via --manifest, --url, or positional argument")
+			}
 			if err != nil {
 				return err
 			}
@@ -154,11 +154,11 @@ func newPluginsInstallCmd() *cobra.Command {
 				resolved := filepath.Join(filepath.Dir(manifestPath), rootfsPath)
 				manifest.RootFS.URL = filepath.Clean(resolved)
 			}
-            initramfsPath := strings.TrimSpace(manifest.Initramfs.URL)
-            if initramfsPath != "" && !strings.HasPrefix(initramfsPath, "http://") && !strings.HasPrefix(initramfsPath, "https://") && !strings.HasPrefix(initramfsPath, "file://") && !filepath.IsAbs(initramfsPath) {
-                resolved := filepath.Join(filepath.Dir(manifestPath), initramfsPath)
-                manifest.Initramfs.URL = filepath.Clean(resolved)
-            }
+			initramfsPath := strings.TrimSpace(manifest.Initramfs.URL)
+			if initramfsPath != "" && !strings.HasPrefix(initramfsPath, "http://") && !strings.HasPrefix(initramfsPath, "https://") && !strings.HasPrefix(initramfsPath, "file://") && !filepath.IsAbs(initramfsPath) {
+				resolved := filepath.Join(filepath.Dir(manifestPath), initramfsPath)
+				manifest.Initramfs.URL = filepath.Clean(resolved)
+			}
 			for i := range manifest.Disks {
 				src := strings.TrimSpace(manifest.Disks[i].Source)
 				if src == "" {
@@ -218,8 +218,8 @@ func newPluginsInstallCmd() *cobra.Command {
 		},
 	}
 
-    cmd.Flags().StringVar(&manifestPath, "manifest", "", "Path to plugin manifest JSON")
-    cmd.Flags().StringVar(&manifestURL, "url", "", "URL to plugin manifest JSON")
+	cmd.Flags().StringVar(&manifestPath, "manifest", "", "Path to plugin manifest JSON")
+	cmd.Flags().StringVar(&manifestURL, "url", "", "URL to plugin manifest JSON")
 	return cmd
 }
 
@@ -242,20 +242,20 @@ func newPluginsRemoveCmd() *cobra.Command {
 }
 
 func fetchURL(ctx context.Context, raw string) ([]byte, error) {
-    req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
-    if err != nil {
-        return nil, err
-    }
-    resp, err := http.DefaultClient.Do(req)
-    if err != nil {
-        return nil, err
-    }
-    defer resp.Body.Close()
-    if resp.StatusCode >= 300 {
-        b, _ := io.ReadAll(resp.Body)
-        return nil, fmt.Errorf("download manifest: http %d: %s", resp.StatusCode, string(b))
-    }
-    return io.ReadAll(resp.Body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("download manifest: http %d: %s", resp.StatusCode, string(b))
+	}
+	return io.ReadAll(resp.Body)
 }
 
 func togglePlugin(cmd *cobra.Command, name string, enabled bool) error {

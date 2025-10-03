@@ -21,12 +21,12 @@ type Options struct {
 	LogDir      string
 	ServicePath string
 	BinaryPath  string
-    // BZImagePath points to the bzImage kernel used for rootfs-based boot.
-    // Example: /var/lib/volant/kernel/bzImage
-    BZImagePath string
-    // VMLinuxPath points to the vmlinux kernel used for initramfs-based boot.
-    // Example: /var/lib/volant/kernel/vmlinux
-    VMLinuxPath string
+	// BZImagePath points to the bzImage kernel used for rootfs-based boot.
+	// Example: /var/lib/volant/kernel/bzImage
+	BZImagePath string
+	// VMLinuxPath points to the vmlinux kernel used for initramfs-based boot.
+	// Example: /var/lib/volant/kernel/vmlinux
+	VMLinuxPath string
 	// WorkDir is the WorkingDirectory for the volantd systemd unit.
 	// Example: /var/lib/volant
 	WorkDir string
@@ -57,12 +57,12 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	if strings.TrimSpace(opts.WorkDir) == "" {
 		opts.WorkDir = "/var/lib/volant"
 	}
-    if strings.TrimSpace(opts.BZImagePath) == "" {
-        opts.BZImagePath = filepath.Join(opts.WorkDir, "kernel", "bzImage")
-    }
-    if strings.TrimSpace(opts.VMLinuxPath) == "" {
-        opts.VMLinuxPath = filepath.Join(opts.WorkDir, "kernel", "vmlinux")
-    }
+	if strings.TrimSpace(opts.BZImagePath) == "" {
+		opts.BZImagePath = filepath.Join(opts.WorkDir, "kernel", "bzImage")
+	}
+	if strings.TrimSpace(opts.VMLinuxPath) == "" {
+		opts.VMLinuxPath = filepath.Join(opts.WorkDir, "kernel", "vmlinux")
+	}
 
 	res := &Result{}
 
@@ -104,19 +104,19 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("expand log dir: %w", err)
 	}
-    binaryPath, err := expand(opts.BinaryPath)
-    workDir, err := expand(opts.WorkDir)
+	binaryPath, err := expand(opts.BinaryPath)
+	workDir, err := expand(opts.WorkDir)
 	if err != nil {
 		return nil, fmt.Errorf("expand work dir: %w", err)
 	}
-    bzImagePath, err := expand(opts.BZImagePath)
-    if err != nil {
-        return nil, fmt.Errorf("expand bzImage path: %w", err)
-    }
-    vmlinuxPath, err := expand(opts.VMLinuxPath)
-    if err != nil {
-        return nil, fmt.Errorf("expand vmlinux path: %w", err)
-    }
+	bzImagePath, err := expand(opts.BZImagePath)
+	if err != nil {
+		return nil, fmt.Errorf("expand bzImage path: %w", err)
+	}
+	vmlinuxPath, err := expand(opts.VMLinuxPath)
+	if err != nil {
+		return nil, fmt.Errorf("expand vmlinux path: %w", err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("expand binary path: %w", err)
 	}
@@ -132,10 +132,10 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	if err := ensureDir(workDir, opts.DryRun, res); err != nil {
 		return nil, err
 	}
-    if err := ensureDir(filepath.Dir(bzImagePath), opts.DryRun, res); err != nil {
-        return nil, err
-    }
-    if err := ensureDir(filepath.Dir(vmlinuxPath), opts.DryRun, res); err != nil {
+	if err := ensureDir(filepath.Dir(bzImagePath), opts.DryRun, res); err != nil {
+		return nil, err
+	}
+	if err := ensureDir(filepath.Dir(vmlinuxPath), opts.DryRun, res); err != nil {
 		return nil, err
 	}
 
@@ -181,8 +181,8 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 	}
 
-    if opts.ServicePath != "" {
-        if err := writeServiceFile(binaryPath, opts, runtimeDir, logDir, workDir, bzImagePath, vmlinuxPath, opts.DryRun, res); err != nil {
+	if opts.ServicePath != "" {
+		if err := writeServiceFile(binaryPath, opts, runtimeDir, logDir, workDir, bzImagePath, vmlinuxPath, opts.DryRun, res); err != nil {
 			return nil, err
 		}
 		// Optionally enable and start the service automatically
@@ -264,7 +264,7 @@ func writeServiceFile(binaryPath string, opts Options, runtimeDir, logDir, workD
 	}
 
 	logFile := filepath.Join(logDir, "volantd.log")
-    service := fmt.Sprintf(`[Unit]
+	service := fmt.Sprintf(`[Unit]
 Description=VOLANT Control Plane
 After=network.target
 
@@ -293,14 +293,14 @@ WantedBy=multi-user.target
 		opts.SubnetCIDR,
 		runtimeDir,
 		logDir,
-        bzImagePath,
-        vmlinuxPath,
+		bzImagePath,
+		vmlinuxPath,
 		binaryPath,
 		logFile,
 		logFile,
 	)
 
-    res.Commands = append(res.Commands, fmt.Sprintf("write service file %s", opts.ServicePath))
+	res.Commands = append(res.Commands, fmt.Sprintf("write service file %s", opts.ServicePath))
 	if dryRun {
 		return nil
 	}

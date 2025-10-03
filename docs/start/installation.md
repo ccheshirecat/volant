@@ -75,7 +75,7 @@ Key responsibilities:
    - Log redirection to `~/.volant/logs/volantd.log`.
 6. `systemctl daemon-reload && systemctl enable --now volantd`.
 
-> The initramfs is baked into the kernel. If you want to build your own initramfs, use `build/bake.sh` and then rebuild the Cloud Hypervisor kernel (CONFIG_INITRAMFS_SOURCE) from https://github.com/cloud-hypervisor/linux, producing a `bzImage`. Place the resulting `bzImage` at `/var/lib/volant/kernel/bzImage` or provide a URL via `--kernel-url`.
+> Dual-kernel: For rootfs mode, the initramfs is baked into the bzImage. For initramfs mode, provide a `vmlinux` kernel and pass a plugin `initramfs`. To build a custom initramfs, use `build/bake.sh` (supports `--copy src:dest` to inject files) and either: (a) rebuild the Cloud Hypervisor kernel with `CONFIG_INITRAMFS_SOURCE` to produce a bzImage, or (b) distribute the initramfs alongside `vmlinux`.
 
 ## Manual Uninstall
 
