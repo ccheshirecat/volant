@@ -174,7 +174,7 @@ jobs:
               "digest": { "sha256": "__SHA256__" }
             }
           ]
-JSON
+          JSON
           sed -i "s/__SHA256__/$SHA/" subjects.json
           if base64 --help 2>/dev/null | grep -q "-w"; then
             B64=$(base64 -w0 subjects.json)
