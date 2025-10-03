@@ -4,71 +4,63 @@ on:
   workflow_dispatch:
     inputs:
       ch_linux_commit:
-        description: Cloud Hypervisor Linux commit SHA
+        description: 'Cloud Hypervisor Linux commit SHA'
         required: true
   push:
     tags:
-      - kernel-v*
+      - 'kernel-v*'
 
 permissions:
   contents: write
   id-token: write
+  attestations: write # Required for actions/attest-build-provenance
 
 env:
   GO_VERSION: "1.24.x"
-  BUSYBOX_URL: "https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox"
-  BUSYBOX_SHA256: "6e123e7f3202a8c1e9b1f94d8941580a25135382b99e8d3e34fb858bba311348"
+  BUSYBOX_URL: "https://github.com/shutingrz/busybox-static-binaries-fat/raw/refs/heads/main/busybox-x86_64-linux-gnu"
+  BUSYBOX_SHA256: "5c566ba50a12d8020a391346575534e818a1f5b6f729a53b7b241262fe1d1b4e"
   CH_LINUX_REPO: "https://github.com/cloud-hypervisor/linux.git"
   OUT_DIR: out
   ARCH: x86_64
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    container:
-      image: debian:bookworm-backports@sha256:584a5e458d3600c4672a41dfcba30adaed2d7c2d89f34a56d5ff82bebd84c401
-      options: --cpus=2
+    runs-on: [self-hosted, ubuntu-latest]
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Install toolchain
         run: |
-          apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
             ca-certificates curl git wget \
             build-essential bc bison flex libssl-dev libelf-dev dwarves \
-            cpio xz-utils zstd gcc g++ make file \
-            pkg-config
-          update-ca-certificates
+            cpio xz-utils zstd gcc g++ make file pkg-config
+          sudo update-ca-certificates
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Build volary deterministically
+      - name: Build volary (deterministic)
         run: |
           export CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off GOFLAGS="-trimpath"
           go build -buildvcs=false -ldflags "-s -w -buildid=" -o build/volary ./cmd/volary
           file build/volary
+
       - name: Build init (static, deterministic)
         run: |
           gcc -static -s -Wl,--build-id=none -o build/init build/init.c
           file build/init
+
       - name: Prepare deterministic initramfs (stage)
         run: |
+          set -eu
           WORKDIR=/tmp/initramfs
           rm -rf "$WORKDIR"
-          # POSIX-compatible mkdirs (avoid brace expansion)
-          mkdir -p "$WORKDIR"
-          mkdir -p "$WORKDIR/bin"
-          mkdir -p "$WORKDIR/sbin"
-          mkdir -p "$WORKDIR/etc"
-          mkdir -p "$WORKDIR/proc"
-          mkdir -p "$WORKDIR/sys"
-          mkdir -p "$WORKDIR/dev"
-          mkdir -p "$WORKDIR/usr/bin"
-          mkdir -p "$WORKDIR/usr/sbin"
+          mkdir -p "$WORKDIR/bin" "$WORKDIR/sbin" "$WORKDIR/etc" "$WORKDIR/proc" "$WORKDIR/sys" "$WORKDIR/dev" "$WORKDIR/usr/bin" "$WORKDIR/usr/sbin"
           cp build/volary "$WORKDIR/bin/volary"
           cp build/init "$WORKDIR/init"
           chmod 0755 "$WORKDIR/init" "$WORKDIR/bin/volary"
@@ -76,7 +68,7 @@ jobs:
           if [ -n "$BUSYBOX_SHA256" ]; then echo "$BUSYBOX_SHA256  $WORKDIR/bin/busybox" | sha256sum -c -; fi
           chmod +x "$WORKDIR/bin/busybox"
           "$WORKDIR/bin/busybox" --install -s "$WORKDIR/bin"
-          echo "stage_ready=1" >> $GITHUB_OUTPUT
+
       - name: Clone Cloud Hypervisor Linux
         id: chlinux
         run: |
@@ -92,6 +84,7 @@ jobs:
           TS=$(git -C linux show -s --format=%ct "$COMMIT")
           echo "ts=$TS" >> "$GITHUB_OUTPUT"
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
       - name: Bake deterministic initramfs
         run: |
           set -eu
@@ -100,6 +93,7 @@ jobs:
           export SOURCE_DATE_EPOCH="$TS"
           find "$WORKDIR" -exec touch -h -d @"$SOURCE_DATE_EPOCH" {} +
           ( cd "$WORKDIR" && find . -print0 | cpio --null -ov --format=newc | gzip -n -9 > "$GITHUB_WORKSPACE/build/volant-initramfs.cpio.gz" )
+
       - name: Configure kernel
         run: |
           set -eu
@@ -112,6 +106,7 @@ jobs:
           scripts/config --enable INITRAMFS_COMPRESSION_GZIP
           scripts/config --enable DEBUG_INFO_NONE || true
           yes "" | make ARCH=${{ env.ARCH }} olddefconfig
+
       - name: Build kernel (bzImage)
         run: |
           set -eu
@@ -123,19 +118,25 @@ jobs:
           make ARCH=${{ env.ARCH }} -j"$(nproc)" bzImage
           mkdir -p "$GITHUB_WORKSPACE/${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}"
           cp arch/x86/boot/bzImage "$GITHUB_WORKSPACE/${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/bzImage"
+
       - name: Checksums and metadata
-        id: checksums
         run: |
           set -eu
           cd ${{ env.OUT_DIR }}
           sha256sum kernels/${{ env.ARCH }}/bzImage | tee kernels/${{ env.ARCH }}/bzImage.sha256
           cp ../linux/.config kernels/${{ env.ARCH }}/kernel.config
           echo "${{ steps.chlinux.outputs.commit }}" > kernels/${{ env.ARCH }}/KERNEL_COMMIT
-          
-          # Calculate the hash and set it as a workflow environment variable
-          BASE64_SUBJECTS=$(sha256sum kernels/${{ env.ARCH }}/bzImage | awk '{print "sha256:"$1}' | base64 -w0)
-          echo "BASE64_SUBJECTS=$BASE64_SUBJECTS" >> $GITHUB_ENV
 
+      - name: Generate build provenance
+        uses: actions/attest-build-provenance@v3
+        id: attest
+        with:
+          subject-path: |
+            ${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/bzImage
+            ${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/bzImage.sha256
+            ${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/kernel.config
+            ${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/KERNEL_COMMIT
+      
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -145,88 +146,27 @@ jobs:
             ${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/bzImage.sha256
             ${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/kernel.config
             ${{ env.OUT_DIR }}/kernels/${{ env.ARCH }}/KERNEL_COMMIT
+            ${{ steps.attest.outputs.bundle-path }}
 
-  compute-subjects:
+  release:
     needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      b64_subjects: ${{ steps.digest.outputs.b64_subjects }}
+    runs-on: [self-hosted, ubuntu-latest]
+    if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - name: Download kernel artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           name: kernel-${{ env.ARCH }}
-          path: out/kernels/${{ env.ARCH }}
+          path: out/release
 
-      - name: Compute SLSA subjects (base64)
-        id: digest
-        run: |
-          set -eu
-          FILE="out/kernels/${{ env.ARCH }}/bzImage"
-          SHA=$(sha256sum "$FILE" | awk '{print $1}')
-          echo "Computed sha256: $SHA"
-          cat > subjects.json <<'JSON'
-          [
-            {
-              "name": "bzImage",
-              "digest": { "sha256": "__SHA256__" }
-            }
-          ]
-JSON
-          sed -i "s/__SHA256__/$SHA/" subjects.json
-          if base64 --help 2>/dev/null | grep -q "-w"; then
-            B64=$(base64 -w0 subjects.json)
-          else
-            B64=$(base64 subjects.json | tr -d '\n')
-          fi
-          echo "b64_subjects=$B64" >> "$GITHUB_OUTPUT"
-
-  provenance:
-    needs: attest-and-release
-    permissions:
-      contents: write
-      id-token: write
-      packages: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.10.0
-    with:
-      base64-subjects: ${{ env.BASE64_SUBJECTS }}
-      upload-assets: true
-    if: success() && startsWith(github.ref, 'refs/tags/')
-
-  attach-release:
-    needs: provenance
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: kernel-${{ env.ARCH }}
-          path: out/kernels/${{ env.ARCH }}
-      
-      - name: Attach to GitHub release (if tag run)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Attach to GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            out/kernels/${{ env.ARCH }}/bzImage
-            out/kernels/${{ env.ARCH }}/bzImage.sha256
-            out/kernels/${{ env.ARCH }}/kernel.config
-            out/kernels/${{ env.ARCH }}/KERNEL_COMMIT
+            out/release/bzImage
+            out/release/bzImage.sha256
+            out/release/kernel.config
+            out/release/KERNEL_COMMIT
+            out/release/*.intoto.jsonl
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  provenance:
-    needs: compute-subjects
-    permissions:
-      contents: write
-      id-token: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.10.0
-    with:
-      base64-subjects: ${{ needs.compute-subjects.outputs.b64_subjects }}
-      upload-assets: true
-    secrets: inherit
