@@ -193,18 +193,18 @@ JSON
       base64-subjects: ${{ needs.compute-subjects.outputs.b64_subjects }}
       upload-assets: true
     secrets: inherit
-    permissions:
-      contents: write
-      id-token: write
+
+  release:
+    needs: [build, provenance]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - name: Download artifacts
+      - name: Download kernel artifacts
         uses: actions/download-artifact@v4
         with:
           name: kernel-${{ env.ARCH }}
           path: out/kernels/${{ env.ARCH }}
-      
-      - name: Attach to GitHub release (if tag run)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Attach to GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
