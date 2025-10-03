@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+
+# Copyright (c) 2025 HYPR. PTE. LTD.
+#
+# Business Source License 1.1
+# See LICENSE file in the project root for details.
+
 set -euo pipefail
 
 # Deterministic initramfs bake script

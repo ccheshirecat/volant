@@ -13,7 +13,7 @@
     <img src="https://img.shields.io/badge/Go-1.22+-black.svg?style=flat-square" alt="Go Version">
   </a>
   <a href="https://github.com/volantvm/volant/blob/main/LICENSE">
-    <img src="https://img.shields.io/badge/License-Apache_2.0-black.svg?style=flat-square" alt="License">
+    <img src="https://img.shields.io/badge/License-BSL_1.1-black.svg?style=flat-square" alt="License">
   </a>
 </p>
 
@@ -157,7 +157,9 @@ Pull requests, issues, and plugin proposals are welcome. Please see `CONTRIBUTIN
 
 ## License
 
-Apache 2.0 – see [LICENSE](LICENSE).
+Business Source License 1.1 – see [LICENSE](LICENSE).
+
+This license converts to Apache License 2.0 on October 4, 2029.
 
 ---
 

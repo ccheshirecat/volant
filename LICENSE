@@ -1,0 +1,103 @@
+Business Source License 1.1
+
+Parameters
+
+Licensor: "HYPR. PTE. LTD."
+Licensed Work: "Volant"
+Use: "Cloud infrastructure management and microVM orchestration"
+Additional Use Grant: "You may use the Licensed Work to develop and distribute your own plugins, manifests, and runtime artifacts that interface with the Licensed Work's API, provided that such plugins do not include any source code from the Licensed Work other than API definitions and interfaces."
+Change Date: 2029-10-04
+Change License: Apache License 2.0
+
+Licensor copyright notice:
+
+Copyright (c) 2025 HYPR. PTE. LTD.
+
+Business Source License 1.1
+
+Terms
+
+The Licensor hereby grants you the right to copy, modify, create derivative
+works, redistribute, and make non-production use of the Licensed Work. The
+Licensor may make an Additional Use Grant, allowing non-production use of the
+Licensed Work under a different set of terms.
+
+Non-production Use
+
+Non-production use means use of the Licensed Work for internal purposes,
+including but not limited to testing, development, demonstration, and
+evaluation. Non-production use does not include use of the Licensed Work for
+commercial purposes, including but not limited to providing services to third
+parties or using the Licensed Work to operate a service for a third party.
+
+Redistribution
+
+You may reproduce or distribute the Licensed Work only if you provide a copy of
+this License with the Licensed Work.
+
+Copying and Modifying the Licensed Work
+
+You may copy and modify the Licensed Work. You may distribute your modified
+copies (the "Modified Work") only in the following circumstances:
+
+(a) the Modified Work must be distributed under this License, and you must
+    include a copy of this License with the Modified Work; and
+
+(b) you must cause any modified files to carry prominent notices stating that
+    you changed the files.
+
+Distribution of the Modified Work
+
+When distributing the Modified Work, you must also make available the source
+code of the Modified Work, in the medium in which you made it available,
+under the same license.
+
+Distribution of the Licensed Work
+
+When distributing the Licensed Work, you must also make available the source
+code of the Licensed Work, in the medium in which you made it available,
+under the same license.
+
+Additional Use Grant
+
+The Licensor may make an Additional Use Grant, allowing non-production use of
+the Licensed Work under a different set of terms.
+
+Change of License
+
+On the Change Date, the Licensed Work will become available under the Apache
+License 2.0, as set forth in the Change License section below.
+
+Disclaimer of Warranty
+
+THE LICENSED WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE LICENSED WORK OR THE USE OR OTHER DEALINGS IN THE LICENSED WORK.
+
+Limitation of Liability
+
+IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE LICENSED WORK OR THE USE OR OTHER DEALINGS
+IN THE LICENSED WORK.
+
+Change License
+
+On the Change Date, the Licensed Work will become available under the Apache
+License 2.0, as set forth below.
+
+Apache License 2.0
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.
