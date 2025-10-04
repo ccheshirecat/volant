@@ -25,9 +25,26 @@
 
 > **The modular microVM orchestration engine.**
 
+Volant lets you spin up fully isolated microVMs as easily as running a container — with real kernels, VFIO passthrough, and cloud-init built in.
+
+
 Volant turns microVMs into a first-class runtime surface. The project ships a control plane, CLI, and agent that speak a common plugin manifest so teams can run secure, stateful workloads without stitching together networking, scheduling, and lifecycle plumbing themselves.
 
 Runtime-specific behavior lives in signed manifests and their associated artifacts. The core engine stays lean while plugin authors ship the kernels/initramfs overlays and workload processes their runtime requires. Operators decide which manifests to install and must reference one whenever a VM is created.
+
+Together with fledge — the artifact builder — Volant provides a complete solution for building and deploying microVM's with custom applications embedded in initramfs, or with the regular OCI images we are familiar with.
+
+Cloud-init support makes Volant ideal for dev sandboxes, while VFIO passthrough allows for isolation of GPU and AI workloads.
+
+## Batteries Included By Default
+
+Volant ships with sensible defaults out of the box, lowering the barrier to entry while keeping full configurability for power users
+
+However, Volant is built to be modular, scriptable and configurable beyond those defaults, and advanced users can customize it to their own needs.
+
+For instance, the Kestrel agent acts as a robust PID1 and is responsible for setting up the guest environment in multiple scenarios, and also acts as a secure proxy to workloads inside network-isolated VM's over vsock, providing a frictionless path to maximum isolation.
+
+If you require more fine-grained control, it is possible to override the kernel paths and the fledge artifact builder has flags for --no-kernel, --no-init, or --init <path>. Refer to the documentation for more details.
 
 ---
 
@@ -180,9 +197,9 @@ Quick links:
 
 See [ROADMAP.md](ROADMAP.md) for the full vision.
 
-~~**2025 Q3-Q4**: **VFIO GPU passthrough** — Native GPU support for AI/ML workloads~~
-- **2025 Q3-Q4**: PaaS mode, serverless-like workloads, boot from snapshot at ready state
-- **2025 Q3-Q4**: Multi-node clustering
+~~[**2025 Q3-Q4**: **VFIO GPU passthrough**](https://github.com/volantvm/volant/releases/tag/v0.6.0) — Native GPU support for AI/ML workloads~~
+- **2025 Q4**: PaaS mode — serverless-like workloads, boot from snapshot
+- **2025 Q4**: Multi-node clustering support
 
 ---
 
@@ -198,7 +215,8 @@ See [ROADMAP.md](ROADMAP.md) for the full vision.
 
 ## License
 
-**Business Source License 1.1** — Free for non-production use.
+**Business Source License 1.1** — free for personal, educational, and internal use.
+Commercial hosting or resale requires a license from HYPR PTE. LTD.
 Converts to **Apache 2.0** on **October 4, 2029**.
 
 See [LICENSE](LICENSE) for full terms.
