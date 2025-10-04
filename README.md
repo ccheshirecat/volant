@@ -1,30 +1,35 @@
+<p align="center">
+  <img src="banner.png" alt="VOLANT — The Intelligent Execution Cloud"/>
+</p>
+
+<p align="center">
+  <a href="https://github.com/volantvm/volant/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/volantvm/volant/ci.yml?branch=main&style=flat-square&label=tests" alt="Build Status">
+  </a>
+  <a href="https://github.com/volantvm/volant/releases">
+    <img src="https://img.shields.io/github/v/release/volantvm/volant.svg?style=flat-square" alt="Latest Release">
+  </a>
+  <a href="https://golang.org/">
+    <img src="https://img.shields.io/badge/Go-1.22+-black.svg?style=flat-square" alt="Go Version">
+  </a>
+  <a href="https://github.com/volantvm/volant/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/License-BSL_1.1-black.svg?style=flat-square" alt="License">
+  </a>
+</p>
+
+---
+
 # Volant
 
-**Boot microVMs, not containers. Run services, not orchestration.**
+> **The modular microVM orchestration engine.**
 
-Volant is a lightweight microVM orchestrator that solves the "197 MB NGINX" problem. Instead of bloated containers, Volant turns your applications into purpose-built bootable appliances with sub-100ms boot times and minimal memory footprints.
+Volant turns microVMs into a first-class runtime surface. The project ships a control plane, CLI, and agent that speak a common plugin manifest so teams can run secure, stateful workloads without stitching together networking, scheduling, and lifecycle plumbing themselves.
 
----
-
-## The Problem
-
-```bash
-$ docker images nginx:alpine
-REPOSITORY    TAG      IMAGE ID       SIZE
-nginx         alpine   3b25b682ea82   197MB
-
-# For NGINX. A web server. In 2025.
-```
-
-What you *actually* want running:
-- A kernel (~10 MB)
-- The NGINX binary (~1 MB)
-- Your static content
-- **Total: ~12 MB, boots in 80 ms**
+Runtime-specific behavior lives in signed manifests and their associated artifacts. The core engine stays lean while plugin authors ship the kernels/initramfs overlays and workload processes their runtime requires. Operators decide which manifests to install and must reference one whenever a VM is created.
 
 ---
 
-## The Solution
+## Overview
 
 Volant provides:
 
@@ -44,16 +49,33 @@ Volant provides:
 
 ```bash
 # Install Volant toolchain
-curl -fsSL https://volant.sh/install | bash
+curl -fsSL https://get.volantvm.com | bash
 
 # Configure host (bridge network, NAT, systemd)
 sudo volar setup
 
-# Option 1: Use an OCI image (rootfs)
+# Install a pre-built plugin from a manifest URL
+volar plugins install --manifest https://raw.githubusercontent.com/volantvm/caddy-plugin/main/manifest/caddy.json
+
+# Create and run a VM
+volar vms create web --plugin caddy --cpu 2 --memory 512
+volar vms list
+
+# Scale declaratively
+volar deployments create web-cluster --plugin caddy --replicas 5
+```
+
+**Result**: 5 isolated VMs, each with its own kernel and dedicated IP address.
+
+### Build Your Own Plugin
+
+For custom workloads, use `fledge` to build plugins:
+
+```bash
+# Option 1: From an OCI image
 cat > fledge.toml <<EOF
 [plugin]
-name = "nginx"
-version = "1.0.0"
+name = "myapp"
 strategy = "oci_rootfs"
 
 [oci_source]
@@ -61,41 +83,26 @@ image = "docker.io/library/nginx:alpine"
 EOF
 
 fledge build
-volar plugins install --manifest nginx.manifest.json
+volar plugins install --manifest myapp.manifest.json
 
-# Option 2: Build a custom appliance (initramfs)
+# Option 2: Custom initramfs appliance
 cat > fledge.toml <<EOF
 [plugin]
-name = "caddy"
-version = "1.0.0"
+name = "myapp"
 strategy = "initramfs"
 
 [[file_mappings]]
-source = "./caddy_linux_amd64"
-dest = "/usr/local/bin/caddy"
+source = "./mybinary"
+dest = "/usr/local/bin/mybinary"
 mode = 0o755
 
-[[file_mappings]]
-source = "./Caddyfile"
-dest = "/etc/Caddyfile"
-mode = 0o644
-
 [workload]
-entrypoint = ["/usr/local/bin/caddy", "run", "--config", "/etc/Caddyfile"]
+entrypoint = ["/usr/local/bin/mybinary"]
 EOF
 
 fledge build
-volar plugins install --manifest caddy.manifest.json
-
-# Create and run a VM
-volar vms create web --plugin nginx --cpu 2 --memory 512
-volar vms list
-
-# Scale declaratively
-volar deployments create web-cluster --plugin nginx --replicas 5
+volar plugins install --manifest myapp.manifest.json
 ```
-
-**Result**: 5 isolated VMs, each with its own kernel, own IP, <100ms boot time.
 
 ---
 
@@ -203,17 +210,17 @@ See [ROADMAP.md](ROADMAP.md) for the full vision.
 
 ## Community
 
-- 🐙 **GitHub**: [github.com/ccheshirecat/volant](https://github.com/ccheshirecat/volant)
-- 💬 **Discord**: [discord.gg/volant](https://discord.gg/volant) *(coming soon)*
-- 📧 **Email**: [email protected]
+- 🐙 **GitHub**: [github.com/ccheshirecat/volant](https://github.com/volantvm/volant)
+- 💬 **Discord**: *(coming soon)*
+- 📧 **Email**: hello@volantvm.com
 
-**Contributing**: See [docs/7_development/1_contributing.md](docs/7_development/1_contributing.md) *(coming soon)*
+**Contributing**: See [docs/7_development/1_contributing.md](docs/7_development/1_contributing.md)
 
 ---
 
 ## License
 
-**Business Source License 1.1** — Free for non-production use.  
+**Business Source License 1.1** — Free for non-production use.
 Converts to **Apache 2.0** on **October 4, 2029**.
 
 See [LICENSE](LICENSE) for full terms.
@@ -221,5 +228,5 @@ See [LICENSE](LICENSE) for full terms.
 ---
 
 <p align="center">
-  <strong>Volant</strong> — <em>Fast, lean, isolated. The way services should run.</em>
+  <strong>Volant</strong> — <em>Designed for stealth, speed, and scale.</em>
 </p>
