@@ -41,42 +41,8 @@ func (a *App) bootstrapPID1() error {
 		return nil
 	}
 
-	// THE FINAL FIX: Check if we are in Stage 2 (already pivoted)
 	if len(os.Args) > 1 && os.Args[1] == "stage2" {
-		a.log.Printf("PID 1, Stage 2: bootstrap complete. Starting workload.")
-
-		// Mount essential filesystems in Stage 2 - this is where they're actually needed!
-		if err := mountEssential(); err != nil {
-			// If this fails, we can't continue. Log it and halt.
-			a.log.Printf("FATAL: Stage 2 mount essentials failed: %v", err)
-			// A simple way to halt without panicking the kernel is to sleep forever.
-			select {}
-		}
-
-		if err := ensureConsoleTTY(a.log); err != nil {
-			a.log.Printf("warning: console setup failed: %v", err)
-		}
-
-		if err := ensureDBusDaemon(a.log); err != nil {
-			a.log.Printf("warning: %v", err)
-		}
-
-		a.log.Printf("PID 1, Stage 2: Reinforcing mounts for child processes...")
-		if err := unix.Mount("/proc", "/proc", "", unix.MS_BIND|unix.MS_REC, ""); err != nil && !errors.Is(err, unix.EBUSY) {
-			a.log.Printf("FATAL: Stage 2 reinforcing /proc mount failed: %v", err)
-			select {}
-		}
-		if err := unix.Mount("/sys", "/sys", "", unix.MS_BIND|unix.MS_REC, ""); err != nil && !errors.Is(err, unix.EBUSY) {
-			a.log.Printf("FATAL: Stage 2 reinforcing /sys mount failed: %v", err)
-			select {}
-		}
-
-		// Now start the ongoing duties.
-		go reapZombies()
-		go handleSignals(a)
-
-		// Return nil to signal that bootstrapping is done and the app can run.
-		return nil
+		return a.enterStage2(false)
 	}
 
 	// If we're here, it means it's Stage 1. Run the full pivot logic.
@@ -97,7 +63,8 @@ func (a *App) bootstrapPID1Inner() error {
 
 	device := resolveRootfsDevice()
 	if device == "" {
-		return errors.New("rootfs device not specified")
+		a.log.Printf("pid1 bootstrap: no rootfs device detected; remaining on initramfs")
+		return a.enterStage2(true)
 	}
 	if !strings.HasPrefix(device, "/dev/") {
 		device = "/dev/" + device
@@ -127,6 +94,47 @@ func (a *App) bootstrapPID1Inner() error {
 	}
 
 	return nil // Unreachable
+}
+
+func (a *App) enterStage2(fromInitramfs bool) error {
+	if fromInitramfs {
+		a.log.Printf("PID 1, initramfs mode: bootstrap complete without rootfs pivot")
+	} else {
+		a.log.Printf("PID 1, Stage 2: bootstrap complete. Starting workload.")
+	}
+
+	if err := mountEssential(); err != nil {
+		a.log.Printf("FATAL: Stage 2 mount essentials failed: %v", err)
+		select {}
+	}
+
+	if err := ensureConsoleTTY(a.log); err != nil {
+		a.log.Printf("warning: console setup failed: %v", err)
+	}
+
+	if err := ensureDBusDaemon(a.log); err != nil {
+		a.log.Printf("warning: %v", err)
+	}
+
+	if fromInitramfs {
+		a.log.Printf("PID 1, initramfs mode: reinforcing in-place mounts...")
+	} else {
+		a.log.Printf("PID 1, Stage 2: reinforcing mounts for child processes...")
+	}
+
+	if err := unix.Mount("/proc", "/proc", "", unix.MS_BIND|unix.MS_REC, ""); err != nil && !errors.Is(err, unix.EBUSY) {
+		a.log.Printf("FATAL: Stage 2 reinforcing /proc mount failed: %v", err)
+		select {}
+	}
+	if err := unix.Mount("/sys", "/sys", "", unix.MS_BIND|unix.MS_REC, ""); err != nil && !errors.Is(err, unix.EBUSY) {
+		a.log.Printf("FATAL: Stage 2 reinforcing /sys mount failed: %v", err)
+		select {}
+	}
+
+	go reapZombies()
+	go handleSignals(a)
+
+	return nil
 }
 
 func mountInitial() error {
