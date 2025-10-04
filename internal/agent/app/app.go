@@ -1057,7 +1057,7 @@ func (a *App) waitForHealth(parent context.Context, base *url.URL, hc pluginspec
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
-	var ticker = time.NewTicker(500 * time.Millisecond)
+	var ticker = time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 
 	client := &http.Client{Timeout: 5 * time.Second}
