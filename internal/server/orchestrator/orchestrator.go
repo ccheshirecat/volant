@@ -24,6 +24,7 @@ import (
 
 	"github.com/volantvm/volant/internal/pluginspec"
 	"github.com/volantvm/volant/internal/server/db"
+	"github.com/volantvm/volant/internal/server/devicemanager"
 	"github.com/volantvm/volant/internal/server/eventbus"
 	"github.com/volantvm/volant/internal/server/orchestrator/cloudinit"
 	orchestratorevents "github.com/volantvm/volant/internal/server/orchestrator/events"
@@ -189,6 +190,7 @@ func New(params Params) (Engine, error) {
 		launcher:             params.Launcher,
 		network:              params.Network,
 		bus:                  params.Bus,
+		vfioMgr:              devicemanager.NewVFIOManager(params.Logger),
 		instances:            make(map[string]processHandle),
 	}, nil
 }
@@ -206,6 +208,7 @@ type engine struct {
 	launcher             runtime.Launcher
 	network              network.Manager
 	bus                  eventbus.Bus
+	vfioMgr              devicemanager.VFIOManager
 
 	mu         sync.Mutex
 	instances  map[string]processHandle
@@ -590,6 +593,53 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 			cmdArgs[pluginspec.RootFSFSTypeKey] = "ext4"
 		}
 	}
+
+	// Handle VFIO GPU/device passthrough if configured
+	if req.Manifest != nil && req.Manifest.Devices != nil && len(req.Manifest.Devices.PCIPassthrough) > 0 {
+		pciAddrs := req.Manifest.Devices.PCIPassthrough
+		allowlist := req.Manifest.Devices.Allowlist
+
+		e.logger.Info("vfio passthrough requested", "vm", req.Name, "devices", pciAddrs)
+
+		// Validate devices
+		if err := e.vfioMgr.ValidateDevices(pciAddrs, allowlist); err != nil {
+			e.logger.Error("vfio device validation failed", "vm", req.Name, "error", err)
+			if seedDisk != nil {
+				_ = os.Remove(seedDisk.Path)
+			}
+			_ = e.network.CleanupTap(ctx, tapName)
+			e.rollbackCreate(ctx, vmRecord)
+			return nil, fmt.Errorf("device validation failed: %w", err)
+		}
+
+		// Bind devices to vfio-pci driver
+		if err := e.vfioMgr.BindDevices(pciAddrs); err != nil {
+			e.logger.Error("vfio device binding failed", "vm", req.Name, "error", err)
+			if seedDisk != nil {
+				_ = os.Remove(seedDisk.Path)
+			}
+			_ = e.network.CleanupTap(ctx, tapName)
+			e.rollbackCreate(ctx, vmRecord)
+			return nil, fmt.Errorf("device binding failed: %w", err)
+		}
+
+		// Get VFIO group paths for Cloud Hypervisor
+		vfioPaths, err := e.vfioMgr.GetVFIOGroupPaths(pciAddrs)
+		if err != nil {
+			e.logger.Error("vfio group paths failed", "vm", req.Name, "error", err)
+			_ = e.vfioMgr.UnbindDevices(pciAddrs) // Cleanup binding
+			if seedDisk != nil {
+				_ = os.Remove(seedDisk.Path)
+			}
+			_ = e.network.CleanupTap(ctx, tapName)
+			e.rollbackCreate(ctx, vmRecord)
+			return nil, fmt.Errorf("get vfio group paths: %w", err)
+		}
+
+		spec.VFIODevicePaths = vfioPaths
+		e.logger.Info("vfio devices bound", "vm", req.Name, "paths", vfioPaths)
+	}
+
 	e.logger.Info("launch kernel cmdline", "vm", req.Name, "cmdline", spec.KernelCmdline)
 
 	launchCtx := e.launchContext()
@@ -712,6 +762,22 @@ func (e *engine) destroyVM(ctx context.Context, name string, reconcile bool) (*d
 	if seedPath != "" {
 		if err := os.Remove(seedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			e.logger.Debug("remove seed image", "path", seedPath, "error", err)
+		}
+	}
+
+	// Unbind VFIO devices if this VM had GPU passthrough
+	if vmRecord != nil && vmRecord.ID > 0 {
+		// Fetch the VM config to check for device passthrough
+		cfgRepo := e.store.Queries().VMConfigs()
+		if cfgRecord, err := cfgRepo.GetCurrent(ctx, vmRecord.ID); err == nil && cfgRecord != nil {
+			versioned, decodeErr := vmconfig.FromDB(*cfgRecord)
+			if decodeErr == nil && versioned.Config.Manifest != nil && versioned.Config.Manifest.Devices != nil && len(versioned.Config.Manifest.Devices.PCIPassthrough) > 0 {
+				e.logger.Info("unbinding vfio devices", "vm", name, "devices", versioned.Config.Manifest.Devices.PCIPassthrough)
+				if unbindErr := e.vfioMgr.UnbindDevices(versioned.Config.Manifest.Devices.PCIPassthrough); unbindErr != nil {
+					e.logger.Warn("failed to unbind vfio devices", "vm", name, "error", unbindErr)
+					// Don't fail deletion - device cleanup is best-effort
+				}
+			}
 		}
 	}
 

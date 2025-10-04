@@ -55,9 +55,16 @@ type Manifest struct {
 	Workload      Workload          `json:"workload"`
 	CloudInit     *CloudInit        `json:"cloud_init,omitempty"`
 	Network       *NetworkConfig    `json:"network,omitempty"`
+	Devices       *DeviceConfig     `json:"devices,omitempty"`
 	Enabled       bool              `json:"enabled"`
 	OpenAPI       string            `json:"openapi,omitempty"`
 	Labels        map[string]string `json:"labels,omitempty"`
+}
+
+// DeviceConfig holds device passthrough configuration
+type DeviceConfig struct {
+	PCIPassthrough []string `json:"pci_passthrough,omitempty"` // PCI addresses like "0000:01:00.0"
+	Allowlist      []string `json:"allowlist,omitempty"`        // Optional vendor:device patterns like "10de:*"
 }
 
 type RootFS struct {
