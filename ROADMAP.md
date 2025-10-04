@@ -4,7 +4,7 @@ Volant's development priorities and future direction.
 
 ---
 
-## Current State (v0.1)
+## Current State 
 
 **Core functionality is complete:**
 
@@ -12,6 +12,7 @@ Volant's development priorities and future direction.
 - OCI image compatibility (rootfs path)
 - Custom initramfs appliances (performance path)
 - Static IP management with bridge networking
+- Vsock networking
 - Plugin registry and manifest system
 - REST and MCP APIs
 - Deployment orchestration with replica scaling
@@ -20,7 +21,7 @@ Volant's development priorities and future direction.
 
 ---
 
-## Next (v0.2 - Near-term)
+## Next (this or next month)
 
 ### VFIO GPU Passthrough
 
@@ -40,7 +41,7 @@ Enable direct GPU access for AI/ML workloads:
 
 ---
 
-## Future (v0.3+)
+## Future (planned to be in development by EOY)
 
 ### PaaS Mode
 
