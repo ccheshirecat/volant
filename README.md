@@ -143,7 +143,7 @@ volar plugins install --manifest myapp.manifest.json
 │  └───────────────┬───────────────────┘  │
 │                  │                       │
 │  ┌───────────────▼───────────────────┐  │
-│  │     Bridge Network (volant0)      │  │
+│  │     Bridge Network (vbr0)         │  │
 │  └┬────────┬────────┬────────┬───────┘  │
 │   │        │        │        │           │
 │  ┌▼──┐   ┌▼──┐   ┌▼──┐   ┌▼──┐         │
@@ -157,8 +157,8 @@ volar plugins install --manifest myapp.manifest.json
 ```
 
 **Dual-kernel design**:
-- `bzImage-volant` — For rootfs (baked-in initramfs bootloader)
-- `vmlinux-generic` — For custom initramfs (pristine kernel)
+- `bzImage` — For rootfs (baked-in initramfs bootloader)
+- `vmlinux` — For custom initramfs (pristine kernel)
 
 ---
 

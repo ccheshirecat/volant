@@ -29,7 +29,7 @@ The rootfs strategy is the "easy path" for Volant. It allows you to:
 4. Get hardware isolation without changing your application
 
 **How it works**:
-- Volant uses the `bzImage-volant` kernel (includes baked-in initramfs bootloader)
+- Volant uses the `bzImage` kernel (includes baked-in initramfs bootloader)
 - The OCI image is converted to a disk image (`.img` file)
 - At boot, kestrel mounts `/dev/vda`, pivots into it, and starts your workload
 - Your application runs in a real VM with its own kernel
@@ -184,10 +184,10 @@ Volant will:
 1. Allocate a static IP from the pool (e.g., `192.168.127.100`)
 2. Encode the manifest and inject it via kernel cmdline
 3. Launch Cloud Hypervisor with:
-   - `bzImage-volant` kernel
+   - `bzImage` kernel
    - `nginx-rootfs.img` attached as `/dev/vda`
    - 1 CPU core, 512MB RAM (from manifest)
-   - Bridge networking on `volant0`
+   - Bridge networking on `vbr0`
 
 Within 2-5 seconds, your VM will boot and NGINX will be running.
 
@@ -297,14 +297,14 @@ Let's trace the full lifecycle:
      cloud-hypervisor \
        --cpus boot=1 \
        --memory size=512M \
-       --kernel /var/lib/volant/kernel/bzImage-volant \
+       --kernel /var/lib/volant/kernel/bzImage \
        --disk path=/var/lib/volant/plugins/nginx-rootfs.img \
        --net tap=vmtap0,mac=AA:BB:CC:DD:EE:FF \
        --cmdline "volant.manifest=<encoded_manifest> volant.runtime=nginx ..."
      ```
    - Launches the VM
 
-2. **Kernel boots** (bzImage-volant):
+2. **Kernel boots** (bzImage):
    - Loads the baked-in initramfs bootloader
    - Runs the C shim (init.c)
    - C shim mounts `/proc`, `/sys`, `/dev`
@@ -480,7 +480,7 @@ sudo journalctl -u volantd -f
 Common issues:
 - Rootfs image not found (check path in manifest)
 - Checksum mismatch (recalculate with `sha256sum`)
-- Kernel not found (check `/var/lib/volant/kernel/bzImage-volant`)
+- Kernel not found (check `/var/lib/volant/kernel/bzImage`)
 
 ### Application Not Responding
 
@@ -501,7 +501,7 @@ Verify network setup:
 
 ```bash
 # Check bridge exists
-ip addr show volant0
+ip addr show vbr0
 
 # Check IP allocation
 volar vms list

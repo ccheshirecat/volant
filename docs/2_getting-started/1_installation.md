@@ -58,7 +58,7 @@ This script will:
 1. Detect your architecture (x86_64 or aarch64)
 2. Download the latest release binaries (`volantd`, `volar`, `kestrel`)
 3. Install them to `/usr/local/bin`
-4. Download the dual kernels (`bzImage-volant`, `vmlinux-generic`)
+4. Download the dual kernels (`bzImage`, `vmlinux`)
 5. Install kernels to `/var/lib/volant/kernel/`
 6. Download the initramfs bootloader (`volant-initramfs.cpio.gz`)
 7. Install it to `/var/lib/volant/`
@@ -73,7 +73,7 @@ volar --version
 
 # Check kernel files
 ls -lh /var/lib/volant/kernel/
-# Should show bzImage-volant and vmlinux-generic
+# Should show bzImage and vmlinux
 
 # Check initramfs
 ls -lh /var/lib/volant/volant-initramfs.cpio.gz
@@ -116,15 +116,15 @@ sudo chmod +x /usr/local/bin/{volantd,volar,kestrel}
 sudo mkdir -p /var/lib/volant/kernel
 
 # Download kernels
-curl -L "https://github.com/volantvm/volant/releases/download/${VERSION}/bzImage-volant" -o /tmp/bzImage-volant
-curl -L "https://github.com/volantvm/volant/releases/download/${VERSION}/vmlinux-generic" -o /tmp/vmlinux-generic
+curl -L "https://github.com/volantvm/volant/releases/download/${VERSION}/bzImage" -o /tmp/bzImage
+curl -L "https://github.com/volantvm/volant/releases/download/${VERSION}/vmlinux" -o /tmp/vmlinux
 
 # Download initramfs bootloader
 curl -L "https://github.com/volantvm/volant/releases/download/${VERSION}/volant-initramfs.cpio.gz" -o /tmp/volant-initramfs.cpio.gz
 
 # Install
-sudo mv /tmp/bzImage-volant /var/lib/volant/kernel/bzImage-volant
-sudo mv /tmp/vmlinux-generic /var/lib/volant/kernel/vmlinux-generic
+sudo mv /tmp/bzImage /var/lib/volant/kernel/bzImage
+sudo mv /tmp/vmlinux /var/lib/volant/kernel/vmlinux
 sudo mv /tmp/volant-initramfs.cpio.gz /var/lib/volant/volant-initramfs.cpio.gz
 
 # Set permissions
@@ -151,7 +151,7 @@ Configure networking and system services:
 sudo volar setup
 
 # This will:
-# 1. Create the volant0 bridge network
+# 1. Create the vbr0 bridge network
 # 2. Configure NAT for internet access
 # 3. Set up IP forwarding
 # 4. Create systemd service for volantd
@@ -164,12 +164,12 @@ The setup command performs the following:
 
 #### 1. Network Bridge Creation
 
-Creates a Linux bridge (`volant0`) with subnet `192.168.127.0/24`:
+Creates a Linux bridge (`vbr0`) with subnet `192.168.127.0/24`:
 
 ```bash
-sudo ip link add volant0 type bridge
-sudo ip addr add 192.168.127.1/24 dev volant0
-sudo ip link set volant0 up
+sudo ip link add vbr0 type bridge
+sudo ip addr add 192.168.127.1/24 dev vbr0
+sudo ip link set vbr0 up
 ```
 
 #### 2. NAT Configuration
@@ -178,8 +178,8 @@ Enables internet access for VMs via NAT:
 
 ```bash
 sudo iptables -t nat -A POSTROUTING -s 192.168.127.0/24 -j MASQUERADE
-sudo iptables -A FORWARD -i volant0 -j ACCEPT
-sudo iptables -A FORWARD -o volant0 -j ACCEPT
+sudo iptables -A FORWARD -i vbr0 -j ACCEPT
+sudo iptables -A FORWARD -o vbr0 -j ACCEPT
 ```
 
 #### 3. IP Forwarding
@@ -229,10 +229,10 @@ Creates the SQLite database at `/var/lib/volant/volant.db` with all required tab
 ### Check Network Bridge
 
 ```bash
-ip addr show volant0
+ip addr show vbr0
 # Should show: inet 192.168.127.1/24
 
-ip link show volant0
+ip link show vbr0
 # Should show: state UP
 ```
 
@@ -315,15 +315,15 @@ database:
   path: "/var/lib/volant/volant.db"
 
 networking:
-  bridge_name: "volant0"
+  bridge_name: "vbr0"
   subnet: "192.168.127.0/24"
   gateway: "192.168.127.1"
   dhcp_start: "192.168.127.100"
   dhcp_end: "192.168.127.254"
 
 kernel:
-  bzimage_path: "/var/lib/volant/kernel/bzImage-volant"
-  vmlinux_path: "/var/lib/volant/kernel/vmlinux-generic"
+  bzimage_path: "/var/lib/volant/kernel/bzImage"
+  vmlinux_path: "/var/lib/volant/kernel/vmlinux"
   initramfs_path: "/var/lib/volant/volant-initramfs.cpio.gz"
 
 logging:
@@ -362,13 +362,13 @@ newgrp kvm
 Check if the bridge exists and has the correct IP:
 
 ```bash
-ip addr show volant0
+ip addr show vbr0
 ```
 
 Recreate if needed:
 
 ```bash
-sudo ip link del volant0
+sudo ip link del vbr0
 sudo volar setup
 ```
 
@@ -415,12 +415,12 @@ sudo rm /usr/local/bin/{volantd,volar,kestrel}
 sudo rm -rf /var/lib/volant
 
 # Remove bridge network
-sudo ip link del volant0
+sudo ip link del vbr0
 
 # Remove NAT rules (careful if you have other rules)
 sudo iptables -t nat -D POSTROUTING -s 192.168.127.0/24 -j MASQUERADE
-sudo iptables -D FORWARD -i volant0 -j ACCEPT
-sudo iptables -D FORWARD -o volant0 -j ACCEPT
+sudo iptables -D FORWARD -i vbr0 -j ACCEPT
+sudo iptables -D FORWARD -o vbr0 -j ACCEPT
 
 # Remove IP forwarding (only if you don't need it for other purposes)
 sudo sysctl -w net.ipv4.ip_forward=0
@@ -441,3 +441,4 @@ Now that Volant is installed, you're ready to create your first microVM:
 ---
 
 *Installation complete. Let's build something.*
+.*

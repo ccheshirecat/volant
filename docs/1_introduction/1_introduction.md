@@ -1,380 +1,219 @@
-# Introduction to Volant
 
-## The Problem: The 197MB NGINX Container
+**Volant** is a modular microVM orchestration engine — a platform that makes virtualization programmable.
+It ships a compact control plane, CLI, and in-guest agent that share a common manifest format. Each workload runs inside its own microVM with deterministic networking, real resource isolation, and clean lifecycle control.
 
-Something is deeply wrong with modern infrastructure.
+Runtime behavior lives in signed plugin manifests and their artifacts — kernels, initramfs bundles, or rootfs disks — keeping the core minimal while letting plugin authors define their environment precisely.
 
-A simple web server—a single static binary that serves HTTP requests—should not require 197MB of container image bloat. It should not need an entire Ubuntu userland, a package manager, and dozens of libraries it will never use. Yet this is the reality we've accepted as "normal" in the container era.
+Modern infrastructure has drifted into abstraction overload.
+Layers on layers have made simple things complex. **Volant moves the other way** — treating microVMs as first-class runtimes, combining the clarity and security of hardware virtualization with the ergonomics of containers.
+No sidecars. No service meshes. No hidden daemons. Just a single binary and a clear contract between control plane and guest.
 
-The current state of containerization is **bloated, insecure, and inefficient**. Docker images bundle entire operating systems for single-purpose applications. Container "isolation" relies on kernel namespaces and cgroups—sophisticated sandboxes, but still fundamentally shared-kernel environments vulnerable to escape exploits. And orchestration platforms have become so complex that deploying a simple service requires understanding overlay networks, service meshes, and distributed consensus algorithms.
+Volant exists to make infrastructure **predictable again.**
+It unifies two worlds — **compatibility** and **performance** — under one control plane:
 
-**We built Volant to fix this.**
+- **Run existing OCI images** as isolated microVMs for frictionless migration.
+- **Build initramfs-based appliances** for performance-critical workloads.
+
+Both paths share the same manifest, APIs, and networking fabric.
+Volant replaces orchestration sprawl with a single, composable system that does one thing well:
+**turn workloads into deterministic, hardware-isolated machines.**
 
 ---
 
-## The Volant Promise: Two Worlds, One Platform
+## **A Search for Sanity**
 
-Volant is not just another orchestration engine. It's a **bridge between two fundamentally different approaches** to running workloads, unified under a single control plane:
+Something is off with how we run software today.
+We don’t hate containers — they’re indispensable — but somewhere along the way, we lost the plot.
+
+A simple web server shouldn’t weigh **197 MB**. It shouldn’t drag in an entire userland, package manager, and libraries it never touches. Yet that’s become our definition of “lightweight.”
+
+A decade of comfort left us with runtimes that are **bloated, opaque, and fragile** — systems so heavy with tooling that debugging the tooling takes longer than building the software itself.
+
+Namespace “isolation” still shares a kernel.
+Service meshes add layers to fix layers.
+And deploying a basic service now requires consensus algorithms.
+
+**Volant restores sanity** — stripping away unnecessary complexity and returning to a model that is secure by hardware design, transparent by construction, and predictable by default.
+
+---
+
+## **Bridging The Gap**
+
+Volant isn’t another orchestration engine — it’s a **bridge between what’s familiar and what’s better.**
 
 ### For Universal Compatibility: The Rootfs Path
 
 **Run any unmodified Docker/OCI image as a secure, high-performance microVM.**
 
-You have existing containerized applications. Thousands of images in your registry. Years of Dockerfiles and build pipelines. Volant provides an easy, "it just works" path to take those applications and give them **true hardware-level isolation** without rewriting anything.
+Thousands of existing containerized applications can run unmodified inside Cloud Hypervisor microVMs with full hardware isolation and deterministic networking — **no code changes required.**
 
-- Take any OCI image from Docker Hub, GHCR, or your private registry
-- Boot it in a Cloud Hypervisor microVM with a real Linux kernel
-- Get hardware isolation, dedicated networking, and deterministic resource allocation
-- Zero application changes required
-
-This is the **pragmatic path**—for when you need compatibility and migration ease.
+This is the **pragmatic path** — for when you need compatibility and migration ease.
 
 ### For Maximum Performance: The Initramfs Path
 
 **Create hyper-optimized, appliance-style microVMs that boot in milliseconds.**
 
-For those who demand absolute peak performance, Volant offers a "golden path" to build purpose-built microVMs. Package your static binary, your application, your exact dependencies into a tiny initramfs. No extra files. No unused packages. No attack surface beyond what you explicitly include.
+Package your static binary and dependencies into a minimal initramfs — no extra files, no unused packages, no wasted bytes.
 
-- Boot times under 100ms
-- Memory footprints under 20MB
-- Attack surface measured in kilobytes, not gigabytes
-- Reproducible, deterministic builds
-- Perfect for serverless-style workloads with snapshot/restore
+- Boot times under 100 ms
+- Memory footprints under 20 MB
+- Attack surface measured in kilobytes
+- Perfect for serverless-style or high-density workloads
 
-This is the **performance path**—for when you need speed, efficiency, and absolute control.
+This is the **performance path** — for when you need speed, efficiency, and total control.
 
-**Both paths run on the same platform. Same control plane. Same API. Same tooling.**
+**Both paths share the same platform, API, and tooling.**
 
 ---
 
-## What Makes Volant Different
+## **What Makes Volant Different**
+
+### Developer-First Design
+Infrastructure isn’t inherently complex — the experience built around it is. Volant fixes that with a human-first design and frictionless workflows.
 
 ### True Hardware Isolation
-
-Every workload runs in its own Cloud Hypervisor microVM. Not a container. Not a namespace. A real virtual machine with its own kernel, isolated from the host at the CPU instruction level. This is security by hardware design, not by kernel tricks.
+Every workload runs in its own Cloud Hypervisor microVM — not a container, not a namespace — a real VM with its own kernel, isolated from the host at the CPU level. Security by design, not by sandbox trickery.
 
 ### Static, Predictable Networking
-
-No overlay networks. No complex service discovery. Each microVM gets a **static IP address** on a bridge network, allocated from a deterministic pool. Simple. Reliable. Debuggable.
-
-When you create a VM, you know its IP address. When it dies, the IP returns to the pool. No surprises. No magic.
+Each microVM gets a **static IP** from a deterministic pool. No overlays, no discovery layers — simple, reliable, and debuggable.
 
 ### The Dual-Kernel Strategy
+Volant supports both compatibility and performance through two kernels:
+1. **`bzImage`** — Boots OCI/rootfs-based workloads.
+2. **`vmlinux`** — Boots initramfs appliances.
 
-This is one of Volant's key architectural innovations:
-
-1. **`bzImage-volant`** — A kernel with a baked-in initramfs bootloader. Used for **rootfs-based plugins** (OCI images). The bootloader mounts your disk image, pivots into it, and boots your application.
-
-2. **`vmlinux-generic`** — A pristine, blank-slate ELF kernel. Used for **initramfs-based plugins**. The initramfs (your custom-built appliance) is provided at runtime via the `--initramfs` flag.
-
-This dual strategy allows Volant to support both high-compatibility (rootfs) and high-performance (initramfs) workloads with the same control plane.
-
-### Kestrel: The Sophisticated Supervisor
-
-Inside every microVM runs **kestrel**, Volant's intelligent PID 1 supervisor. Kestrel is not a simple init replacement—it's a two-stage boot coordinator:
-
-- **Stage 1 (C shim)**: A minimal C program that sets up the filesystem hierarchy, mounts `/proc`, `/sys`, `/dev`, and hands off to kestrel
-- **Stage 2 (kestrel as PID 1)**: Handles rootfs pivoting (if needed), mounts essential filesystems, starts your workload, and acts as a process supervisor and API proxy
-
-Kestrel reads the plugin manifest from the kernel command line, understands your workload's requirements, and brings it to life. It's the soul of every Volant microVM.
+### Kestrel: The Intelligent Supervisor
+Every microVM runs **kestrel**, Volant’s in-guest PID 1 that handles mounts, pivots, supervision, and manifest-driven orchestration. It’s the heartbeat of every VM.
 
 ---
 
-## The Core Components
+## **The Core Components**
 
-### volantd (The Control Plane)
+### volantd — The Control Plane
+A single Go binary that manages state (SQLite), allocates IPs, orchestrates microVMs, hosts the plugin registry, and exposes REST + MCP APIs.
+No dependencies. No consensus systems. Just one daemon.
 
-The brain of Volant. A single Go binary that:
+### volar — The CLI
+A scriptable tool that creates, lists, stops, and manages microVMs and plugins. Designed for both automation and direct use.
 
-- **Manages state** using an embedded SQLite database (single source of truth)
-- **Allocates IP addresses** from configured subnets with lease tracking
-- **Orchestrates microVMs** with Cloud Hypervisor
-- **Hosts the plugin registry** and enforces enablement policies
-- **Exposes REST and MCP APIs** for external control
-- **Provides event streaming** for observability and automation
-- **Supports deployments** with declarative scaling (Kubernetes-style controllers)
+### kestrel — The In-Guest Agent
+Handles two-stage boot, mounts essential filesystems, supervises workloads, performs health checks, and exposes an optional HTTP proxy.
 
-No external dependencies. No distributed consensus. No configuration sprawl. Just one daemon and a SQLite file.
-
-### volar (The CLI)
-
-Your interface to Volant. A scriptable command-line tool that:
-
-- Creates, lists, stops, and deletes microVMs
-- Manages plugins (install, enable, disable, list)
-- Configures the host (bridge networking, NAT, systemd service)
-- Provides interactive shell access to running VMs
-- Displays logs, events, and health status
-- Integrates with CI/CD pipelines via simple commands
-
-Clean, composable commands that work in scripts or interactively.
-
-### kestrel (The In-Guest Agent)
-
-The supervisor that runs as PID 1 inside each microVM:
-
-- **Two-stage boot process**: C shim → kestrel
-- **Rootfs pivot** (for OCI images): Mounts `/dev/vda`, copies itself, `switch_root` into the disk
-- **Essential mounts**: `/proc`, `/sys`, `/dev`, `/tmp`, `/run`
-- **Workload supervision**: Reads manifest, spawns your entrypoint with proper env/cwd, monitors process groups
-- **HTTP API proxy**: Optionally forwards requests from the control plane to your workload
-- **Health checks**: Validates workload readiness
-- **Debug shell**: Optional serial console access for troubleshooting
-
-Kestrel is battle-tested and handles the complex boot dance so your applications don't have to.
-
-### fledge (The Plugin Builder)
-
-The official toolkit for creating Volant plugins:
-
-- **Declarative TOML configuration** (`fledge.toml`)
-- **Two build strategies**: rootfs (from OCI images) or initramfs (from scratch)
-- **Automatic agent sourcing**: Downloads kestrel from GitHub releases
-- **File mapping system**: FHS-aware permissions, custom overlays
-- **Reproducible builds**: Deterministic timestamps, checksums
-- **CI/CD ready**: Perfect for GitHub Actions workflows
-
-Fledge is the "compiler" for the Volant ecosystem. You describe what you want; fledge builds it.
+### fledge — The Plugin Builder
+Builds rootfs- or initramfs-based plugins from declarative configs. Reproducible, CI/CD-friendly, and minimal by default.
 
 ---
 
-## The Plugin Ecosystem
+## **The Plugin Ecosystem**
 
-Volant is **plugin-first**. The core engine knows nothing about browsers, databases, or AI models. All runtime-specific logic lives in **plugins**, which are defined by manifests.
-
-A plugin manifest is a JSON file that declares:
-
-```json
-{
-  "schema_version": "1.0",
-  "name": "caddy",
-  "version": "0.1.0",
-  "runtime": "caddy",
-  "enabled": true,
-  "initramfs": {
-    "url": "/path/to/plugin.cpio.gz",
-    "checksum": "sha256:abc123..."
-  },
-  "resources": {
-    "cpu_cores": 1,
-    "memory_mb": 512
-  },
-  "workload": {
-    "type": "http",
-    "entrypoint": ["/usr/bin/caddy", "run", "--config", "/etc/caddy/Caddyfile"],
-    "base_url": "http://127.0.0.1:80",
-    "env": {
-      "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-    }
-  },
-  "health_check": {
-    "endpoint": "/",
-    "timeout_ms": 10000
-  }
-}
-```
-
-The control plane:
-- Stores the manifest in SQLite
-- Validates it against the schema
-- Enforces enablement (disabled plugins can't be used)
-- Injects it into the VM via kernel cmdline (base64-encoded, gzipped)
-
-The agent (kestrel):
-- Reads the manifest from `/proc/cmdline`
-- Configures the environment
-- Starts the workload
-- Performs health checks
-
-**Plugins are self-contained.** Each manifest references its own artifacts (initramfs, rootfs, additional disks). Plugin authors can distribute their work independently, and users install them with a single command.
+Volant is **plugin-first.**
+The core engine is generic; runtime-specific logic lives in manifests that define resources, entrypoints, and artifacts.
+Manifests are validated, stored in SQLite, and injected into VMs at boot — self-contained, reproducible, and portable.
 
 ---
 
-## Real-World Use Cases
+## **Real-World Use Cases**
 
-### 1. **Isolated Browser Automation**
-
-Run headless Chrome/Firefox instances in hardware-isolated microVMs. Each session gets its own kernel, filesystem, and network stack. No shared state. No cross-contamination. Perfect for security-sensitive scraping or testing.
-
-### 2. **AI/ML Inference Workloads**
-
-Deploy ML models in microVMs with GPU/VFIO passthrough (coming soon). Isolation prevents model theft or data leakage. Snapshot/restore enables instant cold-start for serverless-style inference.
-
-### 3. **Multi-Tenant Development Environments**
-
-Give each developer their own isolated VM with their preferred tools pre-installed. No containers fighting over ports. No Docker-in-Docker hacks. Just real VMs.
-
-### 4. **Secure CI/CD Runners**
-
-Run untrusted build jobs in disposable microVMs. Full isolation. Clean slate every time. No risk of escape exploits compromising your build infrastructure.
-
-### 5. **Edge Computing Nodes**
-
-Deploy lightweight microVMs on edge devices. Minimal resource overhead. Fast boot times. Deterministic behavior. Perfect for IoT gateways and edge analytics.
-
-### 6. **Protocol Bridges and Proxies**
-
-Run specialized network services (VPN endpoints, protocol translators, API gateways) in isolated VMs. Each service gets its own dedicated network interface.
+1. **Isolated Browser Automation** — Hardware-level sandboxing for headless browsers.
+2. **AI/ML Inference** — Secure, snapshot-ready GPU workloads.
+3. **Multi-Tenant Dev Environments** — True isolation without Docker-in-Docker.
+4. **Secure CI/CD Runners** — Disposable build VMs.
+5. **Edge Nodes** — Lightweight, deterministic execution at the edge.
+6. **Protocol Bridges** — Dedicated VMs for networking and gateway tasks.
 
 ---
 
-## Who Should Use Volant?
+## **Who Should Use Volant**
 
-Volant is built for **engineers who demand control, performance, and security**:
-
-- **Platform engineers** building internal developer platforms or PaaS offerings
-- **Security teams** requiring hardware-level isolation for sensitive workloads
-- **AI infrastructure engineers** orchestrating GPU workloads with deterministic resource allocation
-- **Plugin authors** productizing specialized runtimes (browsers, databases, custom interpreters)
-- **Anyone tired of container bloat** who wants a leaner, faster, more secure alternative
-
-If you've ever thought "this container is way too big for what it does" or "I wish I had real isolation without Kubernetes complexity," Volant is for you.
+Engineers who demand **control, performance, and security** — from platform teams to AI infra engineers, plugin authors, and anyone tired of container bloat.
 
 ---
 
-## What Volant Is Not
+## **What Volant Is Not**
 
-Let's be clear about what Volant doesn't try to be:
-
-- **Not a Kubernetes replacement**: Volant is focused on single-node or small-cluster orchestration. No distributed control plane. No etcd. If you need multi-datacenter pod scheduling, use Kubernetes.
-
-- **Not a container runtime**: Volant runs microVMs, not containers. VMs boot slower than containers (though initramfs boots are under 100ms), but you get real hardware isolation.
-
-- **Not a cloud platform**: Volant is infrastructure software you run yourself. No SaaS. No vendor lock-in. You control the data and the deployment.
-
-- **Not magic**: Volant makes intelligent tradeoffs. It prioritizes simplicity, determinism, and security over absolute maximum density. You won't pack 1000 VMs on a single host like you would with containers.
+- **Not Kubernetes** — Focused on single-node or small-cluster orchestration.
+- **Not a Container Runtime** — Runs VMs, not namespaces.
+- **Not a Cloud Platform** — You own the data and deployment.
+- **Not Magic** — Prioritizes simplicity and determinism over extreme density.
 
 ---
 
-## Core Principles
+## **Core Principles**
 
-### 1. Hardware Isolation as a Primitive
-
-Namespaces and cgroups are useful, but they're not real isolation. Volant embraces hardware virtualization as the foundation. Every workload gets its own kernel. This is security by design.
-
-### 2. Simplicity Over Cleverness
-
-SQLite instead of distributed databases. Static IP allocation instead of overlay networks. Kernel cmdline for configuration instead of complex service discovery. Simple, debuggable, predictable.
-
-### 3. Plugin-First Architecture
-
-The core engine stays lean. Domain-specific logic lives in plugins. This keeps Volant maintainable and extensible without becoming a monolith.
-
-### 4. Developer Experience Matters
-
-Good defaults. Clear error messages. Readable logs. Scriptable CLI. No magic incantations. Tools should work the way you expect.
-
-### 5. Security Without Compromise
-
-Hardware isolation. Reproducible builds. Checksum verification. Minimal attack surface. Security is not an afterthought; it's the foundation.
+1. **Hardware Isolation as a Primitive** — Every workload gets its own kernel.
+2. **Simplicity Over Cleverness** — Static IPs, SQLite, and direct config over abstractions.
+3. **Plugin-First Architecture** — Extensible without bloat.
+4. **Developer Experience Matters** — Good defaults, clear logs, predictable tools.
+5. **Security Without Compromise** — Reproducible builds, verified artifacts, minimal surface.
 
 ---
 
-## Performance Characteristics
+## **Performance Characteristics**
 
-### Rootfs Path (OCI Images)
-- **Boot time**: 2-5 seconds (cold start with disk mount and pivot)
-- **Memory overhead**: ~50MB base + workload
-- **Disk**: Variable (depends on OCI image size)
-- **Use case**: Compatibility, quick migration from Docker
+| Mode | Boot Time | Memory | Disk | Use Case |
+|------|------------|--------|-------|-----------|
+| **Rootfs (OCI)** | 2–5 s | ~50 MB + workload | Variable | Compatibility |
+| **Initramfs** | 50–150 ms | 10–20 MB + workload | 5–50 MB | Performance |
 
-### Initramfs Path (Custom Appliances)
-- **Boot time**: 50-150ms (from power-on to workload start)
-- **Memory overhead**: 10-20MB base + workload
-- **Disk**: 5-50MB (typical appliance size)
-- **Use case**: Performance, serverless, high-density deployments
-
-Both paths benefit from:
-- **Zero network setup time** (static IPs pre-assigned)
-- **Snapshot/restore** for instant resume
-- **Deterministic resource allocation** (dedicated CPU cores, fixed memory)
+Both paths support snapshot/restore and deterministic resource allocation.
 
 ---
 
-## The Technology Stack
+## **Technology Stack**
 
-**Hypervisor**: Cloud Hypervisor (KVM-based, written in Rust)
-**Control Plane**: Go 1.22+
-**Database**: SQLite (embedded, no external services)
-**Agent**: Go (compiled to static binary, included in initramfs)
-**C Shim**: Minimal init (compiled with gcc, <10KB)
-**Networking**: Linux bridge + static IPAM
-**Build Tools**: fledge (Go), skopeo, umoci, busybox
+**Hypervisor:** Cloud Hypervisor (Rust)
+**Control Plane:** Go 1.22+
+**Database:** SQLite
+**Agent:** Go (static binary)
+**C Shim:** Minimal init < 10 KB
+**Networking:** Linux bridge + static IPAM
+**Build Tools:** fledge, skopeo, umoci, busybox
 
-No external dependencies beyond Linux, KVM, and standard system tools.
+No external dependencies beyond Linux + KVM.
 
 ---
 
-## Get Started
+## **Get Started**
 
-Enough philosophy. Let's build something.
-
-**Next Steps:**
-
-1. **[Installation](2_getting-started/1_installation.md)** — Install Volant in under 60 seconds
-2. **[Quick Start: Rootfs](2_getting-started/2_quick-start-rootfs.md)** — Run your first OCI image as a microVM
-3. **[Quick Start: Initramfs](2_getting-started/3_quick-start-initramfs.md)** — Build and deploy a hyper-optimized appliance
+1. **[Installation](2_getting-started/1_installation.md)** — Install in under 60 seconds.
+2. **[Quick Start: Rootfs](2_getting-started/2_quick-start-rootfs.md)** — Run your first OCI image.
+3. **[Quick Start: Initramfs](2_getting-started/3_quick-start-initramfs.md)** — Build and deploy an appliance.
 
 **For Plugin Authors:**
-
-- **[Plugin Development Introduction](4_plugin-development/1_introduction.md)** — Understand the two build strategies
-- **[Authoring Guide: Rootfs](4_plugin-development/2_authoring-guide-rootfs.md)** — Convert OCI images to Volant plugins
-- **[Authoring Guide: Initramfs](4_plugin-development/3_authoring-guide-initramfs.md)** — Build custom appliances with fledge
+- **[Plugin Development Intro](4_plugin-development/1_introduction.md)**
+- **[Rootfs Guide](4_plugin-development/2_authoring-guide-rootfs.md)**
+- **[Initramfs Guide](4_plugin-development/3_authoring-guide-initramfs.md)**
 
 **For Deep Divers:**
-
-- **[Architecture Overview](5_architecture/1_overview.md)** — System components and data flow
-- **[Boot Process](5_architecture/2_boot-process.md)** — The deep magic of dual kernels and two-stage boot
-- **[Control Plane Internals](5_architecture/3_control-plane.md)** — How volantd works under the hood
-
----
-
-## Community and Support
-
-Volant is open source under the **Business Source License 1.1**, which converts to **Apache License 2.0** on October 4, 2029.
-
-- **GitHub**: [github.com/volantvm/volant](https://github.com/volantvm/volant)
-- **Documentation**: [docs.volantvm.com](https://docs.volantvm.com)
-- **Issues**: [github.com/volantvm/volant/issues](https://github.com/volantvm/volant/issues)
-- **Discussions**: [github.com/volantvm/volant/discussions](https://github.com/volantvm/volant/discussions)
-
-We ship fast. Volant is less than a month old and already supports:
-- Dual-kernel boot strategies
-- OCI image compatibility
-- Custom initramfs appliances
-- Static IP management
-- Plugin registry and manifests
-- REST and MCP APIs
-- Deployment orchestration
-- Event streaming
-
-**Coming Soon** (next 1-3 months):
-- VFIO GPU passthrough for AI/ML workloads
-- Snapshot/restore for instant cold-starts
-- Multi-host clustering (simple, not distributed consensus)
-
-**Coming Later** (3-6 months):
-- Integrated PaaS platform (think Vercel/Dokploy but for any workload)
-- Serverless-style function execution with snapshot warm-up
-- Advanced networking (multiple bridges, VLANs, policy routing)
+- **[Architecture Overview](5_architecture/1_overview.md)**
+- **[Boot Process](5_architecture/2_boot-process.md)**
+- **[Control Plane Internals](5_architecture/3_control-plane.md)**
 
 ---
 
-## The Bottom Line
+## **Community and Support**
 
-Volant is **microVM orchestration done right**.
+Volant is open source under **Business Source License 1.1**, converting to **Apache 2.0** on Oct 4, 2029.
 
-- **Two paths** (rootfs for compatibility, initramfs for performance)
-- **One platform** (unified control plane, API, tooling)
-- **Real isolation** (hardware virtualization, not kernel tricks)
-- **Simple architecture** (SQLite, static IPs, no magic)
-- **Plugin-first** (extensible without bloat)
-- **Production-ready** (battle-tested components, comprehensive docs)
+- **GitHub:** [github.com/volantvm/volant](https://github.com/volantvm/volant)
+- **Docs:** [docs.volantvm.com](https://docs.volantvm.com)
+- **Issues:** [github.com/volantvm/volant/issues](https://github.com/volantvm/volant/issues)
+- **Discussions:** [github.com/volantvm/volant/discussions](https://github.com/volantvm/volant/discussions)
 
-Stop accepting bloated containers and shared-kernel sandboxes as the only option.
+We ship fast. Volant already supports dual-kernel boot, OCI & initramfs paths, static IP management, plugin registry, REST/MCP APIs, deployments, and event streams.
+
+**Coming Soon (1–3 months):** GPU passthrough, snapshots, and multi-host clustering.
+**Coming Later (3–6 months):** integrated PaaS, snapshot-warmed serverless, advanced networking.
+
+---
+
+## **The Bottom Line**
+
+Volant is **microVM orchestration done right** — simple, secure, and production‑ready.
+Two paths. One platform. Real isolation. Predictable performance. Plugin‑first design.
 
 **Build the runtime you need, without rebuilding the control plane.**
 
 ---
 
-*Volant — The Intelligent Execution Cloud*
+*Volant — The Intelligent Execution Cloud*

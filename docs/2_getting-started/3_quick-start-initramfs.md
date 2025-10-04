@@ -29,7 +29,7 @@ The initramfs strategy is the "performance path" for Volant. It allows you to:
 4. Achieve millisecond-level boot times
 
 **How it works**:
-- Volant uses the `vmlinux-generic` kernel (pristine, no baked-in initramfs)
+- Volant uses the `vmlinux` kernel (pristine, no baked-in initramfs)
 - Your custom initramfs is passed via `--initramfs` flag
 - At boot, the kernel unpacks your initramfs into RAM
 - Kestrel runs directly from the initramfs (no pivot, no rootfs)
@@ -368,14 +368,14 @@ The initramfs path is **20-50x faster to boot** and uses **60-70% less memory**.
      cloud-hypervisor \
        --cpus boot=1 \
        --memory size=512M \
-       --kernel /var/lib/volant/kernel/vmlinux-generic \
+       --kernel /var/lib/volant/kernel/vmlinux \
        --initramfs /root/caddy-plugin/plugin.cpio.gz \
        --net tap=vmtap0,mac=AA:BB:CC:DD:EE:FF \
        --cmdline "volant.manifest=<encoded> ..."
      ```
    - Launches the VM
 
-2. **Kernel boots** (vmlinux-generic):
+2. **Kernel boots** (vmlinux):
    - Loads the initramfs from the `--initramfs` parameter
    - Unpacks it directly into RAM (`/`)
    - Runs `/sbin/init` (our C shim)

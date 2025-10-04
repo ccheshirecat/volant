@@ -22,7 +22,7 @@ A deep dive into how Volant orchestrates microVMs.
 │  └────────────────────┬───────────────────────────────────┘  │
 │                       │                                       │
 │  ┌────────────────────▼───────────────────────────────────┐  │
-│  │              Bridge Network (volant0)                  │  │
+│  │              Bridge Network (vbr0)                  │  │
 │  │            192.168.127.0/24 + NAT                      │  │
 │  └───┬────────────┬────────────┬────────────┬─────────────┘  │
 │      │            │            │            │                 │
@@ -209,11 +209,11 @@ volar deployments delete <name>
 
 Volant maintains **two kernels** to support both build strategies:
 
-### 1. bzImage-volant (For Rootfs)
+### 1. bzImage (For Rootfs)
 
 **Type**: bzImage (compressed kernel)
 **Contains**: Baked-in initramfs bootloader
-**Location**: `/var/lib/volant/kernel/bzImage-volant`
+**Location**: `/var/lib/volant/kernel/bzImage`
 **Size**: ~10MB
 
 **Initramfs contents**:
@@ -232,11 +232,11 @@ Volant maintains **two kernels** to support both build strategies:
 
 **Used for**: OCI images, any rootfs-based plugins
 
-### 2. vmlinux-generic (For Initramfs)
+### 2. vmlinux (For Initramfs)
 
 **Type**: vmlinux (uncompressed ELF kernel)
 **Contains**: Nothing (pristine kernel)
-**Location**: `/var/lib/volant/kernel/vmlinux-generic`
+**Location**: `/var/lib/volant/kernel/vmlinux`
 **Size**: ~30MB (uncompressed)
 
 **Boot flow**:
@@ -264,7 +264,7 @@ Volant uses **Linux bridge networking** with static IP allocation—no overlay n
 │                      Host Machine                        │
 │                                                          │
 │  ┌────────────────────────────────────────┐             │
-│  │         volant0 (Bridge)                │             │
+│  │         vbr0 (Bridge)                │             │
 │  │       192.168.127.1/24                  │             │
 │  └─┬────┬────┬────┬────┬───────────────────┘             │
 │    │    │    │    │    │                                 │
@@ -287,9 +287,9 @@ Volant uses **Linux bridge networking** with static IP allocation—no overlay n
 
 1. **Bridge Creation** (`volar setup`):
    ```bash
-   ip link add volant0 type bridge
-   ip addr add 192.168.127.1/24 dev volant0
-   ip link set volant0 up
+   ip link add vbr0 type bridge
+   ip addr add 192.168.127.1/24 dev vbr0
+   ip link set vbr0 up
    ```
 
 2. **Per-VM TAP Devices**:
@@ -305,8 +305,8 @@ Volant uses **Linux bridge networking** with static IP allocation—no overlay n
 4. **NAT for Internet Access**:
    ```bash
    iptables -t nat -A POSTROUTING -s 192.168.127.0/24 -j MASQUERADE
-   iptables -A FORWARD -i volant0 -j ACCEPT
-   iptables -A FORWARD -o volant0 -j ACCEPT
+   iptables -A FORWARD -i vbr0 -j ACCEPT
+   iptables -A FORWARD -o vbr0 -j ACCEPT
    ```
 
 5. **No DNS/DHCP Server** (by default):
@@ -372,7 +372,7 @@ Content-Type: application/json
    cloud-hypervisor \
      --cpus boot=2 \
      --memory size=1024M \
-     --kernel /var/lib/volant/kernel/bzImage-volant \
+     --kernel /var/lib/volant/kernel/bzImage \
      --disk path=/var/lib/volant/plugins/nginx-rootfs.img \
      --net tap=vmtap-nginx-demo,mac=52:54:00:12:34:56 \
      --serial tty \
