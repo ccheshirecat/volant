@@ -310,7 +310,7 @@ done
 | linux | arm64 |  Full support |
 | darwin | amd64 |  Build only |
 | darwin | arm64 |  Build only |
-| windows | amd64 | ❌ Not supported |
+| windows | amd64 |  Not supported |
 
 **Note**: Runtime support is Linux-only. macOS and Windows can build binaries but cannot run volantd.
 

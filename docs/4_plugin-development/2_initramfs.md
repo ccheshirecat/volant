@@ -25,7 +25,7 @@ A deep dive into creating lightweight, fast-booting initramfs plugins with **fle
 - Edge computing workloads
 - CI/CD test environments
 
-❌ **Not suitable for**:
+ **Not suitable for**:
 - Databases requiring persistence
 - Applications that write large amounts of data
 - Workloads requiring >100 MB of dependencies

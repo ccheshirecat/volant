@@ -36,10 +36,10 @@ The initramfs strategy is the "performance path" for Volant. It allows you to:
 - Your application starts immediately
 
 **Key benefits**:
-- ⚡ **Boot time**: 50-150ms (vs. 2-5s for rootfs)
-- 📦 **Size**: 5-50MB (vs. 200MB+ for OCI images)
-- 🛡️ **Attack surface**: Minimal (only what you include)
-- 🔁 **Reproducible**: Deterministic builds with checksums
+-  **Boot time**: 50-150ms (vs. 2-5s for rootfs)
+-  **Size**: 5-50MB (vs. 200MB+ for OCI images)
+-  **Attack surface**: Minimal (only what you include)
+-  **Reproducible**: Deterministic builds with checksums
 
 ---
 
@@ -167,8 +167,8 @@ sudo fledge build -c fledge.toml -o plugin.cpio.gz
  Init compiled
 
 ⏳ Preparing file mappings...
-  📁 payload/caddy → /usr/bin/caddy (executable)
-  📄 payload/Caddyfile → /etc/caddy/Caddyfile
+   payload/caddy → /usr/bin/caddy (executable)
+   payload/Caddyfile → /etc/caddy/Caddyfile
  Mappings prepared
 
 ⏳ Building initramfs...

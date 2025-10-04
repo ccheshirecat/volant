@@ -149,7 +149,7 @@ volar plugins install --manifest myapp.manifest.json
 │  ┌▼──┐   ┌▼──┐   ┌▼──┐   ┌▼──┐         │
 │  │VM1│   │VM2│   │VM3│   │VMN│         │
 │  │┌──┐   │┌──┐   │┌──┐   │┌──┐         │
-│  ││🦅│   ││🦅│   ││🦅│   ││🦅│         │
+│  │││   │││   │││   │││         │
 │  │└──┘   │└──┘   │└──┘   │└──┘         │
 │  └───┘   └───┘   └───┘   └───┘         │
 │   kestrel agents (PID 1)                │
@@ -220,9 +220,9 @@ See [ROADMAP.md](ROADMAP.md) for the full vision.
 
 ## Community
 
-- 🐙 **GitHub**: [github.com/volantvm/volant](https://github.com/volantvm/volant)
-- 💬 **Discord**: *(coming soon)*
-- 📧 **Email**: hello@volantvm.com
+-  **GitHub**: [github.com/volantvm/volant](https://github.com/volantvm/volant)
+-  **Discord**: *(coming soon)*
+-  **Email**: hello@volantvm.com
 
 **Contributing**: See [docs/7_development/1_contributing.md](docs/7_development/1_contributing.md)
 

@@ -291,11 +291,11 @@ vsock (Virtual Socket) is a host-guest communication mechanism that **bypasses t
 ### When to Use vsock
 
 **Perfect for**:
-- 🔒 **High-security workloads** — PCI-DSS, HIPAA, zero-trust
-- 🏦 **Financial services** — Payment processing, trading systems
-- 🔐 **Secrets management** — Key vaults, HSM proxies
-- 🛡️ **Untrusted code** — Sandboxed AI models, user-submitted code
-- 🎯 **Compliance requirements** — Air-gapped environments
+-  **High-security workloads** — PCI-DSS, HIPAA, zero-trust
+-  **Financial services** — Payment processing, trading systems
+-  **Secrets management** — Key vaults, HSM proxies
+-  **Untrusted code** — Sandboxed AI models, user-submitted code
+-  **Compliance requirements** — Air-gapped environments
 
 **NOT ideal for**:
 - Development/testing (harder to debug)

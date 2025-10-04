@@ -42,7 +42,7 @@ A living document of where Volant is today and where it's headed.
 
 ## Near-Term (v0.2-0.3 - Polish)
 
-### 🔨 Hardening & Stability
+###  Hardening & Stability
 
 - **Comprehensive Testing**
   - Unit tests for all components
@@ -67,7 +67,7 @@ A living document of where Volant is today and where it's headed.
   - Audit logging for all control plane actions
   - SELinux/AppArmor profiles
 
-### 🎯 User Experience
+###  User Experience
 
 - **Web Dashboard** (Optional)
   - Real-time VM status view
@@ -145,10 +145,10 @@ A living document of where Volant is today and where it's headed.
    - Automatic driver version matching
 
 **Use Cases**:
-- 🧠 **ML Inference**: Serve models with NVIDIA TensorRT
-- 🎮 **Cloud Gaming**: Stream games via Moonlight/Parsec
-- 🎬 **Video Encoding**: FFmpeg with GPU acceleration
-- 🖥️ **Virtual Desktops**: GPU-accelerated VDI
+-  **ML Inference**: Serve models with NVIDIA TensorRT
+-  **Cloud Gaming**: Stream games via Moonlight/Parsec
+-  **Video Encoding**: FFmpeg with GPU acceleration
+-  **Virtual Desktops**: GPU-accelerated VDI
 
 **Challenges**:
 - IOMMU group isolation (may require ACS override patches)
@@ -301,14 +301,14 @@ POST /api/v1/apps
 - DNS management at scale
 
 **Use Cases**:
-- 🌐 **Web Apps**: Deploy Node.js/Python/Ruby apps
-- 🤖 **APIs**: Microservices architecture
-- ⚙️ **Background Workers**: Celery, Sidekiq, etc.
-- 🗄️ **Databases**: Postgres, Redis, etc. (with persistent volumes)
+-  **Web Apps**: Deploy Node.js/Python/Ruby apps
+-  **APIs**: Microservices architecture
+-  **Background Workers**: Celery, Sidekiq, etc.
+-  **Databases**: Postgres, Redis, etc. (with persistent volumes)
 
 ---
 
-### 📡 Networking Enhancements
+###  Networking Enhancements
 
 - **Service Discovery**
   - DNS-based service discovery (CoreDNS)
@@ -328,7 +328,7 @@ POST /api/v1/apps
 
 ---
 
-### 💾 Storage
+###  Storage
 
 - **Persistent Volumes**
   - Attach additional block devices
@@ -344,28 +344,28 @@ POST /api/v1/apps
 
 ## Long-Term (v1.0+ - Ecosystem)
 
-### 🌍 Multi-Node Clustering
+###  Multi-Node Clustering
 
 - Distributed control plane (etcd/Raft)
 - VM migration between hosts
 - Global load balancing
 - Centralized monitoring and logging
 
-### 🔌 Plugin Ecosystem
+###  Plugin Ecosystem
 
 - Official plugin marketplace
 - Verified publisher program
 - One-click plugin installation
 - Automated security scanning
 
-### 🧩 Integrations
+###  Integrations
 
 - Kubernetes CRI/OCI runtime
 - Terraform provider
 - Ansible modules
 - Prometheus exporters
 
-### 📊 Enterprise Features
+###  Enterprise Features
 
 - Multi-tenancy with RBAC
 - Billing and metering
@@ -376,7 +376,7 @@ POST /api/v1/apps
 
 ## Research & Experiments
 
-### 🔬 Bleeding Edge
+###  Bleeding Edge
 
 - **WebAssembly Support**: Run Wasm modules in microVMs
 - **Confidential Computing**: SEV/TDX for encrypted VMs
@@ -427,9 +427,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Questions?
 
-- 📧 Email: [email protected]
-- 💬 Discord: [discord.gg/volant](https://discord.gg/volant)
-- 🐙 GitHub: [github.com/ccheshirecat/volant](https://github.com/ccheshirecat/volant)
+-  Email: [email protected]
+-  Discord: [discord.gg/volant](https://discord.gg/volant)
+-  GitHub: [github.com/ccheshirecat/volant](https://github.com/ccheshirecat/volant)
 
 ---
 
