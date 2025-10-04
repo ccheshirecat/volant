@@ -220,7 +220,7 @@ See [ROADMAP.md](ROADMAP.md) for the full vision.
 
 ## Community
 
-- 🐙 **GitHub**: [github.com/ccheshirecat/volant](https://github.com/volantvm/volant)
+- 🐙 **GitHub**: [github.com/volantvm/volant](https://github.com/volantvm/volant)
 - 💬 **Discord**: *(coming soon)*
 - 📧 **Email**: hello@volantvm.com
 
