@@ -1808,7 +1808,7 @@ func sanitizeHostname(name string) string {
 }
 
 func buildKernelCmdline(ip, gateway, netmask, hostname, extra string) string {
-	base := fmt.Sprintf("console=ttyS0 reboot=k panic=1 ip=%s::%s:%s:%s:eth0:off", ip, gateway, netmask, hostname)
+	base := fmt.Sprintf("console=ttyS0 reboot=k panic=1 quiet loglevel=1 i8042.noaux i8042.nokbd pci=lastbus=0 ip=%s::%s:%s:%s:eth0:off", ip, gateway, netmask, hostname)
 	extra = strings.TrimSpace(extra)
 	if extra == "" {
 		return base

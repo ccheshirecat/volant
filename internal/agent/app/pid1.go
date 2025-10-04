@@ -204,7 +204,7 @@ func waitForDevice(path string, timeout time.Duration) error {
 		if time.Now().After(deadline) {
 			return fmt.Errorf("device %s not found", path)
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
