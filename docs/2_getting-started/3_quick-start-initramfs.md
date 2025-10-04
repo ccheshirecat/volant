@@ -59,8 +59,8 @@ We'll build a Caddy web server that:
 Create a project directory:
 
 ```bash
-mkdir -p ~/caddy-plugin/{payload,manifest}
-cd ~/caddy-plugin
+mkdir -p ~/initramfs-plugin-example/{payload,manifest}
+cd ~/initramfs-plugin-example
 ```
 
 ### Download Caddy Binary
@@ -192,7 +192,7 @@ file plugin.cpio.gz
 ```bash
 mkdir /tmp/inspect
 cd /tmp/inspect
-zcat ~/caddy-plugin/plugin.cpio.gz | cpio -idmv
+zcat ~/initramfs-plugin-example/plugin.cpio.gz | cpio -idmv
 
 ls -la
 # You'll see:
@@ -218,7 +218,7 @@ Create `manifest/caddy.json`:
   "runtime": "caddy",
   "enabled": true,
   "initramfs": {
-    "url": "/root/caddy-plugin/plugin.cpio.gz",
+    "url": "/root/initramfs-plugin-example/plugin.cpio.gz",
     "checksum": "cef98fd5798ce875631aa0c98613fe48005a892aac8fb6ee81535945ebb0aa09"
   },
   "resources": {
@@ -369,7 +369,7 @@ The initramfs path is **20-50x faster to boot** and uses **60-70% less memory**.
        --cpus boot=1 \
        --memory size=512M \
        --kernel /var/lib/volant/kernel/vmlinux \
-       --initramfs /root/caddy-plugin/plugin.cpio.gz \
+       --initramfs /root/initramfs-plugin-example/plugin.cpio.gz \
        --net tap=vmtap0,mac=AA:BB:CC:DD:EE:FF \
        --cmdline "volant.manifest=<encoded> ..."
      ```
@@ -407,7 +407,7 @@ The initramfs path is **20-50x faster to boot** and uses **60-70% less memory**.
 Let's formalize the directory structure for plugin authoring:
 
 ```
-caddy-plugin/
+initramfs-plugin-example/
 ├── fledge.toml              # Fledge build configuration
 ├── manifest/
 │   └── caddy.json           # Plugin manifest
@@ -525,7 +525,7 @@ jobs:
 Users can install your plugin directly from the release:
 
 ```bash
-volar plugins install --manifest https://github.com/you/caddy-plugin/releases/download/v0.1.0/caddy.json
+volar plugins install --manifest https://github.com/you/initramfs-plugin-example/releases/download/v0.1.0/caddy.json
 ```
 
 Volant will download the initramfs from the URL in the manifest and verify the checksum.
@@ -698,7 +698,7 @@ Now you have both paths mastered—compatibility (rootfs) and performance (initr
 ## Next Steps
 
 - **[Plugin Development Guide](../4_plugin-development/1_overview.md)** — Learn to build production plugins with fledge
-- **[caddy-plugin](https://github.com/volantvm/caddy-plugin)** — Study the canonical example with CI/CD
+- **[initramfs-plugin-example](https://github.com/volantvm/initramfs-plugin-example)** — Study the canonical example with CI/CD
 - **[Scaling Guide](../3_guides/3_scaling.md)** — Deploy multiple VMs with one command
 
 ---

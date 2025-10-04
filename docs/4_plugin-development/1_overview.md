@@ -2,7 +2,7 @@
 
 A comprehensive guide to creating Volant plugins with **[fledge](https://github.com/volantvm/fledge)**.
 
-> **Complete Example**: Study [caddy-plugin](https://github.com/volantvm/caddy-plugin) for a production-ready plugin with GitHub Actions, reproducible builds, and proper distribution.
+> **Complete Example**: Study [initramfs-plugin-example](https://github.com/volantvm/initramfs-plugin-example) for a production-ready plugin with GitHub Actions, reproducible builds, and proper distribution.
 
 ---
 

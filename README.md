@@ -55,7 +55,7 @@ curl -fsSL https://get.volantvm.com | bash
 sudo volar setup
 
 # Install a pre-built plugin from a manifest URL
-volar plugins install --manifest https://raw.githubusercontent.com/volantvm/caddy-plugin/main/manifest/caddy.json
+volar plugins install --manifest https://raw.githubusercontent.com/volantvm/initramfs-plugin-example/main/manifest/caddy.json
 
 # Create and run a VM
 volar vms create web --plugin caddy --cpu 2 --memory 512
