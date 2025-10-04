@@ -12,6 +12,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/mdlayher/vsock v1.2.1
 	github.com/spf13/cobra v1.8.1
+	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/sys v0.34.0
 	golang.org/x/term v0.20.0
 )
@@ -56,6 +57,7 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	github.com/ulikunitz/xz v0.5.11 // indirect
+	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/woodsbury/decimal128 v1.3.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/crypto v0.23.0 // indirect

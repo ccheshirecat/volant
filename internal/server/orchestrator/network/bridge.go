@@ -10,8 +10,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os/exec"
+	"net"
 	"strings"
+
+	"github.com/vishvananda/netlink"
 )
 
 // BridgeManager provisions tap devices and attaches them to a Linux bridge.
@@ -26,12 +28,19 @@ func NewBridgeManager(bridge string) *BridgeManager {
 
 // ensureBridge ensures the bridge device exists and is up.
 func (b *BridgeManager) ensureBridge(ctx context.Context) error {
-	if err := run(ctx, "ip", "link", "show", b.BridgeName); err != nil {
+	// Get bridge link by name
+	link, err := netlink.LinkByName(b.BridgeName)
+	if err != nil {
 		return fmt.Errorf("bridge %s not present: %w", b.BridgeName, err)
 	}
-	if err := run(ctx, "ip", "link", "set", b.BridgeName, "up"); err != nil {
-		return fmt.Errorf("bring bridge up: %w", err)
+
+	// Bring bridge up if not already
+	if link.Attrs().Flags&net.FlagUp == 0 {
+		if err := netlink.LinkSetUp(link); err != nil {
+			return fmt.Errorf("bring bridge up: %w", err)
+		}
 	}
+
 	return nil
 }
 
@@ -43,31 +52,51 @@ func (b *BridgeManager) PrepareTap(ctx context.Context, vmName, mac string) (str
 		return "", err
 	}
 
-	// ip tuntap add dev <tap> mode tap
-	if err := run(ctx, "ip", "tuntap", "add", "dev", tap, "mode", "tap"); err != nil {
-		if !strings.Contains(err.Error(), "File exists") {
-			return "", fmt.Errorf("create tap %s: %w", tap, err)
-		}
-		// Tap already exists; reset it
-		_ = run(ctx, "ip", "link", "set", "dev", tap, "down")
-		_ = run(ctx, "ip", "link", "set", "dev", tap, "nomaster")
+	// Parse MAC address
+	hwAddr, err := net.ParseMAC(mac)
+	if err != nil {
+		return "", fmt.Errorf("invalid mac address %s: %w", mac, err)
 	}
 
-	// ip link set dev <tap> address <mac>
-	if err := run(ctx, "ip", "link", "set", "dev", tap, "address", mac); err != nil {
-		_ = run(ctx, "ip", "link", "del", tap)
-		return "", fmt.Errorf("set tap mac: %w", err)
+	// Check if tap already exists
+	existingLink, err := netlink.LinkByName(tap)
+	if err == nil {
+		// Tap exists, reset it
+		_ = netlink.LinkSetDown(existingLink)
+		_ = netlink.LinkSetNoMaster(existingLink)
+		_ = netlink.LinkDel(existingLink)
 	}
 
-	// ip link set dev <tap> master <bridge>
-	if err := run(ctx, "ip", "link", "set", "dev", tap, "master", b.BridgeName); err != nil {
-		_ = run(ctx, "ip", "link", "del", tap)
+	// Create tap device
+	la := netlink.NewLinkAttrs()
+	la.Name = tap
+	la.HardwareAddr = hwAddr
+	tuntap := &netlink.Tuntap{
+		LinkAttrs: la,
+		Mode:      netlink.TUNTAP_MODE_TAP,
+		Flags:     netlink.TUNTAP_DEFAULTS | netlink.TUNTAP_VNET_HDR,
+	}
+
+	if err := netlink.LinkAdd(tuntap); err != nil {
+		return "", fmt.Errorf("create tap %s: %w", tap, err)
+	}
+
+	// Get bridge link
+	bridge, err := netlink.LinkByName(b.BridgeName)
+	if err != nil {
+		_ = netlink.LinkDel(tuntap)
+		return "", fmt.Errorf("get bridge link: %w", err)
+	}
+
+	// Attach tap to bridge
+	if err := netlink.LinkSetMaster(tuntap, bridge); err != nil {
+		_ = netlink.LinkDel(tuntap)
 		return "", fmt.Errorf("attach tap to bridge: %w", err)
 	}
 
-	// ip link set dev <tap> up
-	if err := run(ctx, "ip", "link", "set", "dev", tap, "up"); err != nil {
-		_ = run(ctx, "ip", "link", "del", tap)
+	// Bring tap up
+	if err := netlink.LinkSetUp(tuntap); err != nil {
+		_ = netlink.LinkDel(tuntap)
 		return "", fmt.Errorf("bring tap up: %w", err)
 	}
 
@@ -76,13 +105,22 @@ func (b *BridgeManager) PrepareTap(ctx context.Context, vmName, mac string) (str
 
 // CleanupTap detaches and deletes the tap device.
 func (b *BridgeManager) CleanupTap(ctx context.Context, tap string) error {
-	// ip link set dev <tap> down
-	if err := run(ctx, "ip", "link", "set", "dev", tap, "down"); err != nil {
+	link, err := netlink.LinkByName(tap)
+	if err != nil {
+		// Already gone, consider it cleaned up
+		return nil
+	}
+
+	// Bring tap down
+	if err := netlink.LinkSetDown(link); err != nil {
 		return fmt.Errorf("tap down: %w", err)
 	}
-	if err := run(ctx, "ip", "link", "del", tap); err != nil {
+
+	// Delete tap
+	if err := netlink.LinkDel(link); err != nil {
 		return fmt.Errorf("delete tap: %w", err)
 	}
+
 	return nil
 }
 
@@ -139,12 +177,4 @@ func sanitize(input string) string {
 		}
 	}
 	return b.String()
-}
-
-func run(ctx context.Context, name string, args ...string) error {
-	cmd := exec.CommandContext(ctx, name, args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s %s: %v - %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
-	}
-	return nil
 }
