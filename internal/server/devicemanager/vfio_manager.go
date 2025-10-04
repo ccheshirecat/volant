@@ -278,36 +278,37 @@ func (m *vfioManager) UnbindDevices(pciAddrs []string) error {
 
 // GetVFIOGroupPaths returns /dev/vfio/GROUP_NUMBER paths for the devices
 func (m *vfioManager) GetVFIOGroupPaths(pciAddrs []string) ([]string, error) {
-	groupPaths := make(map[string]bool)
+	devicePaths := make([]string, 0, len(pciAddrs))
 
 	for _, addr := range pciAddrs {
-		groupID, err := m.getIOMMUGroup(addr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get IOMMU group for %s: %w", addr, err)
+		// Cloud Hypervisor expects sysfs paths like /sys/bus/pci/devices/0000:01:00.0/
+		devicePath := filepath.Join(pciDevicesPath, addr)
+
+		// Verify the device exists in sysfs
+		if !m.fileSystem.Exists(devicePath) {
+			return nil, fmt.Errorf("PCI device not found: %s", devicePath)
 		}
 
-		if groupID == "" {
-			return nil, fmt.Errorf("device %s has no IOMMU group", addr)
+		// Verify device is bound to vfio-pci
+		driverPath := filepath.Join(devicePath, "driver")
+		if m.fileSystem.Exists(driverPath) {
+			driverLink, err := m.fileSystem.Readlink(driverPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read driver link for %s: %w", addr, err)
+			}
+			driverName := filepath.Base(driverLink)
+			if driverName != vfioPCIDriver {
+				return nil, fmt.Errorf("device %s is not bound to vfio-pci (current driver: %s)", addr, driverName)
+			}
+		} else {
+			return nil, fmt.Errorf("device %s has no driver bound", addr)
 		}
 
-		groupPath := filepath.Join(vfioDevPath, groupID)
-
-		// Verify the VFIO group device exists
-		if !m.fileSystem.Exists(groupPath) {
-			return nil, fmt.Errorf("VFIO group device not found: %s (device may not be bound to vfio-pci)", groupPath)
-		}
-
-		groupPaths[groupPath] = true
-		m.logger.Debug("found VFIO group path", "device", addr, "group", groupID, "path", groupPath)
+		devicePaths = append(devicePaths, devicePath)
+		m.logger.Debug("found PCI device path", "device", addr, "path", devicePath)
 	}
 
-	// Convert map to sorted slice
-	result := make([]string, 0, len(groupPaths))
-	for path := range groupPaths {
-		result = append(result, path)
-	}
-
-	return result, nil
+	return devicePaths, nil
 }
 
 // GetDeviceInfo returns detailed information about a PCI device
