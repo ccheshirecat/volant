@@ -82,11 +82,27 @@ volar deployments create web-cluster --config web-config.json --replicas 5
 
 ### Build Your Own Plugin
 
-/// link to fledge for building own artifacts
+Use **[fledge](https://github.com/volantvm/fledge)** to build custom plugins from OCI images or static binaries.
 
-/// link to <initramfs-plugin-example> or <oci-plugin-example> for plugin authoring
+**Examples**:
+- [initramfs-plugin-example](https://github.com/volantvm/initramfs-plugin-example) — Caddy web server (fast boot, minimal size)
+- [oci-plugin-example](https://github.com/volantvm/oci-plugin-example) — NGINX from Docker image (Docker compatibility)
 
-/// for plugins not needing customization give rough breakdown on how to install and boot vm's with a remote manifest (use the initramfs and oci exmaples, they will have a proper manifest ready for use and a prebuilt artifact built using the repos github actions defined already in the manifest so volar vms create --cpu x --memory xxxx --plugin <remote url to manifest json> will immediately pull the decalred rootfs or initramfs artifact from ghcr and boot their vm immediately)
+### Install & Run Pre-Built Plugins
+
+Both examples include GitHub Actions workflows that build artifacts automatically. Install directly from their manifests:
+
+```bash
+# Initramfs example (Caddy)
+volar plugins install --manifest https://raw.githubusercontent.com/volantvm/initramfs-plugin-example/main/manifest/caddy.json
+volar vms create web --plugin caddy --cpu 1 --memory 512
+
+# OCI example (NGINX)
+volar plugins install --manifest https://raw.githubusercontent.com/volantvm/oci-plugin-example/main/manifest/nginx.json
+volar vms create web --plugin nginx --cpu 2 --memory 1024
+```
+
+Volant downloads the pre-built artifacts (from GitHub releases) and boots your VM immediately.
 
 ---
 
