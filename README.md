@@ -34,9 +34,9 @@ Runtime-specific behavior lives in signed manifests and their associated artifac
 Volant provides:
 
 - **`volantd`** — Control plane (SQLite registry + VM orchestration)
-- **`volar`** — CLI for humans
+- **`volar`** — CLI for managing VMs and plugins
 - **`kestrel`** — In-guest agent (PID 1)
-- **`fledge`** — Plugin builder (OCI → bootable images)
+- **[`fledge`](https://github.com/volantvm/fledge)** — Plugin builder (OCI images → bootable artifacts)
 
 **Two paths, same workflow**:
 

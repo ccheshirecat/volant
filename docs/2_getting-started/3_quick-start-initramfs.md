@@ -695,4 +695,12 @@ Now you have both paths mastered—compatibility (rootfs) and performance (initr
 
 ---
 
+## Next Steps
+
+- **[Plugin Development Guide](../4_plugin-development/1_overview.md)** — Learn to build production plugins with fledge
+- **[caddy-plugin](https://github.com/volantvm/caddy-plugin)** — Study the canonical example with CI/CD
+- **[Scaling Guide](../3_guides/3_scaling.md)** — Deploy multiple VMs with one command
+
+---
+
 *Initramfs path complete. You're now a Volant power user.*
