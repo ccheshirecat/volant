@@ -2,6 +2,8 @@
 
 A deep dive into creating lightweight, fast-booting initramfs plugins with **fledge**.
 
+> **Example Plugin**: See [caddy-plugin](https://github.com/volantvm/caddy-plugin) for a complete, production-ready example with GitHub Actions workflow and reproducible builds.
+
 ---
 
 ## What is Initramfs?
