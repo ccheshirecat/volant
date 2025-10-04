@@ -17,6 +17,8 @@
   </a>
 </p>
 
+💡 Need help deploying or extending this? → hello@volantvm.com
+
 ---
 
 # Volant
@@ -35,13 +37,14 @@ Volant provides:
 
 - **`volantd`** — Control plane (SQLite registry + VM orchestration)
 - **`volar`** — CLI for managing VMs and plugins
-- **`kestrel`** — In-guest agent (PID 1)
+- **`kestrel`** — In-guest agent & init (PID 1)
+
 - **[`fledge`](https://github.com/volantvm/fledge)** — Plugin builder (OCI images → bootable artifacts)
 
 **Two paths, same workflow**:
 
-1. **Rootfs strategy** — Convert OCI images to bootable disk images (Docker compatibility)
-2. **Initramfs strategy** — Build custom appliances from scratch (maximum performance)
+1. **[`Rootfs strategy`](https://github.com/volantvm/oci-plugin-example)** — Convert OCI images to bootable disk images (Docker compatibility)
+2. **[`Initramfs strategy`](https://github.com/volantvm/initramfs-plugin-example)** — Build custom appliances from scratch (maximum performance)
 
 ---
 
@@ -54,7 +57,7 @@ curl -fsSL https://get.volantvm.com | bash
 # Configure host (bridge network, NAT, systemd)
 sudo volar setup
 
-# Install a pre-built plugin from a manifest URL
+# Install a pre-built plugin from a manifest URL, see the example plugin repositories for more details
 volar plugins install --manifest https://raw.githubusercontent.com/volantvm/initramfs-plugin-example/main/manifest/caddy.json
 
 # Create and run a VM
@@ -79,40 +82,11 @@ volar deployments create web-cluster --config web-config.json --replicas 5
 
 ### Build Your Own Plugin
 
-For custom workloads, use `fledge` to build plugins:
+/// link to fledge for building own artifacts
 
-```bash
-# Option 1: From an OCI image
-cat > fledge.toml <<EOF
-[plugin]
-name = "myapp"
-strategy = "oci_rootfs"
+/// link to <initramfs-plugin-example> or <oci-plugin-example> for plugin authoring
 
-[oci_source]
-image = "docker.io/library/nginx:alpine"
-EOF
-
-fledge build
-volar plugins install --manifest myapp.manifest.json
-
-# Option 2: Custom initramfs appliance
-cat > fledge.toml <<EOF
-[plugin]
-name = "myapp"
-strategy = "initramfs"
-
-[[file_mappings]]
-source = "./mybinary"
-dest = "/usr/local/bin/mybinary"
-mode = 0o755
-
-[workload]
-entrypoint = ["/usr/local/bin/mybinary"]
-EOF
-
-fledge build
-volar plugins install --manifest myapp.manifest.json
-```
+/// for plugins not needing customization give rough breakdown on how to install and boot vm's with a remote manifest (use the initramfs and oci exmaples, they will have a proper manifest ready for use and a prebuilt artifact built using the repos github actions defined already in the manifest so volar vms create --cpu x --memory xxxx --plugin <remote url to manifest json> will immediately pull the decalred rootfs or initramfs artifact from ghcr and boot their vm immediately)
 
 ---
 
@@ -174,36 +148,13 @@ volar plugins install --manifest myapp.manifest.json
 
 ## Documentation
 
-**Start here**: [docs/1_introduction.md](docs/1_introduction.md)
+**Full documentation**: [docs.volantvm.com](https://docs.volantvm.com)
 
-### Getting Started
-- [Installation](docs/2_getting-started/1_installation.md)
-- [Quick Start: Rootfs (NGINX)](docs/2_getting-started/2_quick-start-rootfs.md)
-- [Quick Start: Initramfs (Caddy)](docs/2_getting-started/3_quick-start-initramfs.md)
-
-### Guides
-- CLI Reference
-- Plugin Development
-- Networking
-- Scaling
-- Cloud-init
-- Interactive Shell
-
-### Architecture
-- [Overview](docs/5_architecture/1_overview.md)
-- Boot Process
-- Control Plane Internals
-- Security Model
-
-### Reference
-- Plugin Manifest Schema
-- REST API
-- MCP Protocol
-- Glossary
-
-### Development
-- Contributing Guide
-- Building from Source
+Quick links:
+- [Installation Guide](docs/2_getting-started/1_installation.md)
+- [Plugin Development](docs/4_plugin-development/1_overview.md)
+- [Architecture Overview](docs/5_architecture/1_overview.md)
+- [Contributing](docs/7_development/1_contributing.md)
 
 ---
 
@@ -211,10 +162,8 @@ volar plugins install --manifest myapp.manifest.json
 
 See [ROADMAP.md](ROADMAP.md) for the full vision.
 
-**Highlights**:
-- **v0.2-0.3** (2025 Q1-Q2): Testing, observability, security hardening, web dashboard
-- **v0.4-0.6** (2025 Q2-Q4): **VFIO GPU passthrough**, **PaaS mode** (Heroku-style `git push`)
-- **v1.0+** (2026+): Multi-node clustering, plugin marketplace, enterprise features
+- **Immediate future** (2025 Q3-Q4): **VFIO GPU passthrough**
+- **Mid-term+** (Early 2026): PaaS mode, Multi-node clustering
 
 ---
 
@@ -240,3 +189,8 @@ See [LICENSE](LICENSE) for full terms.
 <p align="center">
   <strong>Volant</strong> — <em>Designed for stealth, speed, and scale.</em>
 </p>
+
+
+---
+
+**© 2025 HYPR PTE. LTD.**
