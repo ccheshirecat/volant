@@ -326,6 +326,101 @@ Specifies networking mode for the plugin.
 
 ---
 
+## Device Passthrough
+
+Configure PCI device passthrough for GPU and hardware acceleration workloads.
+
+```json
+{
+  "devices": {
+    "pci_passthrough": ["0000:01:00.0", "0000:02:00.0"],
+    "allowlist": ["10de:*", "1002:*"]
+  }
+}
+```
+
+### `devices.pci_passthrough` (optional)
+
+- **Type**: `array` of `string`
+- **Description**: PCI device addresses to pass through to the VM
+- **Format**: PCI addresses in `DDDD:BB:DD.F` format (domain:bus:device.function)
+- **Examples**:
+  ```json
+  ["0000:01:00.0"]
+  ["0000:01:00.0", "0000:01:00.1"]
+  ```
+- **Use Cases**:
+  - GPU passthrough (NVIDIA, AMD, Intel)
+  - TPU/NPU acceleration
+  - Custom PCIe hardware
+  - FPGA devices
+
+**Finding PCI Addresses**:
+```bash
+# List all PCI devices
+lspci
+
+# Find NVIDIA GPUs
+lspci | grep -i nvidia
+
+# Example output:
+# 01:00.0 VGA compatible controller: NVIDIA Corporation GA102 [GeForce RTX 3090]
+```
+
+### `devices.allowlist` (optional)
+
+- **Type**: `array` of `string`
+- **Description**: Security allowlist of allowed device vendor:device ID patterns
+- **Format**: `VVVV:DDDD` or `VVVV:*` (vendor:device or vendor:wildcard)
+- **Examples**:
+  ```json
+  ["10de:*"]              // All NVIDIA devices
+  ["1002:*", "10de:*"]    // All AMD and NVIDIA devices
+  ["8086:56a0"]           // Specific Intel device
+  ```
+
+**Common Vendor IDs**:
+
+| Vendor | ID     | Description        |
+|--------|--------|--------------------|
+| NVIDIA | `10de` | NVIDIA GPUs        |
+| AMD    | `1002` | AMD GPUs           |
+| Intel  | `8086` | Intel devices      |
+
+**How Allowlists Work**:
+- Volant validates each PCI device in `pci_passthrough` against the allowlist
+- Devices not matching any allowlist pattern are rejected
+- Use `*` wildcard to match all devices from a vendor
+- Omitting allowlist disables validation (not recommended for production)
+
+**Example - Multi-GPU AI Workload**:
+```json
+{
+  "name": "pytorch-training",
+  "devices": {
+    "pci_passthrough": [
+      "0000:01:00.0",
+      "0000:02:00.0",
+      "0000:03:00.0",
+      "0000:04:00.0"
+    ],
+    "allowlist": ["10de:*"]
+  },
+  "resources": {
+    "cpu_cores": 32,
+    "memory_mb": 65536
+  }
+}
+```
+
+**Prerequisites**:
+- IOMMU enabled in BIOS and kernel (`intel_iommu=on` or `amd_iommu=on`)
+- Devices bound to `vfio-pci` driver
+- Host not using the device
+- See [GPU Passthrough Guide](../../3_guides/4_gpu-passthrough.md) for complete setup instructions
+
+---
+
 ## Cloud-Init Configuration
 
 Configures cloud-init support for development environments.

@@ -24,6 +24,7 @@ import (
 
 	"github.com/volantvm/volant/internal/cli/client"
 	"github.com/volantvm/volant/internal/cli/openapiutil"
+	"github.com/volantvm/volant/internal/pluginspec"
 	"github.com/volantvm/volant/internal/server/orchestrator/vmconfig"
 	"golang.org/x/term"
 )
@@ -271,6 +272,16 @@ func newVMsCreateCmd() *cobra.Command {
 				apiPort = strings.TrimSpace(cfg.API.Port)
 			}
 
+			// Handle GPU/device passthrough flags
+			deviceFlag, err := cmd.Flags().GetStringSlice("device")
+			if err != nil {
+				return err
+			}
+			deviceAllowlistFlag, err := cmd.Flags().GetStringSlice("device-allowlist")
+			if err != nil {
+				return err
+			}
+
 			req := client.CreateVMRequest{
 				Name:          args[0],
 				Plugin:        pluginName,
@@ -288,7 +299,32 @@ func newVMsCreateCmd() *cobra.Command {
 				cfgClone.Resources = vmconfig.Resources{CPUCores: cpu, MemoryMB: mem}
 				cfgClone.KernelCmdline = kernelExtra
 				cfgClone.API = vmconfig.API{Host: apiHost, Port: apiPort}
+				
+				// Merge device flags with config
+				if len(deviceFlag) > 0 || len(deviceAllowlistFlag) > 0 {
+					if cfgClone.Manifest != nil && cfgClone.Manifest.Devices == nil {
+						manifest.Devices = &pluginspec.DeviceConfig{}
+					}
+					if len(deviceFlag) > 0 {
+						manifest.Devices.PCIPassthrough = deviceFlag
+					}
+					if len(deviceAllowlistFlag) > 0 {
+						manifest.Devices.Allowlist = deviceAllowlistFlag
+					}
+				}
+				
 				req.Config = &cfgClone
+			} else if len(deviceFlag) > 0 || len(deviceAllowlistFlag) > 0 {
+				// No config but device flags provided - need to add to manifest
+				if manifest.Devices == nil {
+					manifest.Devices = &pluginspec.DeviceConfig{}
+				}
+				if len(deviceFlag) > 0 {
+					manifest.Devices.PCIPassthrough = deviceFlag
+				}
+				if len(deviceAllowlistFlag) > 0 {
+					manifest.Devices.Allowlist = deviceAllowlistFlag
+				}
 			}
 
 			vm, err := api.CreateVM(ctx, req)
@@ -307,6 +343,8 @@ func newVMsCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&configPath, "config", "", "Path to a VM config JSON file")
 	cmd.Flags().String("api-host", "", "Override agent API host for the VM")
 	cmd.Flags().String("api-port", "", "Override agent API port for the VM")
+	cmd.Flags().StringSlice("device", nil, "PCI devices to pass through (e.g., 0000:01:00.0)")
+	cmd.Flags().StringSlice("device-allowlist", nil, "Device allowlist patterns (e.g., 10de:* for NVIDIA)")
 	return cmd
 }
 

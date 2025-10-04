@@ -116,6 +116,7 @@ Volant downloads the pre-built artifacts (from GitHub releases) and boots your V
 | **Security** | Namespaces | Full VM isolation |
 | **Overhead** | Shared kernel | ~25 MB per VM |
 | **Networking** | NAT/bridge/overlay | Simple Linux bridge |
+| **GPU Passthrough** | Limited | Native VFIO for AI/ML |
 
 ---
 
@@ -159,6 +160,7 @@ Volant downloads the pre-built artifacts (from GitHub releases) and boots your V
 -  **CI/CD** — Ephemeral test environments
 -  **Development** — Local Kubernetes-style orchestration
 -  **High-density workloads** — 50-100 VMs per host
+-  **AI/ML** Run machine learning workloads in isolation
 
 ---
 
@@ -178,8 +180,9 @@ Quick links:
 
 See [ROADMAP.md](ROADMAP.md) for the full vision.
 
-- **Immediate future** (2025 Q3-Q4): **VFIO GPU passthrough**
-- **Mid-term+** (Early 2026): PaaS mode, Multi-node clustering
+~~**2025 Q3-Q4**: **VFIO GPU passthrough** — Native GPU support for AI/ML workloads~~
+- **2025 Q3-Q4**: PaaS mode, serverless-like workloads, boot from snapshot at ready state
+- **2025 Q3-Q4**: Multi-node clustering
 
 ---
 

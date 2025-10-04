@@ -32,6 +32,8 @@ type LaunchSpec struct {
 	SerialSocket      string
 	Disks             []Disk
 	SeedDisk          *Disk
+	// VFIODevicePaths contains /dev/vfio/GROUP_NUMBER paths for GPU/device passthrough
+	VFIODevicePaths []string
 }
 
 type Disk struct {

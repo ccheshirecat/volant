@@ -202,6 +202,14 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 		}
 	}
 
+	// Add VFIO GPU/device passthrough
+	for _, devicePath := range spec.VFIODevicePaths {
+		devicePath = strings.TrimSpace(devicePath)
+		if devicePath != "" {
+			args = append(args, "--device", fmt.Sprintf("path=%s", devicePath))
+		}
+	}
+
 	cmdline := spec.KernelCmdline
 	if len(spec.Args) > 0 {
 		appendix := make([]string, 0, len(spec.Args))
