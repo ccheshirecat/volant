@@ -294,12 +294,12 @@ func TestVMCreate(t *testing.T) {
     ctx := context.Background()
     db := setupTestDB(t)
     defer db.Close()
-    
+
     orchestrator := NewOrchestrator(db)
-    
+
     // Execute
     vm, err := orchestrator.CreateVM(ctx, "test-vm", "nginx-alpine")
-    
+
     // Assert
     if err != nil {
         t.Fatalf("CreateVM failed: %v", err)
@@ -332,7 +332,7 @@ func TestValidateManifest(t *testing.T) {
             wantErr: true,
         },
     }
-    
+
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
             err := ValidateManifest(tt.input)
@@ -587,7 +587,7 @@ If you have questions about contributing:
 - Review existing documentation
 - Reach out to maintainers
 
-Thank you for making Volant better! 🚀
+Thank you for making Volant better!
 
 ---
 

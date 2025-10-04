@@ -48,9 +48,9 @@ A deep dive into how Volant orchestrates microVMs.
 
 ### volantd: The Control Plane
 
-**Location**: Host machine, single process  
-**Language**: Go  
-**Binary**: `/usr/local/bin/volantd`  
+**Location**: Host machine, single process
+**Language**: Go
+**Binary**: `/usr/local/bin/volantd`
 **Data**: `/var/lib/volant/volant.db` (SQLite)
 
 **Responsibilities**:
@@ -92,8 +92,8 @@ A deep dive into how Volant orchestrates microVMs.
 
 ### kestrel: The In-Guest Agent
 
-**Location**: Inside each microVM, PID 1  
-**Language**: Go (static binary)  
+**Location**: Inside each microVM, PID 1
+**Language**: Go (static binary)
 **Binary**: `/bin/kestrel` or `/usr/local/bin/kestrel`
 
 **Why "kestrel"?** A kestrel is a small, fast falcon—perfect symbolism for a lightweight, high-performance supervisor.
@@ -131,8 +131,8 @@ A deep dive into how Volant orchestrates microVMs.
 
 ### volar: The CLI
 
-**Location**: Host machine  
-**Language**: Go  
+**Location**: Host machine
+**Language**: Go
 **Binary**: `/usr/local/bin/volar`
 
 **Purpose**: User-facing interface to the control plane.
@@ -178,8 +178,8 @@ volar deployments delete <name>
 
 ### fledge: The Plugin Builder
 
-**Location**: Host machine or CI/CD  
-**Language**: Go  
+**Location**: Host machine or CI/CD
+**Language**: Go
 **Binary**: `/usr/local/bin/fledge`
 
 **Purpose**: Convert applications into bootable Volant plugins.
@@ -211,9 +211,9 @@ Volant maintains **two kernels** to support both build strategies:
 
 ### 1. bzImage-volant (For Rootfs)
 
-**Type**: bzImage (compressed kernel)  
-**Contains**: Baked-in initramfs bootloader  
-**Location**: `/var/lib/volant/kernel/bzImage-volant`  
+**Type**: bzImage (compressed kernel)
+**Contains**: Baked-in initramfs bootloader
+**Location**: `/var/lib/volant/kernel/bzImage-volant`
 **Size**: ~10MB
 
 **Initramfs contents**:
@@ -234,9 +234,9 @@ Volant maintains **two kernels** to support both build strategies:
 
 ### 2. vmlinux-generic (For Initramfs)
 
-**Type**: vmlinux (uncompressed ELF kernel)  
-**Contains**: Nothing (pristine kernel)  
-**Location**: `/var/lib/volant/kernel/vmlinux-generic`  
+**Type**: vmlinux (uncompressed ELF kernel)
+**Contains**: Nothing (pristine kernel)
+**Location**: `/var/lib/volant/kernel/vmlinux-generic`
 **Size**: ~30MB (uncompressed)
 
 **Boot flow**:
@@ -314,10 +314,10 @@ Volant uses **Linux bridge networking** with static IP allocation—no overlay n
    - Optional: Run dnsmasq on the bridge for local DNS
 
 **Benefits**:
-- ✅ Simple: No overlay complexity
-- ✅ Debuggable: Standard Linux tools work (`ip`, `tcpdump`, `iptables`)
-- ✅ Performant: Native bridge performance
-- ✅ Predictable: Static IPs, no surprises
+-  Simple: No overlay complexity
+-  Debuggable: Standard Linux tools work (`ip`, `tcpdump`, `iptables`)
+-  Performant: Native bridge performance
+-  Predictable: Static IPs, no surprises
 
 ---
 
@@ -357,7 +357,7 @@ Content-Type: application/json
    ```sql
    SELECT ip FROM ip_leases WHERE vm_id IS NULL LIMIT 1
    -- Result: 192.168.127.100
-   
+
    UPDATE ip_leases SET vm_id = 'nginx-demo' WHERE ip = '192.168.127.100'
    ```
 
@@ -397,7 +397,7 @@ Content-Type: application/json
 
 ### Step 5: Health Check
 
-volantd polls `http://192.168.127.100:80/` (or via kestrel proxy).  
+volantd polls `http://192.168.127.100:80/` (or via kestrel proxy).
 Once healthy, VM state → `running`.
 
 ### Step 6: Response to User

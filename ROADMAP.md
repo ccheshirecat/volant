@@ -6,33 +6,33 @@ A living document of where Volant is today and where it's headed.
 
 ## Current State (v0.1 - Foundation)
 
-✅ **Core Orchestration**
+ **Core Orchestration**
 - `volantd` control plane with SQLite registry
 - `volar` CLI for VM/plugin management
 - `kestrel` in-guest agent (PID 1)
 - Cloud Hypervisor integration
 - Bridge networking + IPAM
 
-✅ **Plugin System**
+ **Plugin System**
 - `fledge` builder for both strategies
 - OCI rootfs conversion (NGINX, Alpine, etc.)
 - Custom initramfs appliances (Caddy)
 - Reproducible builds
 - Plugin manifest format (JSON)
 
-✅ **VM Management**
+ **VM Management**
 - Create/start/stop/delete lifecycle
 - Configurable CPU/memory resources
 - Serial console logging
 - Interactive shell access
 - Health checks
 
-✅ **Basic Scaling**
+ **Basic Scaling**
 - Kubernetes-style Deployments
 - Declarative replica management
 - Auto-reconciliation loops
 
-✅ **Developer Experience**
+ **Developer Experience**
 - Comprehensive documentation
 - Quick-start guides for both strategies
 - Example plugins (NGINX, Caddy)
@@ -97,7 +97,7 @@ A living document of where Volant is today and where it's headed.
 
 ## Mid-Term (v0.4-0.6 - Features)
 
-### 🚀 Advanced Capabilities
+###  Advanced Capabilities
 
 #### **VFIO GPU Passthrough**
 

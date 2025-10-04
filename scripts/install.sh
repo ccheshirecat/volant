@@ -300,7 +300,7 @@ main() {
   resolve_version
   download_and_install_artifacts
   run_volant_setup
-  log_info "✅ Volant installation complete!"
+  log_info " Volant installation complete!"
   log_info "   Run 'volar --help' to get started."
 }
 

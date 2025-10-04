@@ -55,11 +55,11 @@ spec:
 ```
 
 **Key features**:
-- ✅ Declarative configuration
-- ✅ Automatic reconciliation
-- ✅ Health-based auto-restart
-- ✅ Rolling updates (future)
-- ✅ Load balancer integration (future)
+-  Declarative configuration
+-  Automatic reconciliation
+-  Health-based auto-restart
+-  Rolling updates (future)
+-  Load balancer integration (future)
 
 ---
 
@@ -304,7 +304,7 @@ volar debug resources
 # Total CPU: 32 cores
 # Used CPU: 20 cores (62%)
 # Available CPU: 12 cores
-# 
+#
 # Total Memory: 64 GB
 # Used Memory: 5 GB (8%)
 # Available Memory: 59 GB

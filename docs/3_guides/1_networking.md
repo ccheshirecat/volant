@@ -282,11 +282,11 @@ vsock (Virtual Socket) is a host-guest communication mechanism that **bypasses t
 ```
 
 **Security benefits**:
-- ✅ No network stack in guest (no TCP/IP attack surface)
-- ✅ No IP addresses (VMs can't be scanned)
-- ✅ No VM-to-VM communication (strict isolation)
-- ✅ No direct internet access (all traffic proxied)
-- ✅ Host controls all I/O (centralized policy enforcement)
+-  No network stack in guest (no TCP/IP attack surface)
+-  No IP addresses (VMs can't be scanned)
+-  No VM-to-VM communication (strict isolation)
+-  No direct internet access (all traffic proxied)
+-  Host controls all I/O (centralized policy enforcement)
 
 ### When to Use vsock
 
@@ -465,21 +465,21 @@ volar vms logs secure-vm --follow
 
 ### Use Bridge When:
 
-- ✅ You need VM-to-VM communication
-- ✅ You want familiar networking tools
-- ✅ You need to SSH directly to VMs
-- ✅ You're developing/testing
-- ✅ Private subnet isolation is sufficient
-- ✅ You need to run standard network services
+-  You need VM-to-VM communication
+-  You want familiar networking tools
+-  You need to SSH directly to VMs
+-  You're developing/testing
+-  Private subnet isolation is sufficient
+-  You need to run standard network services
 
 ### Use vsock When:
 
-- ✅ Maximum isolation is required
-- ✅ Zero-trust security model
-- ✅ Compliance mandates (PCI-DSS, HIPAA)
-- ✅ Running untrusted code
-- ✅ Need centralized traffic control
-- ✅ Attack surface reduction is critical
+-  Maximum isolation is required
+-  Zero-trust security model
+-  Compliance mandates (PCI-DSS, HIPAA)
+-  Running untrusted code
+-  Need centralized traffic control
+-  Attack surface reduction is critical
 
 ---
 

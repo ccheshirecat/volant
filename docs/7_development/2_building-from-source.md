@@ -306,10 +306,10 @@ done
 
 | OS | Architecture | Supported |
 |----|--------------|-----------|
-| linux | amd64 | ✅ Full support |
-| linux | arm64 | ✅ Full support |
-| darwin | amd64 | ⚠️ Build only |
-| darwin | arm64 | ⚠️ Build only |
+| linux | amd64 |  Full support |
+| linux | arm64 |  Full support |
+| darwin | amd64 |  Build only |
+| darwin | arm64 |  Build only |
 | windows | amd64 | ❌ Not supported |
 
 **Note**: Runtime support is Linux-only. macOS and Windows can build binaries but cannot run volantd.

@@ -22,17 +22,17 @@ The **plugin manifest** is a JSON file that describes how Volant should run your
   "version": "1.0.0",
   "runtime": "nginx",
   "enabled": true,
-  
+
   "initramfs": {
     "url": "/var/lib/volant/plugins/nginx/plugin.cpio.gz",
     "checksum": "sha256:abc123def456..."
   },
-  
+
   "resources": {
     "cpu_cores": 2,
     "memory_mb": 1024
   },
-  
+
   "workload": {
     "type": "http",
     "entrypoint": ["/usr/sbin/nginx", "-g", "daemon off;"],
@@ -43,18 +43,18 @@ The **plugin manifest** is a JSON file that describes how Volant should run your
       "NGINX_VERSION": "1.25.0"
     }
   },
-  
+
   "health_check": {
     "endpoint": "/health",
     "timeout_ms": 10000,
     "interval_ms": 5000,
     "retries": 3
   },
-  
+
   "network": {
     "mode": "bridged"
   },
-  
+
   "cloud_init": {
     "datasource": "NoCloud",
     "seed_mode": "disk"
@@ -564,23 +564,23 @@ Error: manifest validation failed: cannot specify both "initramfs" and "rootfs"
   "version": "1.0.0",
   "runtime": "myapp",
   "enabled": true,
-  
+
   "initramfs": {
     "url": "/var/lib/volant/plugins/myapp/plugin.cpio.gz",
     "checksum": "sha256:abc123..."
   },
-  
+
   "resources": {
     "cpu_cores": 1,
     "memory_mb": 512
   },
-  
+
   "workload": {
     "type": "http",
     "entrypoint": ["/usr/bin/myapp"],
     "base_url": "http://127.0.0.1:8080"
   },
-  
+
   "health_check": {
     "endpoint": "/"
   }
@@ -596,24 +596,24 @@ Error: manifest validation failed: cannot specify both "initramfs" and "rootfs"
   "version": "1.0.0",
   "runtime": "nginx",
   "enabled": true,
-  
+
   "rootfs": {
     "url": "/var/lib/volant/plugins/nginx/rootfs.img",
     "checksum": "sha256:def456...",
     "format": "ext4"
   },
-  
+
   "resources": {
     "cpu_cores": 2,
     "memory_mb": 1024
   },
-  
+
   "workload": {
     "type": "http",
     "entrypoint": ["/usr/sbin/nginx", "-g", "daemon off;"],
     "base_url": "http://127.0.0.1:80"
   },
-  
+
   "health_check": {
     "endpoint": "/"
   }
@@ -651,13 +651,13 @@ Use it for:
 
 ## Best Practices
 
-1. ✅ **Always include `$schema`** for IDE support
-2. ✅ **Use absolute paths** for `url` fields
-3. ✅ **Include checksums** for all boot media and disks
-4. ✅ **Set realistic resource defaults** (users can override)
-5. ✅ **Provide health check endpoints** for reliable orchestration
-6. ✅ **Document environment variables** in plugin README
-7. ✅ **Version your manifests** alongside plugin artifacts
+1.  **Always include `$schema`** for IDE support
+2.  **Use absolute paths** for `url` fields
+3.  **Include checksums** for all boot media and disks
+4.  **Set realistic resource defaults** (users can override)
+5.  **Provide health check endpoints** for reliable orchestration
+6.  **Document environment variables** in plugin README
+7.  **Version your manifests** alongside plugin artifacts
 
 ---
 

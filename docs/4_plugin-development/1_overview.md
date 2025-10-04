@@ -185,17 +185,17 @@ The **manifest.json** file describes your plugin to Volant:
   "version": "1.0.0",
   "runtime": "nginx",
   "enabled": true,
-  
+
   "initramfs": {
     "url": "/path/to/plugin.cpio.gz",
     "checksum": "sha256:abc123..."
   },
-  
+
   "resources": {
     "cpu_cores": 2,
     "memory_mb": 1024
   },
-  
+
   "workload": {
     "type": "http",
     "entrypoint": ["/usr/sbin/nginx", "-g", "daemon off;"],
@@ -204,7 +204,7 @@ The **manifest.json** file describes your plugin to Volant:
       "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     }
   },
-  
+
   "health_check": {
     "endpoint": "/",
     "timeout_ms": 10000
@@ -444,25 +444,25 @@ busybox_sha256 = "6e123e7f3202a8c1e9b1f94d8941580a25135382b99e8d3e34fb858bba3113
 
 ### Security
 
-1. ✅ **Always verify checksums** for downloaded artifacts
-2. ✅ **Use specific versions** in production (not `latest`)
-3. ✅ **Scan OCI images** for vulnerabilities (Trivy, Snyk)
-4. ✅ **Minimize attack surface** — remove unnecessary files
-5. ✅ **Use minimal base images** (Alpine, distroless)
+1.  **Always verify checksums** for downloaded artifacts
+2.  **Use specific versions** in production (not `latest`)
+3.  **Scan OCI images** for vulnerabilities (Trivy, Snyk)
+4.  **Minimize attack surface** — remove unnecessary files
+5.  **Use minimal base images** (Alpine, distroless)
 
 ### Performance
 
-1. ✅ **Keep initramfs small** — every MB affects boot time
-2. ✅ **Use static binaries** — no runtime linking overhead
-3. ✅ **Choose ext4** for OCI unless you need advanced features
-4. ✅ **Strip binaries** — `strip -s myapp` to reduce size
+1.  **Keep initramfs small** — every MB affects boot time
+2.  **Use static binaries** — no runtime linking overhead
+3.  **Choose ext4** for OCI unless you need advanced features
+4.  **Strip binaries** — `strip -s myapp` to reduce size
 
 ### Maintainability
 
-1. ✅ **Version your plugins** — match application versions
-2. ✅ **Document custom mappings** — explain non-obvious files
-3. ✅ **Store fledge.toml in git** — alongside application code
-4. ✅ **Test before deploying** — validate in staging environment
+1.  **Version your plugins** — match application versions
+2.  **Document custom mappings** — explain non-obvious files
+3.  **Store fledge.toml in git** — alongside application code
+4.  **Test before deploying** — validate in staging environment
 
 ---
 

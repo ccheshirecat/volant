@@ -17,7 +17,7 @@ A deep dive into creating lightweight, fast-booting initramfs plugins with **fle
 
 ## When to Use Initramfs
 
-✅ **Perfect for**:
+ **Perfect for**:
 - Stateless HTTP services
 - API gateways
 - Queue workers
@@ -367,7 +367,7 @@ func main() {
     http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
         fmt.Fprintf(w, "Hello from Volant!\n")
     })
-    
+
     log.Println("Starting server on :8080")
     log.Fatal(http.ListenAndServe(":8080", nil))
 }
@@ -419,7 +419,7 @@ struct Config {
 async fn main() -> std::io::Result<()> {
     let config_str = std::fs::read_to_string("/etc/api/config.toml")?;
     let config: Config = toml::from_str(&config_str)?;
-    
+
     HttpServer::new(|| {
         App::new()
             .route("/", web::get().to(|| async { "API Running" }))
@@ -591,18 +591,18 @@ Handle SIGTERM for graceful shutdown:
 ```go
 func main() {
     srv := &http.Server{Addr: ":8080"}
-    
+
     go func() {
         if err := srv.ListenAndServe(); err != nil {
             log.Fatal(err)
         }
     }()
-    
+
     // Handle shutdown
     sigint := make(chan os.Signal, 1)
     signal.Notify(sigint, os.Interrupt, syscall.SIGTERM)
     <-sigint
-    
+
     ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
     defer cancel()
     srv.Shutdown(ctx)
@@ -645,13 +645,13 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build
 
 ## Best Practices
 
-1. ✅ **Always verify static linking** before building plugin
-2. ✅ **Keep initramfs under 50 MB** for optimal performance
-3. ✅ **Use specific busybox versions** with checksums
-4. ✅ **Include health check endpoints** in your application
-5. ✅ **Test locally** before deploying to Volant
-6. ✅ **Version your plugins** (include version in artifact name)
-7. ✅ **Document environment variables** required by your app
+1.  **Always verify static linking** before building plugin
+2.  **Keep initramfs under 50 MB** for optimal performance
+3.  **Use specific busybox versions** with checksums
+4.  **Include health check endpoints** in your application
+5.  **Test locally** before deploying to Volant
+6.  **Version your plugins** (include version in artifact name)
+7.  **Document environment variables** required by your app
 
 ---
 

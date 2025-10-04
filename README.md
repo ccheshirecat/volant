@@ -164,11 +164,11 @@ volar plugins install --manifest myapp.manifest.json
 
 ## Use Cases
 
-- ✅ **Secure multi-tenancy** — True hardware isolation
-- ✅ **Edge computing** — Minimal footprint, fast boot
-- ✅ **CI/CD** — Ephemeral test environments
-- ✅ **Development** — Local Kubernetes-style orchestration
-- ✅ **High-density workloads** — 50-100 VMs per host
+-  **Secure multi-tenancy** — True hardware isolation
+-  **Edge computing** — Minimal footprint, fast boot
+-  **CI/CD** — Ephemeral test environments
+-  **Development** — Local Kubernetes-style orchestration
+-  **High-density workloads** — 50-100 VMs per host
 
 ---
 

@@ -14,7 +14,7 @@ By the end of this guide, you'll have:
 - Accessed the web server from your host
 - Learned basic VM management commands
 
-**Time required**: 2-3 minutes  
+**Time required**: 2-3 minutes
 **Prerequisites**: [Installation complete](1_installation.md)
 
 ---
@@ -536,11 +536,11 @@ Now that you've mastered the rootfs path, try:
 
 ## Key Takeaways
 
-✅ **Rootfs path is Docker-compatible** — Any OCI image can become a Volant plugin  
-✅ **True hardware isolation** — Each VM has its own kernel, not shared namespaces  
-✅ **Static IP allocation** — Predictable, debuggable networking  
-✅ **Simple tooling** — `fledge` converts images, `volar` manages VMs  
-✅ **Two-stage boot** — Kestrel handles the complex pivot dance automatically  
+ **Rootfs path is Docker-compatible** — Any OCI image can become a Volant plugin
+ **True hardware isolation** — Each VM has its own kernel, not shared namespaces
+ **Static IP allocation** — Predictable, debuggable networking
+ **Simple tooling** — `fledge` converts images, `volar` manages VMs
+ **Two-stage boot** — Kestrel handles the complex pivot dance automatically
 
 The rootfs path is perfect for:
 - Migrating existing containers to microVMs

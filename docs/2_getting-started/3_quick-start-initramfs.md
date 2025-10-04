@@ -14,7 +14,7 @@ By the end of this guide, you'll have:
 - Deployed it with sub-100ms boot time
 - Understood the performance path philosophy
 
-**Time required**: 5-10 minutes  
+**Time required**: 5-10 minutes
 **Prerequisites**: [Installation complete](1_installation.md)
 
 ---
@@ -90,11 +90,11 @@ Create `payload/Caddyfile`:
 }
 
 :80 {
-    respond "Hello from Caddy in a Volant microVM! 🚀"
+    respond "Hello from Caddy in a Volant microVM! "
 }
 ```
 
-**Why `admin off`?**  
+**Why `admin off`?**
 The Caddy admin API tries to bind to IPv6 by default, but our minimal initramfs doesn't include IPv6 support. Disabling the admin API keeps things simple.
 
 Your payload directory should now look like:
@@ -158,21 +158,21 @@ sudo fledge build -c fledge.toml -o plugin.cpio.gz
 
 ```
 ⏳ Downloading agent (kestrel latest)...
-✅ Agent sourced: /tmp/fledge-agent-xxx
+ Agent sourced: /tmp/fledge-agent-xxx
 
 ⏳ Downloading busybox...
-✅ Busybox downloaded
+ Busybox downloaded
 
 ⏳ Compiling C init...
-✅ Init compiled
+ Init compiled
 
 ⏳ Preparing file mappings...
   📁 payload/caddy → /usr/bin/caddy (executable)
   📄 payload/Caddyfile → /etc/caddy/Caddyfile
-✅ Mappings prepared
+ Mappings prepared
 
 ⏳ Building initramfs...
-✅ Initramfs complete: plugin.cpio.gz (20.1 MB)
+ Initramfs complete: plugin.cpio.gz (20.1 MB)
 ```
 
 This takes 10-30 seconds (mostly downloading).
@@ -328,7 +328,7 @@ curl http://192.168.127.100:80
 Output:
 
 ```
-Hello from Caddy in a Volant microVM! 🚀
+Hello from Caddy in a Volant microVM!
 ```
 
 **It works!** And it booted in under 100ms.
@@ -435,7 +435,7 @@ payload/**/bin/*
 /tmp/
 ```
 
-**Why ignore the binary?**  
+**Why ignore the binary?**
 Your repository should be reproducible. Instead of committing the 45MB Caddy binary, commit a script or GitHub Actions workflow that downloads it from official releases with checksum verification.
 
 ---
@@ -679,11 +679,11 @@ You've mastered the initramfs path! Now try:
 
 ## Key Takeaways
 
-✅ **Initramfs is fast** — Sub-100ms boot times, minimal memory footprint  
-✅ **Minimal attack surface** — Only include what you need  
-✅ **Reproducible builds** — Fledge creates deterministic artifacts  
-✅ **Verifiable distribution** — GitHub Actions with checksums  
-✅ **No disk I/O** — Everything runs from RAM  
+ **Initramfs is fast** — Sub-100ms boot times, minimal memory footprint
+ **Minimal attack surface** — Only include what you need
+ **Reproducible builds** — Fledge creates deterministic artifacts
+ **Verifiable distribution** — GitHub Actions with checksums
+ **No disk I/O** — Everything runs from RAM
 
 The initramfs path is perfect for:
 - High-performance workloads

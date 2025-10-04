@@ -8,13 +8,13 @@ Use Volant VMs as full-featured development environments with SSH access, user a
 
 [Cloud-init](https://cloud-init.io/) is the industry-standard multi-distribution method for cross-platform cloud instance initialization. It handles:
 
-- ✅ User account creation
-- ✅ SSH key injection
-- ✅ Package installation
-- ✅ File creation
-- ✅ Command execution
-- ✅ Network configuration
-- ✅ And much more
+-  User account creation
+-  SSH key injection
+-  Package installation
+-  File creation
+-  Command execution
+-  Network configuration
+-  And much more
 
 **With Volant + cloud-init**, you can:
 
@@ -189,11 +189,11 @@ write_files:
     content: |
       from flask import Flask
       app = Flask(__name__)
-      
+
       @app.route('/')
       def hello():
           return "Hello from Volant!"
-      
+
       if __name__ == '__main__':
           app.run(host='0.0.0.0')
     owner: ubuntu:ubuntu
@@ -289,7 +289,7 @@ write_files:
 runcmd:
   # Install Oh My Zsh
   - sudo -u dev sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
-  
+
   # Install development tools
   - pip3 install --upgrade pip
   - pip3 install ipython black flake8 pytest
@@ -511,11 +511,11 @@ packages:
   - wget
   - jq
   - htop
-  
+
   # Build essentials
   - build-essential
   - cmake
-  
+
   # Languages
   - python3
   - python3-pip
@@ -523,11 +523,11 @@ packages:
   - nodejs
   - npm
   - golang-go
-  
+
   # Containers
   - docker.io
   - docker-compose
-  
+
   # Database clients
   - postgresql-client
   - redis-tools
@@ -537,18 +537,18 @@ write_files:
   - path: /home/developer/README.md
     content: |
       # Development Environment
-      
+
       Welcome to your Volant development VM!
-      
+
       ## Installed:
       - Python 3 + pip
       - Node.js + npm
       - Go
       - Docker + Docker Compose
       - Git, vim, tmux
-      
+
       ## Getting started:
-      
+
       ```bash
       git clone https://github.com/youruser/yourproject
       cd yourproject
@@ -563,12 +563,12 @@ write_files:
       alias g='git'
       alias d='docker'
       alias dc='docker-compose'
-      
+
       # Environment
       export EDITOR=vim
       export GOPATH=$HOME/go
       export PATH=$PATH:$GOPATH/bin
-      
+
       # Prompt
       PS1='\[\033[01;32m\]\u@volant\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
     owner: developer:developer
@@ -579,21 +579,21 @@ runcmd:
   - systemctl enable docker
   - systemctl start docker
   - usermod -aG docker developer
-  
+
   # Python setup
   - pip3 install --upgrade pip
   - pip3 install ipython jupyter flask django pytest black flake8
-  
+
   # Node.js setup
   - npm install -g yarn typescript ts-node eslint prettier nodemon
-  
+
   # Go setup
   - sudo -u developer mkdir -p /home/developer/go/{bin,src,pkg}
-  
+
   # Source custom bashrc
   - echo "source ~/.bashrc_custom" >> /home/developer/.bashrc
   - chown developer:developer /home/developer/.bashrc
-  
+
   # Welcome message
   - echo "Development environment ready! SSH: ssh developer@$(hostname -I | awk '{print $1}')" > /etc/motd
 
@@ -602,7 +602,7 @@ final_message: |
   Cloud-init finished!
   Development environment is ready.
   SSH: ssh developer@$HOSTNAME
-  
+
   Happy coding!
 ```
 
