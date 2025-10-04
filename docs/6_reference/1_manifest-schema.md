@@ -402,7 +402,9 @@ Attach additional disk images to the VM.
       "name": "data",
       "source": "/var/lib/volant/data/myapp.img",
       "checksum": "sha256:...",
-      "readonly": false
+      "readonly": false,
+      "format": "raw",
+      "target": "vdb"
     }
   ]
 }
@@ -423,54 +425,93 @@ Attach additional disk images to the VM.
 - **Type**: `string`
 - **Description**: SHA256 checksum prefixed with `sha256:`
 
+### `disks[].format` (optional)
+
+- **Type**: `string`
+- **Values**: `"raw"` or `"qcow2"`
+- **Description**: Disk image format
+
 ### `disks[].readonly` (optional)
 
 - **Type**: `boolean`
 - **Description**: Whether disk is read-only
 - **Default**: `false`
 
+### `disks[].target` (optional)
+
+- **Type**: `string`
+- **Description**: Target device name (e.g., `vdb`, `vdc`)
+
 ---
 
-## Port Exposure
+## Actions
 
-Define ports to expose from the VM.
+Define custom HTTP actions for managing the workload.
 
 ```json
 {
-  "expose": [
-    {
-      "name": "http",
-      "protocol": "tcp",
-      "port": 80,
-      "host_port": 8080
+  "actions": {
+    "reload": {
+      "description": "Reload configuration",
+      "method": "POST",
+      "path": "/admin/reload",
+      "timeout_ms": 5000
+    },
+    "stats": {
+      "description": "Get runtime statistics",
+      "method": "GET",
+      "path": "/stats"
     }
-  ]
+  }
 }
 ```
 
-### `expose[].name` (optional)
+### `actions.<name>.description` (optional)
 
 - **Type**: `string`
-- **Description**: Port mapping name
+- **Description**: Human-readable action description
 
-### `expose[].protocol` (optional)
+### `actions.<name>.method` (required)
 
 - **Type**: `string`
-- **Values**: `"tcp"` or `"udp"`
-- **Default**: `"tcp"`
+- **Description**: HTTP method
+- **Examples**: `"GET"`, `"POST"`, `"PUT"`, `"DELETE"`
 
-### `expose[].port` (required)
+### `actions.<name>.path` (required)
+
+- **Type**: `string`
+- **Description**: URL path (relative to `workload.base_url`)
+
+### `actions.<name>.timeout_ms` (optional)
 
 - **Type**: `integer`
-- **Description**: Port inside the VM
-- **Range**: 1-65535
+- **Description**: Request timeout in milliseconds
+- **Minimum**: 0
 
-### `expose[].host_port` (optional)
+---
 
-- **Type**: `integer`
-- **Description**: Port on the host (0 = don't forward)
-- **Range**: 0-65535
-- **Default**: `0`
+## Metadata
+
+### `openapi` (optional)
+
+- **Type**: `string` (URL)
+- **Description**: URL to OpenAPI/Swagger specification for the workload
+- **Example**: `"https://example.com/api/openapi.json"`
+
+### `labels` (optional)
+
+- **Type**: `object` (key-value pairs)
+- **Description**: Arbitrary metadata labels for organization and filtering
+- **Example**:
+  ```json
+  {
+    "labels": {
+      "environment": "production",
+      "team": "backend",
+      "version": "v2.1.0"
+    }
+  }
+  ```
 
 ---
 
