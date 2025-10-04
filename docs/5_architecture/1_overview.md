@@ -159,7 +159,7 @@ volar vms start <name>
 volar vms stop <name>
 volar vms delete <name>
 volar vms logs <name> [--follow]
-volar vms shell <name>
+volar vms console <name>
 
 # Deployments (scaling)
 volar deployments create <name> --plugin <plugin> --replicas N

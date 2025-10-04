@@ -274,7 +274,7 @@ This permanently removes the VM. The IP is freed for reuse.
 If you need to debug inside the VM:
 
 ```bash
-volar vms shell nginx-demo
+volar vms console nginx-demo
 ```
 
 This opens a serial console. Press `Ctrl+]` to exit.
@@ -513,7 +513,7 @@ ping 192.168.127.100
 ### Shell Access for Debugging
 
 ```bash
-volar vms shell nginx-demo
+volar vms console nginx-demo
 ```
 
 Inside the VM, you can:

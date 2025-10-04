@@ -634,21 +634,21 @@ Look for:
 ### Access the Shell
 
 ```bash
-volar vms shell caddy-demo
+volar vms console caddy-demo
 ```
 
-Inside the VM:
+Inside the VM (minimal busybox):
 
 ```bash
-# Check running processes
-ps aux
-
-# Test locally
-curl localhost:80
+# Check running processes (no ps aux in minimal busybox)
+ls /proc
 
 # Check file permissions
 ls -la /usr/bin/caddy
 ls -la /etc/caddy/Caddyfile
+
+# Note: No curl in initramfs - test from host:
+# curl http://192.168.127.10
 ```
 
 ---
