@@ -61,8 +61,18 @@ volar plugins install --manifest https://raw.githubusercontent.com/volantvm/cadd
 volar vms create web --plugin caddy --cpu 2 --memory 512
 volar vms list
 
-# Scale declaratively
-volar deployments create web-cluster --plugin caddy --replicas 5
+# Scale declaratively with deployments
+cat > web-config.json <<EOF
+{
+  "plugin": "caddy",
+  "resources": {
+    "cpu_cores": 2,
+    "memory_mb": 512
+  }
+}
+EOF
+
+volar deployments create web-cluster --config web-config.json --replicas 5
 ```
 
 **Result**: 5 isolated VMs, each with its own kernel and dedicated IP address.

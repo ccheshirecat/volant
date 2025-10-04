@@ -7,6 +7,8 @@ package network
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -95,16 +97,36 @@ func tapNameFrom(vmName string) string {
 		sanitized = "vm"
 	}
 
-	// Ensure we don't exceed the kernel's interface name limit.
+	// Calculate available space: 15 chars total - "vttap-" prefix = 9 chars
 	maxSuffixLen := maxInterfaceNameLen - len(tapPrefix)
 	if maxSuffixLen < 1 {
 		maxSuffixLen = 1
 	}
-	if len(sanitized) > maxSuffixLen {
-		sanitized = sanitized[:maxSuffixLen]
+
+	// If name fits, use it directly
+	if len(sanitized) <= maxSuffixLen {
+		return tapPrefix + sanitized
 	}
 
-	return tapPrefix + sanitized
+	// Otherwise, use prefix + hash to ensure uniqueness
+	// Reserve 6 chars for hash, use remaining space for readable prefix
+	hashLen := 6
+	prefixLen := maxSuffixLen - hashLen
+	if prefixLen < 1 {
+		prefixLen = 1
+	}
+
+	// Generate hash from full VM name
+	hash := sha256.Sum256([]byte(vmName))
+	hashStr := hex.EncodeToString(hash[:])[:hashLen]
+
+	// Use readable prefix + hash: e.g., "vttap-web3a4b5c"
+	prefix := sanitized
+	if len(prefix) > prefixLen {
+		prefix = prefix[:prefixLen]
+	}
+
+	return tapPrefix + prefix + hashStr
 }
 
 func sanitize(input string) string {

@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1184,7 +1185,7 @@ func (e *engine) CreateDeployment(ctx context.Context, req CreateDeploymentReque
 		return nil, fmt.Errorf("orchestrator: replicas must be >= 0")
 	}
 
-	config, err := normalizeDeploymentConfig(req.Config)
+	config, err := e.normalizeDeploymentConfig(ctx, req.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -1574,12 +1575,40 @@ func (e *engine) buildDeployment(ctx context.Context, group db.VMGroup) (Deploym
 	}, nil
 }
 
-func normalizeDeploymentConfig(cfg vmconfig.Config) (vmconfig.Config, error) {
+func (e *engine) normalizeDeploymentConfig(ctx context.Context, cfg vmconfig.Config) (vmconfig.Config, error) {
 	clone := cfg.Clone()
 	clone.Normalize()
+
+	// Default runtime to plugin name if not specified
+	if strings.TrimSpace(clone.Runtime) == "" {
+		clone.Runtime = strings.TrimSpace(clone.Plugin)
+	}
+
+	// If plugin is specified but manifest is missing, load manifest from installed plugin
+	pluginName := strings.TrimSpace(clone.Plugin)
+	if pluginName != "" && clone.Manifest == nil {
+		plugin, err := e.store.Queries().Plugins().GetByName(ctx, pluginName)
+		if err != nil {
+			return vmconfig.Config{}, fmt.Errorf("lookup plugin %s: %w", pluginName, err)
+		}
+		if plugin == nil {
+			return vmconfig.Config{}, fmt.Errorf("plugin %s not installed", pluginName)
+		}
+
+		// Parse manifest from plugin metadata
+		var manifest pluginspec.Manifest
+		if err := json.Unmarshal(plugin.Metadata, &manifest); err != nil {
+			return vmconfig.Config{}, fmt.Errorf("parse plugin %s manifest: %w", pluginName, err)
+		}
+		manifest.Normalize()
+		clone.Manifest = &manifest
+	}
+
+	// Infer plugin name from manifest if not set
 	if strings.TrimSpace(clone.Plugin) == "" && clone.Manifest != nil {
 		clone.Plugin = strings.TrimSpace(clone.Manifest.Name)
 	}
+
 	if err := clone.Validate(); err != nil {
 		return vmconfig.Config{}, err
 	}

@@ -7,14 +7,25 @@ Run workloads at scale with Volant's Kubernetes-inspired Deployments. Declarativ
 ## Quick Start
 
 ```bash
+# Create a deployment config file
+cat > web-config.json <<EOF
+{
+  "plugin": "nginx",
+  "resources": {
+    "cpu_cores": 2,
+    "memory_mb": 1024
+  }
+}
+EOF
+
 # Create a deployment with 3 replicas
-volar deployments create web --plugin nginx --replicas 3
+volar deployments create web --config web-config.json --replicas 3
 
 # Scale up
-volar deployments scale web --replicas 10
+volar deployments scale web 10
 
 # Scale down
-volar deployments scale web --replicas 2
+volar deployments scale web 2
 
 # Delete deployment (removes all VMs)
 volar deployments delete web
@@ -56,48 +67,52 @@ spec:
 
 ### Basic Deployment
 
+Create a deployment config file specifying the plugin and resources:
+
 ```bash
-volar deployments create myapp \
-  --plugin myapp-plugin \
-  --replicas 3 \
-  --cpu 2 \
-  --memory 1024
+# Create config file
+cat > myapp-config.json <<EOF
+{
+  "plugin": "myapp-plugin",
+  "resources": {
+    "cpu_cores": 2,
+    "memory_mb": 1024
+  }
+}
+EOF
+
+# Create deployment with 3 replicas
+volar deployments create myapp --config myapp-config.json --replicas 3
 ```
 
 **What happens**:
-1. volantd creates 3 VMs: `myapp-0`, `myapp-1`, `myapp-2`
-2. Each VM gets an IP from the pool
-3. VMs start in parallel
-4. volantd monitors health
+1. volantd loads the plugin manifest automatically
+2. volantd creates 3 VMs: `myapp-1`, `myapp-2`, `myapp-3`
+3. Each VM gets an IP from the pool
+4. VMs start in parallel
+5. volantd monitors health
 
-### With Labels
+### With Custom Configuration
 
-```bash
-volar deployments create api \
-  --plugin flask-api \
-  --replicas 5 \
-  --labels env=production,tier=backend
-```
-
-**Labels** help organize and query VMs:
+You can override manifest settings or add cloud-init configuration:
 
 ```bash
-# List all production VMs
-volar vms list --label env=production
+cat > api-config.json <<EOF
+{
+  "plugin": "flask-api",
+  "resources": {
+    "cpu_cores": 4,
+    "memory_mb": 2048
+  },
+  "cloud_init": {
+    "user_data": {
+      "content": "#cloud-config\nruncmd:\n  - echo 'REDIS_URL=redis://192.168.127.50:6379' >> /etc/environment"
+    }
+  }
+}
+EOF
 
-# List all backend VMs
-volar vms list --label tier=backend
-```
-
-### With Environment Variables
-
-```bash
-volar deployments create worker \
-  --plugin celery-worker \
-  --replicas 10 \
-  --env REDIS_URL=redis://192.168.127.50:6379 \
-  --env QUEUE_NAME=tasks \
-  --env LOG_LEVEL=info
+volar deployments create api --config api-config.json --replicas 5
 ```
 
 ---
@@ -108,10 +123,10 @@ volar deployments create worker \
 
 ```bash
 # Scale to specific count
-volar deployments scale web --replicas 20
+volar deployments scale web 20
 
 # volantd will:
-# - Create 17 new VMs (web-3 through web-19)
+# - Create 17 new VMs (web-4 through web-20)
 # - Allocate IPs
 # - Start VMs
 # - Wait for health checks
@@ -120,10 +135,10 @@ volar deployments scale web --replicas 20
 **Scaling down**:
 
 ```bash
-volar deployments scale web --replicas 5
+volar deployments scale web 5
 
 # volantd will:
-# - Stop VMs web-5 through web-19
+# - Stop VMs web-6 through web-20
 # - Release their IPs
 # - Clean up resources
 ```

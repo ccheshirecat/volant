@@ -490,14 +490,27 @@ volantd uses SQLite for state management:
 Volant supports Kubernetes-style **Deployments** for declarative scaling:
 
 ```bash
-volar deployments create my-service --plugin nginx --replicas 5
+# Create deployment config
+cat > service-config.json <<EOF
+{
+  "plugin": "nginx",
+  "resources": {
+    "cpu_cores": 2,
+    "memory_mb": 1024
+  }
+}
+EOF
+
+# Create deployment with 5 replicas
+volar deployments create my-service --config service-config.json --replicas 5
 ```
 
 **What happens**:
 
-1. volantd creates 5 VMs named `my-service-0` through `my-service-4`
-2. Each gets its own IP
-3. A reconciliation loop ensures `current_replicas == desired_replicas`
+1. volantd loads the plugin manifest automatically
+2. volantd creates 5 VMs named `my-service-1` through `my-service-5`
+3. Each gets its own IP
+4. A reconciliation loop ensures `current_replicas == desired_replicas`
 4. If a VM crashes, it's automatically recreated
 
 **Scaling**:
