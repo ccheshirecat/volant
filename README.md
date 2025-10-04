@@ -1,166 +1,225 @@
-<p align="center">
-  <img src="banner.png" alt="VOLANT — The Intelligent Execution Cloud"/>
-</p>
-
-<p align="center">
-  <a href="https://github.com/volantvm/volant/actions">
-    <img src="https://img.shields.io/github/actions/workflow/status/volantvm/volant/ci.yml?branch=main&style=flat-square&label=tests" alt="Build Status">
-  </a>
-  <a href="https://github.com/volantvm/volant/releases">
-    <img src="https://img.shields.io/github/v/release/volantvm/volant.svg?style=flat-square" alt="Latest Release">
-  </a>
-  <a href="https://golang.org/">
-    <img src="https://img.shields.io/badge/Go-1.22+-black.svg?style=flat-square" alt="Go Version">
-  </a>
-  <a href="https://github.com/volantvm/volant/blob/main/LICENSE">
-    <img src="https://img.shields.io/badge/License-BSL_1.1-black.svg?style=flat-square" alt="License">
-  </a>
-</p>
-
----
-
 # Volant
 
-> **The modular microVM orchestration engine.**
+**Boot microVMs, not containers. Run services, not orchestration.**
 
-Volant turns microVMs into a first-class runtime surface. The project ships a control plane, CLI, and agent that speak a common plugin manifest so teams can run secure, stateful workloads without stitching together networking, scheduling, and lifecycle plumbing themselves.
-
-Runtime-specific behavior lives in signed manifests and their associated artifacts. The core engine stays lean while plugin authors ship the kernels/initramfs overlays and workload processes their runtime requires. Operators decide which manifests to install and must reference one whenever a VM is created.
+Volant is a lightweight microVM orchestrator that solves the "197 MB NGINX" problem. Instead of bloated containers, Volant turns your applications into purpose-built bootable appliances with sub-100ms boot times and minimal memory footprints.
 
 ---
 
-## Overview
-
-- **Control plane (`volantd`)** manages SQLite-backed state, static IP leasing, orchestration, REST/MCP APIs, and the plugin registry.
-- **Agent (`kestrel`)** boots inside each microVM, hydrates the declared runtime, and mounts plugin-defined HTTP/WebSocket routes.
-- **CLI (`volar`)** provides a scriptable operator experience.
-- **Plugins** declare resources, workloads, and optional OpenAPI/action metadata via manifests—letting browser automation, AI inference, worker pools, or custom stacks share the same engine.
-
----
-
-## Highlights
-
-- 🛡 **Hardware isolation first** – every workload runs inside a Cloud Hypervisor microVM with static network bridging.
-- 🧩 **Plugin contract** – manifests capture runtime requirements, workload entrypoints, and optional OpenAPI metadata.
-- 🔌 **Universal proxy** – the control plane can forward REST, SSE, or WebSocket traffic to runtime agents without exposing private IPs.
-- 📡 **AI-native APIs** – REST and Model Context Protocol ship in the box.
-- 🧰 **Operator ergonomics** – one binary installs networking, bootstraps the database, and exposes a clean CLI.
-
----
-
-## Quick start
+## The Problem
 
 ```bash
-# Install the Volant toolchain (binaries and dual kernels)
-curl -sSL https://install.volant.cloud | bash
+$ docker images nginx:alpine
+REPOSITORY    TAG      IMAGE ID       SIZE
+nginx         alpine   3b25b682ea82   197MB
 
-# Configure the host (bridge networking, NAT, systemd service)
+# For NGINX. A web server. In 2025.
+```
+
+What you *actually* want running:
+- A kernel (~10 MB)
+- The NGINX binary (~1 MB)
+- Your static content
+- **Total: ~12 MB, boots in 80 ms**
+
+---
+
+## The Solution
+
+Volant provides:
+
+- **`volantd`** — Control plane (SQLite registry + VM orchestration)
+- **`volar`** — CLI for humans
+- **`kestrel`** — In-guest agent (PID 1)
+- **`fledge`** — Plugin builder (OCI → bootable images)
+
+**Two paths, same workflow**:
+
+1. **Rootfs strategy** — Convert OCI images to bootable disk images (Docker compatibility)
+2. **Initramfs strategy** — Build custom appliances from scratch (maximum performance)
+
+---
+
+## Quick Start
+
+```bash
+# Install Volant toolchain
+curl -fsSL https://volant.sh/install | bash
+
+# Configure host (bridge network, NAT, systemd)
 sudo volar setup
 
-# Install a plugin manifest
-volar plugins install --manifest ./docs/examples/plugins/nginx.manifest.json
+# Option 1: Use an OCI image (rootfs)
+cat > fledge.toml <<EOF
+[plugin]
+name = "nginx"
+version = "1.0.0"
+strategy = "oci_rootfs"
 
-# Create a microVM referencing that plugin
-volar vms create demo --plugin steel-browser --cpu 2 --memory 2048
+[oci_source]
+image = "docker.io/library/nginx:alpine"
+EOF
 
-# Discover workload endpoints
-volar plugins manifest steel-browser --summary
+fledge build
+volar plugins install --manifest nginx.manifest.json
+
+# Option 2: Build a custom appliance (initramfs)
+cat > fledge.toml <<EOF
+[plugin]
+name = "caddy"
+version = "1.0.0"
+strategy = "initramfs"
+
+[[file_mappings]]
+source = "./caddy_linux_amd64"
+dest = "/usr/local/bin/caddy"
+mode = 0o755
+
+[[file_mappings]]
+source = "./Caddyfile"
+dest = "/etc/Caddyfile"
+mode = 0o644
+
+[workload]
+entrypoint = ["/usr/local/bin/caddy", "run", "--config", "/etc/Caddyfile"]
+EOF
+
+fledge build
+volar plugins install --manifest caddy.manifest.json
+
+# Create and run a VM
+volar vms create web --plugin nginx --cpu 2 --memory 512
+volar vms list
+
+# Scale declaratively
+volar deployments create web-cluster --plugin nginx --replicas 5
 ```
 
-Refer to `docs/Guides/Plugins.md` for manifest structure, validation, and distribution workflows.
-
-### Dual-kernel modes
-
-- bzImage + rootfs: Docker-friendly; boot kernel at `/var/lib/volant/kernel/bzImage` and attach plugin `rootfs` as virtio‑blk.
-- vmlinux + initramfs: Native; boot kernel at `/var/lib/volant/kernel/vmlinux` and pass plugin `initramfs` via `--initramfs`.
-
-Manifests must specify exactly one of `rootfs` or `initramfs`. Operators can override per‑VM via the REST API or CLI.
+**Result**: 5 isolated VMs, each with its own kernel, own IP, <100ms boot time.
 
 ---
 
-## Architecture at a glance
+## Why Volant?
 
-| Layer | Responsibility |
-| ----- | -------------- |
-| Control plane | Persist state (SQLite), lease IPs, spawn microVMs, proxy agent traffic, emit events |
-| Agent | Boot runtime, expose plugin routes, stream logs, surface DevTools info when available |
-| Plugins | Provide kernels/initramfs overlays, declare resources/actions, publish OpenAPI metadata |
-| Tooling | `volar` CLI + REST/MCP clients consuming the same manifests |
-
----
-
-## Plugin workflow
-
-1. **Author** a manifest (`schema_version`, `name`, `version`, `runtime` optional, `rootfs`, resource envelope, workload contract, optional OpenAPI metadata).
-2. **Package** the runtime artifacts referenced by the manifest (kernel/initramfs, OCI image, minisign signatures, etc.).
-3. **Install** the manifest with `volar plugins install --manifest path/to/manifest.json`; the control plane validates and persists it.
-4. **Enable/disable** with `volar plugins enable <name>` or `volar plugins disable <name>`.
-5. **Launch VMs** by referencing the plugin: `volar vms create <vm> --plugin <name>`. Runtime metadata and the manifest payload are injected into the VM at boot.
-   - When a manifest omits `runtime`, Volant records the plugin `name` as the runtime identifier automatically.
-6. **Interact with the workload** by using the endpoints described in the manifest/OpenAPI document. Legacy `/api/v1/plugins/.../actions/...` proxies remain for older manifests but new plugins should expose standard HTTP or WebSocket surfaces.
-
-The engine persists manifests, enforces enablement state, and resolves action routing so microVMs only run compatible runtimes.
+| Feature | Containers | Volant microVMs |
+|---------|-----------|----------------|
+| **Isolation** | Kernel shared | Hardware-level (dedicated kernel) |
+| **Boot time** | ~1s | 50-150ms (initramfs) / 2-5s (rootfs) |
+| **Image size** | 197 MB (NGINX) | 12 MB (full appliance) |
+| **Security** | Namespaces | Full VM isolation |
+| **Overhead** | Shared kernel | ~25 MB per VM |
+| **Networking** | NAT/bridge/overlay | Simple Linux bridge |
 
 ---
 
-## Repository layout
+## Architecture
 
 ```
-cmd/               # Entry points (volantd, volar, kestrel)
-internal/          # Control plane, agent runtime, CLI/TUI, protocols
-  agent/
-  cli/
-  protocol/
-  server/
-  setup/
-build/             # Kernel/initramfs tooling
-docs/              # Product documentation
-Makefile           # Build + setup automation
-go.mod / go.sum
+┌─────────────────────────────────────────┐
+│              Host Machine               │
+│  ┌───────────────────────────────────┐  │
+│  │    volantd (Control Plane)        │  │
+│  │  • SQLite registry                │  │
+│  │  • IPAM (192.168.127.0/24)        │  │
+│  │  • Cloud Hypervisor orchestration │  │
+│  │  • REST + MCP APIs                │  │
+│  └───────────────┬───────────────────┘  │
+│                  │                       │
+│  ┌───────────────▼───────────────────┐  │
+│  │     Bridge Network (volant0)      │  │
+│  └┬────────┬────────┬────────┬───────┘  │
+│   │        │        │        │           │
+│  ┌▼──┐   ┌▼──┐   ┌▼──┐   ┌▼──┐         │
+│  │VM1│   │VM2│   │VM3│   │VMN│         │
+│  │┌──┐   │┌──┐   │┌──┐   │┌──┐         │
+│  ││🦅│   ││🦅│   ││🦅│   ││🦅│         │
+│  │└──┘   │└──┘   │└──┘   │└──┘         │
+│  └───┘   └───┘   └───┘   └───┘         │
+│   kestrel agents (PID 1)                │
+└─────────────────────────────────────────┘
 ```
+
+**Dual-kernel design**:
+- `bzImage-volant` — For rootfs (baked-in initramfs bootloader)
+- `vmlinux-generic` — For custom initramfs (pristine kernel)
 
 ---
 
-## Development
+## Use Cases
 
-1. Install **Go 1.22+** and Docker.
-2. Build binaries: `make build` (or `make volantd volar kestrel`).
-3. Build artifacts (kernel/initramfs): `make build-images`.
-4. Run integration SQLite migrations: `make migrate`.
-5. Launch the control plane locally:
-   ```bash
-   ./bin/volantd --config ./configs/dev.yaml
-   ./bin/volar vms list
-   ```
-
-See `docs/guides/development.md` for deeper instructions.
+- ✅ **Secure multi-tenancy** — True hardware isolation
+- ✅ **Edge computing** — Minimal footprint, fast boot
+- ✅ **CI/CD** — Ephemeral test environments
+- ✅ **Development** — Local Kubernetes-style orchestration
+- ✅ **High-density workloads** — 50-100 VMs per host
 
 ---
 
 ## Documentation
 
-The latest guides live in [`docs/`](docs) and at [docs.volant.cloud](https://docs.volant.cloud) once published.
+**Start here**: [docs/1_introduction.md](docs/1_introduction.md)
 
-Key entry points:
-- [Start here](docs/Start/introduction.md)
-- [Plugin authoring](docs/Guides/Plugins.md)
-- [REST API](docs/API/Rest%20API.md)
-- [MCP interface](docs/API/MCP.md)
+### Getting Started
+- [Installation](docs/2_getting-started/1_installation.md)
+- [Quick Start: Rootfs (NGINX)](docs/2_getting-started/2_quick-start-rootfs.md)
+- [Quick Start: Initramfs (Caddy)](docs/2_getting-started/3_quick-start-initramfs.md)
+
+### Guides
+- CLI Reference
+- Plugin Development
+- Networking
+- Scaling
+- Cloud-init
+- Interactive Shell
+
+### Architecture
+- [Overview](docs/5_architecture/1_overview.md)
+- Boot Process
+- Control Plane Internals
+- Security Model
+
+### Reference
+- Plugin Manifest Schema
+- REST API
+- MCP Protocol
+- Glossary
+
+### Development
+- Contributing Guide
+- Building from Source
 
 ---
 
-## Contributing
+## Roadmap
 
-Pull requests, issues, and plugin proposals are welcome. Please see `CONTRIBUTING.md` (coming soon) for workflow details.
+See [ROADMAP.md](ROADMAP.md) for the full vision.
+
+**Highlights**:
+- **v0.2-0.3** (2025 Q1-Q2): Testing, observability, security hardening, web dashboard
+- **v0.4-0.6** (2025 Q2-Q4): **VFIO GPU passthrough**, **PaaS mode** (Heroku-style `git push`)
+- **v1.0+** (2026+): Multi-node clustering, plugin marketplace, enterprise features
+
+---
+
+## Community
+
+- 🐙 **GitHub**: [github.com/ccheshirecat/volant](https://github.com/ccheshirecat/volant)
+- 💬 **Discord**: [discord.gg/volant](https://discord.gg/volant) *(coming soon)*
+- 📧 **Email**: [email protected]
+
+**Contributing**: See [docs/7_development/1_contributing.md](docs/7_development/1_contributing.md) *(coming soon)*
 
 ---
 
 ## License
 
-Business Source License 1.1 – see [LICENSE](LICENSE).
+**Business Source License 1.1** — Free for non-production use.  
+Converts to **Apache 2.0** on **October 4, 2029**.
 
-This license converts to Apache License 2.0 on October 4, 2029.
+See [LICENSE](LICENSE) for full terms.
 
 ---
 
-<p align="center"><i>Volant — Build the runtime you need, without rebuilding the control plane.</i></p>
+<p align="center">
+  <strong>Volant</strong> — <em>Fast, lean, isolated. The way services should run.</em>
+</p>
