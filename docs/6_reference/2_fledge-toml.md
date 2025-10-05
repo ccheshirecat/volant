@@ -3,6 +3,14 @@
 
 Source of truth: fledge/internal/config/schema.go and config.go. Validation rules are enforced in Validate().
 
+## Editor integration
+
+For Taplo-compatible editors (VS Code/JetBrains TOML plugins), add this comment at the very top of your fledge.toml to enable autocomplete and validation:
+
+```
+# schema = "https://raw.githubusercontent.com/volantvm/volant/main/docs/schemas/fledge-toml-v1.json"
+```
+
 ## Top-level
 
 - version: string (required) — must equal "1"
