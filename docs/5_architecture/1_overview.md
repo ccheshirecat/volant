@@ -121,3 +121,12 @@ Builder (external)
 - Cloud‑init builder: internal/server/orchestrator/cloudinit
 - Plugin spec: internal/pluginspec/spec.go
 - Setup utility: internal/setup/setup.go
+
+## Related Deep Dives
+
+- Components and Responsibilities: docs/5_architecture/2_components.md
+- Data Flow Deep Dive: docs/5_architecture/3_dataflow.md
+- Networking Model: docs/5_architecture/4_networking.md
+- Boot and Runtime: docs/5_architecture/5_boot-and-runtime.md
+- Security, Limits, and Failure Modes: docs/5_architecture/6_security-and-limits.md
+- Extensibility and Conventions: docs/5_architecture/7_extensibility.md
