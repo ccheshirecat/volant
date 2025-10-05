@@ -1,0 +1,163 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/volantvm/volant/main/docs/schemas/plugin-manifest-v1.json",
+  "title": "Volant Plugin Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "name", "version", "runtime", "resources", "workload"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema_version": { "type": "string" },
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "runtime": { "type": "string", "minLength": 1 },
+    "image": { "type": "string" },
+    "image_digest": { "type": "string" },
+    "enabled": { "type": "boolean" },
+    "openapi": { "type": "string" },
+    "labels": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpu_cores", "memory_mb"],
+      "properties": {
+        "cpu_cores": { "type": "integer", "minimum": 1 },
+        "memory_mb": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "base_url", "entrypoint"],
+      "properties": {
+        "type": { "type": "string", "enum": ["http"] },
+        "base_url": { "type": "string" },
+        "entrypoint": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "workdir": { "type": "string" }
+      }
+    },
+    "health_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["endpoint", "timeout_ms"],
+      "properties": {
+        "endpoint": { "type": "string" },
+        "timeout_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "actions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["method", "path"],
+        "properties": {
+          "description": { "type": "string" },
+          "method": { "type": "string" },
+          "path": { "type": "string" },
+          "timeout_ms": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "rootfs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": { "type": "string" },
+        "checksum": { "type": "string" },
+        "format": { "type": "string", "enum": ["raw", "qcow2"] }
+      }
+    },
+    "initramfs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": { "type": "string" },
+        "checksum": { "type": "string" }
+      }
+    },
+    "disks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "source"],
+        "properties": {
+          "name": { "type": "string" },
+          "source": { "type": "string" },
+          "checksum": { "type": "string" },
+          "format": { "type": "string", "enum": ["raw", "qcow2"] },
+          "readonly": { "type": "boolean" },
+          "target": { "type": "string" }
+        }
+      }
+    },
+    "cloud_init": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "datasource": { "type": "string" },
+        "seed_mode": { "type": "string", "enum": ["vfat"] },
+        "user_data": { "$ref": "#/definitions/cloudInitDoc" },
+        "meta_data": { "$ref": "#/definitions/cloudInitDoc" },
+        "network_config": { "$ref": "#/definitions/cloudInitDoc" }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string", "enum": ["vsock", "bridged", "dhcp"] },
+        "subnet": { "type": "string" },
+        "gateway": { "type": "string" },
+        "auto_assign": { "type": "boolean" }
+      }
+    },
+    "devices": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pci_passthrough": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "allowlist": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "oneOf": [
+        { "required": ["rootfs"], "not": { "required": ["initramfs"] } },
+        { "required": ["initramfs"], "not": { "required": ["rootfs"] } }
+      ]
+    }
+  ],
+  "definitions": {
+    "cloudInitDoc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "inline": { "type": "boolean" },
+        "content": { "type": "string" },
+        "path": { "type": "string" }
+      }
+    }
+  }
+}

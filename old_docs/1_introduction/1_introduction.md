@@ -1,3 +1,4 @@
+## **Meet Volant**
 
 **Volant** is a modular microVM orchestration engine — a platform that makes virtualization programmable.
 It ships a compact control plane, CLI, and in-guest agent that share a common manifest format. Each workload runs inside its own microVM with deterministic networking, real resource isolation, and clean lifecycle control.
@@ -79,8 +80,8 @@ Each microVM gets a **static IP** from a deterministic pool. No overlays, no dis
 
 ### The Dual-Kernel Strategy
 Volant supports both compatibility and performance through two kernels:
-1. **`bzImage`** — Boots OCI/rootfs-based workloads.
-2. **`vmlinux`** — Boots initramfs appliances.
+1. **`bzImage-volant`** — Boots OCI/rootfs-based workloads.
+2. **`vmlinux-generic`** — Boots initramfs appliances.
 
 ### Kestrel: The Intelligent Supervisor
 Every microVM runs **kestrel**, Volant’s in-guest PID 1 that handles mounts, pivots, supervision, and manifest-driven orchestration. It’s the heartbeat of every VM.
