@@ -71,40 +71,72 @@ Volant provides:
 
 ## Quick Start
 
+Spin up your first microVM in under a minute.
+
+---
+
+### 1. Install the Volant toolchain
 ```bash
-# Install Volant toolchain
-# Note: This configures the runtime directory to ~/.volant and sets up a default IPv4 bridge
-# use --skip-setup if you want to configure the defaults
-# Then run sudo volar setup --help to view the options
+# This installs volar (CLI), volantd (control plane), kestrel (guest agent),
+# and default kernels to /var/lib/volant/kernel.
+# By default, setup creates a bridge (vbr0) at 192.168.127.1/24.
+
 curl -fsSL https://get.volantvm.com | bash
 ```
+
+**Tip:** To inspect or customize network setup later:
 ```bash
-# If you want to skip the setup
+sudo volar setup --help
+```
+
+If you prefer to **skip automatic setup** and handle networking yourself:
+```bash
 curl -fsSL https://get.volantvm.com | bash -s -- --skip-setup
 ```
+
+---
+
+### 2. Install a pre-built plugin
+
+Let’s start with the **Caddy web server**, built as a lightweight initramfs appliance:
+
 ```bash
-# Then run volar setup to view the options for configuration
-volar setup
+volar plugins install --manifest \
+  https://github.com/volantvm/initramfs-plugin-example/releases/latest/download/caddy.json
 ```
-      
+
+---
+
+### 3. Create and run your first VM
 ```bash
-# Install a pre-built plugin from a manifest URL, see the example plugin repositories for more details
-volar plugins install --manifest https://github.com/volantvm/initramfs-plugin-example/releases/latest/download/caddy.json
-```
-```bash
-# Create and run a VM
 volar vms create web --plugin caddy --cpu 2 --memory 512
 ```
+
+Check it’s alive:
 ```bash
-# Your VM is live
 curl 192.168.127.10
+# → Hello from Caddy in a Volant microVM! 🚀
 ```
 
-```bash
-volar vms list
+---
 
-# Scale declaratively with deployments
-cat > web-config.json <<EOF
+### 4. Try a Docker-based workload (OCI rootfs)
+
+This example runs **NGINX** directly from the official Docker image:
+```bash
+volar plugins install --manifest \
+  https://github.com/volantvm/oci-plugin-example/releases/latest/download/nginx.json
+
+volar vms create my-nginx --plugin nginx --cpu 1 --memory 1024
+curl http://192.168.127.11
+```
+
+---
+
+### 5. Scale declaratively (Kubernetes-style)
+
+```bash
+cat > web-config.json <<'EOF'
 {
   "plugin": "caddy",
   "resources": {
@@ -114,10 +146,18 @@ cat > web-config.json <<EOF
 }
 EOF
 
-volar deployments create web-cluster --config web-config.json --replicas 5
+volar deployments create web-cluster \
+  --config web-config.json \
+  --replicas 5
 ```
 
-**Result**: 5 isolated VMs, each with its own kernel and dedicated IP address.
+**Result:** 5 isolated microVMs, each with its own kernel, IP, and lifecycle management.
+
+---
+
+**Done** — you’ve just deployed a replicated microVM cluster with real kernel isolation, no YAMLs, and zero boilerplate.
+
+
 
 ### Build Your Own Plugin
 
