@@ -1,50 +1,78 @@
- # fledge.toml Reference
+ 
+# fledge.toml reference
 
- Source of truth: fledge/internal/config/schema.go, config.go
+Source of truth: fledge/internal/config/schema.go and config.go. Validation rules are enforced in Validate().
 
- ```toml
- version   = "1"                 # required
- strategy  = "initramfs" | "oci_rootfs"  # required
+## Top-level
 
- [agent]                          # required for initramfs default mode only
- source_strategy = "release" | "local" | "http"
- version = "latest"              # for release
- path    = "/path/to/kestrel"   # for local
- url     = "https://.../kestrel" # for http (optional checksum recommended)
- checksum = "sha256:..."         # optional but recommended (http)
+- version: string (required) — must equal "1"
+- strategy: string (required) — "initramfs" or "oci_rootfs"
+- agent: AgentConfig (optional; only allowed for initramfs default mode)
+- init: InitConfig (optional; initramfs only)
+- source: SourceConfig (required; fields depend on strategy)
+- filesystem: FilesystemConfig (optional; required for oci_rootfs)
+- mappings: map[string]string (optional; host→guest file placements)
 
- [init]                           # initramfs only; choose one mode
- path = "/init"                 # custom init mode (disables [agent])
- none = true                     # no-wrapper mode (disables [agent])
+## InitConfig (initramfs only)
 
- [source]
- # initramfs
- busybox_url = "https://.../busybox"  # required for initramfs
- busybox_sha256 = "..."               # optional
+- path: string (optional) — sets custom PID1; mutually exclusive with none=true
+- none: bool (optional) — makes your binary PID1; mutually exclusive with path
 
- # oci_rootfs
- image = "nginx:alpine"               # required for oci_rootfs
+Init mode is derived as:
+- default: init unset or empty (requires [agent])
+- custom: init.path set (forbids [agent])
+- none: init.none=true (forbids [agent])
 
- [filesystem]                    # oci_rootfs only
- type = "ext4"                   # ext4|xfs|btrfs
- size_buffer_mb = 100            # non-negative; default 100
- preallocate = false             # sparse (dd) if false; fallocate if true
+## AgentConfig (initramfs default mode only)
 
- [mappings]                      # optional, both strategies
- "./local" = "/usr/bin/local"     # absolute dest path, FHS‑aware modes
- ```
+- source_strategy: string (required) — "release" | "local" | "http"
+- version: string (required for release)
+- path: string (required for local)
+- url: string (required for http)
+- checksum: string (optional for http)
 
- Validation rules (enforced in config.Validate):
- - version must equal "1"
- - strategy must be "initramfs" or "oci_rootfs"
- - initramfs: source.busybox_url is required
- - initramfs default mode: [agent] required; custom/none modes: [agent] forbidden
- - oci_rootfs: [filesystem] required; type must be one of ext4,xfs,btrfs; size_buffer_mb >= 0
- - mappings: destination must be absolute; no ".." segments
+## SourceConfig
 
- Derived defaults (applyDefaults):
- - initramfs default mode: [agent] defaults to {source_strategy=release, version=latest}
- - oci_rootfs: [filesystem] defaults to {type=ext4, size_buffer_mb=100, preallocate=false}
+- For oci_rootfs:
+  - image: string (required) — e.g., docker://nginx:1.25
 
- Build commands (from CLI):
- - sudo fledge build -c fledge.toml -o output.(cpio.gz|img)
+- For initramfs:
+  - busybox_url: string (required)
+  - busybox_sha256: string (optional)
+
+## FilesystemConfig (oci_rootfs only)
+
+- type: string (required) — one of: ext4, xfs, btrfs
+- size_buffer_mb: int (required) — additional free space to add; must be >= 0
+- preallocate: bool (optional) — preallocate the image file
+
+When absent, defaults are applied (DefaultFilesystemConfig):
+- type: ext4
+- size_buffer_mb: 100
+- preallocate: false
+
+## mappings
+
+A map of host source path → absolute destination path inside the image. Validation:
+- destination must be absolute (starts with /)
+- destination cannot contain ".."
+
+Placement rules follow FHS semantics (see fledge/internal/builder/mapping.go):
+- Executables under /usr/bin, /usr/sbin, /bin, /sbin → 0755
+- Libraries under /lib, /usr/lib → 0755
+- Others keep mode or default to 0644
+
+## Validation summary
+
+- version must be "1"
+- strategy must be initramfs or oci_rootfs
+- initramfs:
+  - source.busybox_url required
+  - default mode requires [agent]
+  - custom/none forbid [agent]
+- oci_rootfs:
+  - source.image required
+  - filesystem required; type in {ext4,xfs,btrfs}; size_buffer_mb >= 0
+- mappings: destination absolute and no ".."
+
+See fledge/internal/config/config.go for full validation logic.

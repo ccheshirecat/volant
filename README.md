@@ -186,10 +186,14 @@ Volant downloads the pre-built artifacts (from GitHub releases) and boots your V
 **Full documentation**: [docs.volantvm.com](https://docs.volantvm.com)
 
 Quick links:
+- [Why Volant](docs/1_introduction/0_why-volant.md)
 - [Installation Guide](docs/2_getting-started/1_installation.md)
-- [Plugin Development](docs/4_plugin-development/1_overview.md)
+- [Quick Starts](docs/2_getting-started/2_quick-start-initramfs.md) · [Rootfs](docs/2_getting-started/3_quick-start-rootfs.md)
+- [Networking](docs/3_guides/1_networking.md) · [Cloud-init](docs/3_guides/2_cloud-init.md) · [Deployments](docs/3_guides/3_deployments.md) · [GPU](docs/3_guides/4_gpu-passthrough.md)
+- [Plugin Development](docs/4_plugin-development/1_overview.md) · [Initramfs](docs/4_plugin-development/2_initramfs.md) · [OCI Rootfs](docs/4_plugin-development/3_oci-rootfs.md)
 - [Architecture Overview](docs/5_architecture/1_overview.md)
-- [Contributing](docs/7_development/1_contributing.md)
+- [Reference: Manifest](docs/6_reference/1_manifest-schema.md) · [fledge.toml](docs/6_reference/2_fledge-toml.md) · [CLI](docs/6_reference/cli-volar.md)
+- [Contributing](docs/7_development/1_contributing.md) · [Security](docs/7_development/2_security.md)
 
 ---
 

@@ -64,7 +64,7 @@ type Manifest struct {
 // DeviceConfig holds device passthrough configuration
 type DeviceConfig struct {
 	PCIPassthrough []string `json:"pci_passthrough,omitempty"` // PCI addresses like "0000:01:00.0"
-	Allowlist      []string `json:"allowlist,omitempty"`        // Optional vendor:device patterns like "10de:*"
+	Allowlist      []string `json:"allowlist,omitempty"`       // Optional vendor:device patterns like "10de:*"
 }
 
 type RootFS struct {
