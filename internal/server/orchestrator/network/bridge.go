@@ -2,6 +2,8 @@
 //
 // Business Source License 1.1
 // See LICENSE file in the project root for details.
+//go:build linux
+// +build linux
 
 package network
 

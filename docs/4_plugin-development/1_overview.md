@@ -1,4 +1,4 @@
- # Plugin Development Overview
+ # Plugin development overview
 
  This section is the canonical guide for authoring Volant plugins using Fledge.
  It explains when to choose initramfs vs. OCI Rootfs, how fledge.toml maps to build outputs, and how those outputs map to a plugin manifest consumed by Volant.
@@ -109,3 +109,6 @@
  - 4_plugin-development/2_initramfs.md: end-to-end guide for initramfs authoring
  - 4_plugin-development/3_oci-rootfs.md: end-to-end guide for OCI rootfs authoring
  - 6_reference/2_fledge-toml.md: fledge.toml reference and validation rules
+Continue with the detailed guides:
+- docs/4_plugin-development/2_initramfs.md
+- docs/4_plugin-development/3_oci-rootfs.md
