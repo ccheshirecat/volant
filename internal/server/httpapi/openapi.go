@@ -300,8 +300,8 @@ func BuildOpenAPISpec(baseURL string) (*openapi3.T, error) {
 		}
 		return op
 	}())
-	
-		// /api/v1/vms/{name}/start
+
+	// /api/v1/vms/{name}/start
 	spec.AddOperation("/api/v1/vms/{name}/start", http.MethodPost, func() *openapi3.Operation {
 		op := openapi3.NewOperation()
 		op.Summary = "Start a stopped VM"
@@ -642,6 +642,177 @@ func BuildOpenAPISpec(baseURL string) (*openapi3.T, error) {
 			resp.Content = openapi3.NewContent()
 			resp.Content["text/event-stream"] = &openapi3.MediaType{}
 			op.Responses.Set("200", &openapi3.ResponseRef{Value: resp})
+		}
+		return op
+	}())
+
+	// Register VFIO request/response schemas
+	vfioDeviceInfoReqRef, _ := gen.NewSchemaRefForValue(&vfioDeviceInfoRequest{}, spec.Components.Schemas)
+	vfioDeviceInfoRespRef, _ := gen.NewSchemaRefForValue(&vfioDeviceInfoResponse{}, spec.Components.Schemas)
+	vfioValidateReqRef, _ := gen.NewSchemaRefForValue(&vfioValidateRequest{}, spec.Components.Schemas)
+	vfioValidateRespRef, _ := gen.NewSchemaRefForValue(&vfioValidateResponse{}, spec.Components.Schemas)
+	vfioIOMMUGroupRespRef, _ := gen.NewSchemaRefForValue(&vfioIOMMUGroupResponse{}, spec.Components.Schemas)
+	vfioBindReqRef, _ := gen.NewSchemaRefForValue(&vfioBindRequest{}, spec.Components.Schemas)
+	vfioBindRespRef, _ := gen.NewSchemaRefForValue(&vfioBindResponse{}, spec.Components.Schemas)
+	vfioUnbindReqRef, _ := gen.NewSchemaRefForValue(&vfioUnbindRequest{}, spec.Components.Schemas)
+	vfioUnbindRespRef, _ := gen.NewSchemaRefForValue(&vfioUnbindResponse{}, spec.Components.Schemas)
+	vfioGroupPathsReqRef, _ := gen.NewSchemaRefForValue(&vfioGroupPathsRequest{}, spec.Components.Schemas)
+	vfioGroupPathsRespRef, _ := gen.NewSchemaRefForValue(&vfioGroupPathsResponse{}, spec.Components.Schemas)
+
+	// /api/v1/vfio/devices/info
+	spec.AddOperation("/api/v1/vfio/devices/info", http.MethodPost, func() *openapi3.Operation {
+		op := openapi3.NewOperation()
+		op.Summary = "Get VFIO device information"
+		op.Description = "Retrieve detailed information about a specific PCI device including vendor, device ID, driver, IOMMU group, and NUMA node"
+		op.OperationID = "getVFIODeviceInfo"
+		op.Tags = []string{"vfio"}
+		op.RequestBody = &openapi3.RequestBodyRef{Value: &openapi3.RequestBody{Required: true, Content: openapi3.NewContentWithJSONSchemaRef(vfioDeviceInfoReqRef)}}
+		op.Responses = openapi3.NewResponses()
+		{
+			resp := openapi3.NewResponse().WithDescription("Device information")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(vfioDeviceInfoRespRef)
+			op.Responses.Set("200", &openapi3.ResponseRef{Value: resp})
+		}
+		{
+			resp := openapi3.NewResponse().WithDescription("Bad request")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(errorSchema)
+			op.Responses.Set("400", &openapi3.ResponseRef{Value: resp})
+		}
+		{
+			resp := openapi3.NewResponse().WithDescription("Internal error")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(errorSchema)
+			op.Responses.Set("500", &openapi3.ResponseRef{Value: resp})
+		}
+		return op
+	}())
+
+	// /api/v1/vfio/devices/validate
+	spec.AddOperation("/api/v1/vfio/devices/validate", http.MethodPost, func() *openapi3.Operation {
+		op := openapi3.NewOperation()
+		op.Summary = "Validate VFIO devices"
+		op.Description = "Validate PCI addresses and check against optional allowlist patterns"
+		op.OperationID = "validateVFIODevices"
+		op.Tags = []string{"vfio"}
+		op.RequestBody = &openapi3.RequestBodyRef{Value: &openapi3.RequestBody{Required: true, Content: openapi3.NewContentWithJSONSchemaRef(vfioValidateReqRef)}}
+		op.Responses = openapi3.NewResponses()
+		{
+			resp := openapi3.NewResponse().WithDescription("Validation result")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(vfioValidateRespRef)
+			op.Responses.Set("200", &openapi3.ResponseRef{Value: resp})
+		}
+		{
+			resp := openapi3.NewResponse().WithDescription("Bad request")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(errorSchema)
+			op.Responses.Set("400", &openapi3.ResponseRef{Value: resp})
+		}
+		return op
+	}())
+
+	// /api/v1/vfio/devices/iommu-groups
+	spec.AddOperation("/api/v1/vfio/devices/iommu-groups", http.MethodPost, func() *openapi3.Operation {
+		op := openapi3.NewOperation()
+		op.Summary = "Check IOMMU groups"
+		op.Description = "Get IOMMU group information for specified PCI devices"
+		op.OperationID = "checkVFIOIOMMUGroups"
+		op.Tags = []string{"vfio"}
+		op.RequestBody = &openapi3.RequestBodyRef{Value: &openapi3.RequestBody{Required: true, Content: openapi3.NewContentWithJSONSchemaRef(vfioValidateReqRef)}}
+		op.Responses = openapi3.NewResponses()
+		{
+			resp := openapi3.NewResponse().WithDescription("IOMMU group information")
+			arr := &openapi3.Schema{Type: &openapi3.Types{openapi3.TypeArray}, Items: vfioIOMMUGroupRespRef}
+			resp.Content = openapi3.NewContentWithJSONSchema(arr)
+			op.Responses.Set("200", &openapi3.ResponseRef{Value: resp})
+		}
+		{
+			resp := openapi3.NewResponse().WithDescription("Bad request")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(errorSchema)
+			op.Responses.Set("400", &openapi3.ResponseRef{Value: resp})
+		}
+		{
+			resp := openapi3.NewResponse().WithDescription("Internal error")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(errorSchema)
+			op.Responses.Set("500", &openapi3.ResponseRef{Value: resp})
+		}
+		return op
+	}())
+
+	// /api/v1/vfio/devices/bind
+	spec.AddOperation("/api/v1/vfio/devices/bind", http.MethodPost, func() *openapi3.Operation {
+		op := openapi3.NewOperation()
+		op.Summary = "Bind devices to vfio-pci"
+		op.Description = "Bind PCI devices to the vfio-pci driver for passthrough"
+		op.OperationID = "bindVFIODevices"
+		op.Tags = []string{"vfio"}
+		op.RequestBody = &openapi3.RequestBodyRef{Value: &openapi3.RequestBody{Required: true, Content: openapi3.NewContentWithJSONSchemaRef(vfioBindReqRef)}}
+		op.Responses = openapi3.NewResponses()
+		{
+			resp := openapi3.NewResponse().WithDescription("Bind result")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(vfioBindRespRef)
+			op.Responses.Set("200", &openapi3.ResponseRef{Value: resp})
+		}
+		{
+			resp := openapi3.NewResponse().WithDescription("Bad request")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(errorSchema)
+			op.Responses.Set("400", &openapi3.ResponseRef{Value: resp})
+		}
+		{
+			resp := openapi3.NewResponse().WithDescription("Internal error")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(errorSchema)
+			op.Responses.Set("500", &openapi3.ResponseRef{Value: resp})
+		}
+		return op
+	}())
+
+	// /api/v1/vfio/devices/unbind
+	spec.AddOperation("/api/v1/vfio/devices/unbind", http.MethodPost, func() *openapi3.Operation {
+		op := openapi3.NewOperation()
+		op.Summary = "Unbind devices from vfio-pci"
+		op.Description = "Unbind PCI devices from the vfio-pci driver and restore original driver"
+		op.OperationID = "unbindVFIODevices"
+		op.Tags = []string{"vfio"}
+		op.RequestBody = &openapi3.RequestBodyRef{Value: &openapi3.RequestBody{Required: true, Content: openapi3.NewContentWithJSONSchemaRef(vfioUnbindReqRef)}}
+		op.Responses = openapi3.NewResponses()
+		{
+			resp := openapi3.NewResponse().WithDescription("Unbind result")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(vfioUnbindRespRef)
+			op.Responses.Set("200", &openapi3.ResponseRef{Value: resp})
+		}
+		{
+			resp := openapi3.NewResponse().WithDescription("Bad request")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(errorSchema)
+			op.Responses.Set("400", &openapi3.ResponseRef{Value: resp})
+		}
+		{
+			resp := openapi3.NewResponse().WithDescription("Internal error")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(errorSchema)
+			op.Responses.Set("500", &openapi3.ResponseRef{Value: resp})
+		}
+		return op
+	}())
+
+	// /api/v1/vfio/devices/group-paths
+	spec.AddOperation("/api/v1/vfio/devices/group-paths", http.MethodPost, func() *openapi3.Operation {
+		op := openapi3.NewOperation()
+		op.Summary = "Get VFIO group paths"
+		op.Description = "Get /dev/vfio/GROUP_NUMBER paths for specified PCI devices"
+		op.OperationID = "getVFIOGroupPaths"
+		op.Tags = []string{"vfio"}
+		op.RequestBody = &openapi3.RequestBodyRef{Value: &openapi3.RequestBody{Required: true, Content: openapi3.NewContentWithJSONSchemaRef(vfioGroupPathsReqRef)}}
+		op.Responses = openapi3.NewResponses()
+		{
+			resp := openapi3.NewResponse().WithDescription("VFIO group paths")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(vfioGroupPathsRespRef)
+			op.Responses.Set("200", &openapi3.ResponseRef{Value: resp})
+		}
+		{
+			resp := openapi3.NewResponse().WithDescription("Bad request")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(errorSchema)
+			op.Responses.Set("400", &openapi3.ResponseRef{Value: resp})
+		}
+		{
+			resp := openapi3.NewResponse().WithDescription("Internal error")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(errorSchema)
+			op.Responses.Set("500", &openapi3.ResponseRef{Value: resp})
 		}
 		return op
 	}())

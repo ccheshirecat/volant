@@ -28,6 +28,7 @@ import (
 
 	"github.com/volantvm/volant/internal/pluginspec"
 	"github.com/volantvm/volant/internal/server/db"
+	"github.com/volantvm/volant/internal/server/devicemanager"
 	"github.com/volantvm/volant/internal/server/eventbus"
 	"github.com/volantvm/volant/internal/server/orchestrator"
 	orchestratorevents "github.com/volantvm/volant/internal/server/orchestrator/events"
@@ -135,6 +136,16 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 		events := v1.Group("/events")
 		{
 			events.GET("/vms", api.streamVMEvents)
+		}
+
+		vfio := v1.Group("/vfio")
+		{
+			vfio.POST("/devices/info", api.getVFIODeviceInfo)
+			vfio.POST("/devices/validate", api.validateVFIODevices)
+			vfio.POST("/devices/iommu-groups", api.checkVFIOIOMMUGroups)
+			vfio.POST("/devices/bind", api.bindVFIODevices)
+			vfio.POST("/devices/unbind", api.unbindVFIODevices)
+			vfio.POST("/devices/group-paths", api.getVFIOGroupPaths)
 		}
 	}
 
@@ -313,6 +324,63 @@ type createVMRequest struct {
 	APIHost       string           `json:"api_host"`
 	APIPort       string           `json:"api_port"`
 	Config        *vmconfig.Config `json:"config,omitempty"`
+}
+
+type vfioDeviceInfoRequest struct {
+	PCIAddress string `json:"pci_address" binding:"required"`
+}
+
+type vfioDeviceInfoResponse struct {
+	Address    string `json:"address"`
+	Vendor     string `json:"vendor"`
+	Device     string `json:"device"`
+	Driver     string `json:"driver"`
+	IOMMUGroup string `json:"iommu_group"`
+	NumaNode   string `json:"numa_node"`
+}
+
+type vfioValidateRequest struct {
+	PCIAddresses []string `json:"pci_addresses" binding:"required"`
+	Allowlist    []string `json:"allowlist,omitempty"`
+}
+
+type vfioValidateResponse struct {
+	Valid   bool     `json:"valid"`
+	Message string   `json:"message,omitempty"`
+	Errors  []string `json:"errors,omitempty"`
+}
+
+type vfioIOMMUGroupResponse struct {
+	ID      string   `json:"id"`
+	Devices []string `json:"devices"`
+}
+
+type vfioBindRequest struct {
+	PCIAddresses []string `json:"pci_addresses" binding:"required"`
+}
+
+type vfioBindResponse struct {
+	Success      bool     `json:"success"`
+	Message      string   `json:"message,omitempty"`
+	BoundDevices []string `json:"bound_devices,omitempty"`
+}
+
+type vfioUnbindRequest struct {
+	PCIAddresses []string `json:"pci_addresses" binding:"required"`
+}
+
+type vfioUnbindResponse struct {
+	Success        bool     `json:"success"`
+	Message        string   `json:"message,omitempty"`
+	UnboundDevices []string `json:"unbound_devices,omitempty"`
+}
+
+type vfioGroupPathsRequest struct {
+	PCIAddresses []string `json:"pci_addresses" binding:"required"`
+}
+
+type vfioGroupPathsResponse struct {
+	GroupPaths []string `json:"group_paths"`
 }
 
 type vmResponse struct {
@@ -1875,4 +1943,163 @@ func (api *apiServer) getPluginManifest(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, manifest)
+}
+
+// VFIO Device Management Handlers
+
+func (api *apiServer) getVFIODeviceInfo(c *gin.Context) {
+	var req vfioDeviceInfoRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get VFIOManager from the engine
+	vfioMgr := devicemanager.NewVFIOManager(api.logger)
+
+	deviceInfo, err := vfioMgr.GetDeviceInfo(req.PCIAddress)
+	if err != nil {
+		api.logger.Error("failed to get device info", "pci_address", req.PCIAddress, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp := vfioDeviceInfoResponse{
+		Address:    deviceInfo.Address,
+		Vendor:     deviceInfo.Vendor,
+		Device:     deviceInfo.Device,
+		Driver:     deviceInfo.Driver,
+		IOMMUGroup: deviceInfo.IOMMUGroup,
+		NumaNode:   deviceInfo.NumaNode,
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+func (api *apiServer) validateVFIODevices(c *gin.Context) {
+	var req vfioValidateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	vfioMgr := devicemanager.NewVFIOManager(api.logger)
+
+	err := vfioMgr.ValidateDevices(req.PCIAddresses, req.Allowlist)
+	if err != nil {
+		api.logger.Warn("device validation failed", "devices", req.PCIAddresses, "error", err)
+		c.JSON(http.StatusOK, vfioValidateResponse{
+			Valid:   false,
+			Message: err.Error(),
+			Errors:  []string{err.Error()},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, vfioValidateResponse{
+		Valid:   true,
+		Message: "All devices are valid and available for passthrough",
+	})
+}
+
+func (api *apiServer) checkVFIOIOMMUGroups(c *gin.Context) {
+	var req vfioValidateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	vfioMgr := devicemanager.NewVFIOManager(api.logger)
+
+	groups, err := vfioMgr.CheckIOMMUGroups(req.PCIAddresses)
+	if err != nil {
+		api.logger.Error("failed to check IOMMU groups", "devices", req.PCIAddresses, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var response []vfioIOMMUGroupResponse
+	for _, group := range groups {
+		response = append(response, vfioIOMMUGroupResponse{
+			ID:      group.ID,
+			Devices: group.Devices,
+		})
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (api *apiServer) bindVFIODevices(c *gin.Context) {
+	var req vfioBindRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	vfioMgr := devicemanager.NewVFIOManager(api.logger)
+
+	err := vfioMgr.BindDevices(req.PCIAddresses)
+	if err != nil {
+		api.logger.Error("failed to bind devices", "devices", req.PCIAddresses, "error", err)
+		c.JSON(http.StatusInternalServerError, vfioBindResponse{
+			Success: false,
+			Message: err.Error(),
+		})
+		return
+	}
+
+	api.logger.Info("successfully bound devices to vfio-pci", "devices", req.PCIAddresses)
+	c.JSON(http.StatusOK, vfioBindResponse{
+		Success:      true,
+		Message:      "Devices successfully bound to vfio-pci driver",
+		BoundDevices: req.PCIAddresses,
+	})
+}
+
+func (api *apiServer) unbindVFIODevices(c *gin.Context) {
+	var req vfioUnbindRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	vfioMgr := devicemanager.NewVFIOManager(api.logger)
+
+	err := vfioMgr.UnbindDevices(req.PCIAddresses)
+	if err != nil {
+		api.logger.Error("failed to unbind devices", "devices", req.PCIAddresses, "error", err)
+		c.JSON(http.StatusInternalServerError, vfioUnbindResponse{
+			Success: false,
+			Message: err.Error(),
+		})
+		return
+	}
+
+	api.logger.Info("successfully unbound devices from vfio-pci", "devices", req.PCIAddresses)
+	c.JSON(http.StatusOK, vfioUnbindResponse{
+		Success:        true,
+		Message:        "Devices successfully unbound from vfio-pci driver",
+		UnboundDevices: req.PCIAddresses,
+	})
+}
+
+func (api *apiServer) getVFIOGroupPaths(c *gin.Context) {
+	var req vfioGroupPathsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	vfioMgr := devicemanager.NewVFIOManager(api.logger)
+
+	groupPaths, err := vfioMgr.GetVFIOGroupPaths(req.PCIAddresses)
+	if err != nil {
+		api.logger.Error("failed to get VFIO group paths", "devices", req.PCIAddresses, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, vfioGroupPathsResponse{
+		GroupPaths: groupPaths,
+	})
 }
