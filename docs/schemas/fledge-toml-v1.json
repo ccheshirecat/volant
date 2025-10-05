@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/volantvm/volant/main/docs/schemas/fledge-toml-v1.json",
+  "title": "Fledge Config v1",
+  "description": "Schema for fledge.toml version 1. Matches validation in fledge/internal/config/config.go",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "description": "Configuration version",
+      "type": "string",
+      "const": "1"
+    },
+    "strategy": {
+      "description": "Build strategy",
+      "type": "string",
+      "enum": ["initramfs", "oci_rootfs"]
+    },
+    "agent": {
+      "description": "Kestrel agent sourcing (initramfs default mode only)",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_strategy": {
+          "type": "string",
+          "enum": ["release", "local", "http"]
+        },
+        "version": { "type": "string" },
+        "path": { "type": "string" },
+        "url": { "type": "string" },
+        "checksum": { "type": "string" }
+      },
+      "required": ["source_strategy"],
+      "allOf": [
+        {
+          "if": { "properties": { "source_strategy": { "const": "release" } }, "required": ["source_strategy"] },
+          "then": { "required": ["version"] }
+        },
+        {
+          "if": { "properties": { "source_strategy": { "const": "local" } }, "required": ["source_strategy"] },
+          "then": { "required": ["path"] }
+        },
+        {
+          "if": { "properties": { "source_strategy": { "const": "http" } }, "required": ["source_strategy"] },
+          "then": { "required": ["url"] }
+        }
+      ]
+    },
+    "init": {
+      "description": "Initramfs init/PID1 behavior",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "none": { "type": "boolean" }
+      }
+    },
+    "source": {
+      "description": "Source inputs for the selected strategy",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "image": { "type": "string", "minLength": 1 },
+        "busybox_url": { "type": "string", "minLength": 1 },
+        "busybox_sha256": { "type": "string" }
+      }
+    },
+    "filesystem": {
+      "description": "Filesystem configuration for oci_rootfs",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["ext4", "xfs", "btrfs"] },
+        "size_buffer_mb": { "type": "integer", "minimum": 0 },
+        "preallocate": { "type": "boolean" }
+      },
+      "required": ["type", "size_buffer_mb"]
+    },
+    "mappings": {
+      "description": "Host→guest file placements (host path keys → absolute destination strings)",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "allOf": [
+          { "pattern": "^/" },
+          { "not": { "pattern": "\\.\\." } }
+        ]
+      }
+    }
+  },
+  "required": ["version", "strategy", "source"],
+  "allOf": [
+    {
+      "if": { "properties": { "strategy": { "const": "oci_rootfs" } }, "required": ["strategy"] },
+      "then": {
+        "required": ["filesystem"],
+        "properties": {
+          "source": {
+            "type": "object",
+            "required": ["image"],
+            "properties": { "image": { "type": "string", "minLength": 1 } }
+          },
+          "agent": false
+        }
+      }
+    },
+    {
+      "if": { "properties": { "strategy": { "const": "initramfs" } }, "required": ["strategy"] },
+      "then": {
+        "properties": {
+          "source": {
+            "type": "object",
+            "required": ["busybox_url"],
+            "properties": { "busybox_url": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "oneOf": [
+          {
+            "title": "initramfs default mode (no init or empty [init])",
+            "description": "Default mode: init omitted or empty. Agent is required.",
+            "allOf": [
+              {
+                "anyOf": [
+                  { "not": { "required": ["init"] } },
+                  {
+                    "properties": {
+                      "init": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {},
+                        "maxProperties": 0
+                      }
+                    },
+                    "required": ["init"]
+                  }
+                ]
+              },
+              { "required": ["agent"] }
+            ]
+          },
+          {
+            "title": "initramfs custom init mode ([init].path)",
+            "description": "Custom init: path set. Agent is forbidden.",
+            "properties": {
+              "init": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": { "path": { "type": "string", "minLength": 1 } },
+                "required": ["path"]
+              },
+              "agent": false
+            },
+            "required": ["init"]
+          },
+          {
+            "title": "initramfs no-wrapper mode ([init].none = true)",
+            "description": "No init wrapper: none=true. Agent is forbidden.",
+            "properties": {
+              "init": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": { "none": { "const": true } },
+                "required": ["none"]
+              },
+              "agent": false
+            },
+            "required": ["init"]
+          }
+        ]
+      }
+    }
+  ],
+  "x-taplo": {
+    "package": "fledge",
+    "displayName": "Fledge TOML v1",
+    "links": [
+      {
+        "title": "Fledge config reference",
+        "href": "https://github.com/volantvm/volant/blob/main/docs/6_reference/2_fledge-toml.md"
+      }
+    ]
+  },
+  "$comment": "Editor usage: add a comment at the top of fledge.toml ->  # schema = \"https://raw.githubusercontent.com/volantvm/volant/main/docs/schemas/fledge-toml-v1.json\""
+}
