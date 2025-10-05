@@ -1,0 +1,2635 @@
+{
+  "components": {
+    "schemas": {
+      "API": {
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Action": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "timeout_ms": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "CloudInit": {
+        "nullable": true,
+        "properties": {
+          "datasource": {
+            "type": "string"
+          },
+          "meta_data": {
+            "$ref": "#/components/schemas/CloudInitDoc"
+          },
+          "network_config": {
+            "$ref": "#/components/schemas/CloudInitDoc"
+          },
+          "seed_mode": {
+            "type": "string"
+          },
+          "user_data": {
+            "$ref": "#/components/schemas/CloudInitDoc"
+          }
+        },
+        "type": "object"
+      },
+      "CloudInitDoc": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "inline": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Config": {
+        "nullable": true,
+        "properties": {
+          "api": {
+            "$ref": "#/components/schemas/API"
+          },
+          "cloud_init": {
+            "$ref": "#/components/schemas/CloudInit"
+          },
+          "expose": {
+            "items": {
+              "$ref": "#/components/schemas/Expose"
+            },
+            "type": "array"
+          },
+          "initramfs": {
+            "$ref": "#/components/schemas/Initramfs"
+          },
+          "kernel_cmdline": {
+            "type": "string"
+          },
+          "kernel_override": {
+            "type": "string"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/Manifest"
+          },
+          "metadata": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "network": {
+            "$ref": "#/components/schemas/NetworkConfig"
+          },
+          "plugin": {
+            "type": "string"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/Resources"
+          },
+          "rootfs": {
+            "$ref": "#/components/schemas/RootFS"
+          },
+          "runtime": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "DeviceConfig": {
+        "nullable": true,
+        "properties": {
+          "allowlist": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "pci_passthrough": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Disk": {
+        "properties": {
+          "checksum": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "readonly": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Error": {
+        "properties": {
+          "details": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Expose": {
+        "properties": {
+          "host_port": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "protocol": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "HealthCheck": {
+        "properties": {
+          "endpoint": {
+            "type": "string"
+          },
+          "timeout_ms": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Initramfs": {
+        "nullable": true,
+        "properties": {
+          "checksum": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Manifest": {
+        "nullable": true,
+        "properties": {
+          "actions": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Action"
+            },
+            "type": "object"
+          },
+          "cloud_init": {
+            "$ref": "#/components/schemas/CloudInit"
+          },
+          "devices": {
+            "$ref": "#/components/schemas/DeviceConfig"
+          },
+          "disks": {
+            "items": {
+              "$ref": "#/components/schemas/Disk"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "health_check": {
+            "$ref": "#/components/schemas/HealthCheck"
+          },
+          "image": {
+            "type": "string"
+          },
+          "image_digest": {
+            "type": "string"
+          },
+          "initramfs": {
+            "$ref": "#/components/schemas/Initramfs"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "network": {
+            "$ref": "#/components/schemas/NetworkConfig"
+          },
+          "openapi": {
+            "type": "string"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/ResourceSpec"
+          },
+          "rootfs": {
+            "$ref": "#/components/schemas/RootFS"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "workload": {
+            "$ref": "#/components/schemas/Workload"
+          }
+        },
+        "type": "object"
+      },
+      "NetworkConfig": {
+        "nullable": true,
+        "properties": {
+          "auto_assign": {
+            "type": "boolean"
+          },
+          "gateway": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "subnet": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ResourceSpec": {
+        "properties": {
+          "cpu_cores": {
+            "type": "integer"
+          },
+          "memory_mb": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Resources": {
+        "properties": {
+          "cpu_cores": {
+            "type": "integer"
+          },
+          "memory_mb": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "RootFS": {
+        "properties": {
+          "checksum": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Workload": {
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "entrypoint": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          },
+          "workdir": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "REST interface for the Volant microVM orchestration engine.",
+    "title": "Volant REST API",
+    "version": "v1"
+  },
+  "openapi": "3.0.3",
+  "paths": {
+    "/api/v1/deployments": {
+      "get": {
+        "operationId": "listDeployments",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "config": {
+                        "$ref": "#/components/schemas/Config"
+                      },
+                      "created_at": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "desired_replicas": {
+                        "type": "integer"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "ready_replicas": {
+                        "type": "integer"
+                      },
+                      "updated_at": {
+                        "format": "date-time",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Array of deployments"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "List deployments",
+        "tags": [
+          "deployment"
+        ]
+      },
+      "post": {
+        "operationId": "createDeployment",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "config": {
+                    "$ref": "#/components/schemas/Config"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "replicas": {
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "config": {
+                      "$ref": "#/components/schemas/Config"
+                    },
+                    "created_at": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "desired_replicas": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "ready_replicas": {
+                      "type": "integer"
+                    },
+                    "updated_at": {
+                      "format": "date-time",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Deployment created"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Create deployment",
+        "tags": [
+          "deployment"
+        ]
+      }
+    },
+    "/api/v1/deployments/{name}": {
+      "delete": {
+        "operationId": "deleteDeployment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Delete deployment",
+        "tags": [
+          "deployment"
+        ]
+      },
+      "get": {
+        "operationId": "getDeployment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "config": {
+                      "$ref": "#/components/schemas/Config"
+                    },
+                    "created_at": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "desired_replicas": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "ready_replicas": {
+                      "type": "integer"
+                    },
+                    "updated_at": {
+                      "format": "date-time",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Deployment details"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Get deployment",
+        "tags": [
+          "deployment"
+        ]
+      },
+      "patch": {
+        "operationId": "scaleDeployment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "replicas": {
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "config": {
+                      "$ref": "#/components/schemas/Config"
+                    },
+                    "created_at": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "desired_replicas": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "ready_replicas": {
+                      "type": "integer"
+                    },
+                    "updated_at": {
+                      "format": "date-time",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Deployment scaled"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Scale deployment",
+        "tags": [
+          "deployment"
+        ]
+      }
+    },
+    "/api/v1/events/vms": {
+      "get": {
+        "description": "Server-Sent Events (SSE) stream of VM lifecycle events",
+        "operationId": "streamVMEvents",
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Event stream (text/event-stream)"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Stream VM lifecycle events",
+        "tags": [
+          "events"
+        ]
+      }
+    },
+    "/api/v1/mcp": {
+      "post": {
+        "operationId": "postMCPCommand",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "command": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "result": {}
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "MCP response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Model Context Protocol endpoint",
+        "tags": [
+          "mcp"
+        ]
+      }
+    },
+    "/api/v1/plugins": {
+      "get": {
+        "operationId": "listPlugins",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "plugins": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "List of plugin names"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "List plugins",
+        "tags": [
+          "plugins"
+        ]
+      },
+      "post": {
+        "operationId": "installPlugin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Plugin manifest (see plugin-manifest-v1.json schema)",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Plugin installed"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Install plugin",
+        "tags": [
+          "plugins"
+        ]
+      }
+    },
+    "/api/v1/plugins/{plugin}": {
+      "delete": {
+        "operationId": "removePlugin",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Plugin removed"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Remove plugin",
+        "tags": [
+          "plugins"
+        ]
+      },
+      "get": {
+        "operationId": "getPlugin",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Plugin manifest (see plugin-manifest-v1.json schema)",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Plugin manifest"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Get plugin",
+        "tags": [
+          "plugins"
+        ]
+      }
+    },
+    "/api/v1/plugins/{plugin}/enabled": {
+      "post": {
+        "operationId": "setPluginEnabled",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Status updated"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Set plugin enabled status",
+        "tags": [
+          "plugins"
+        ]
+      }
+    },
+    "/api/v1/system/info": {
+      "get": {
+        "operationId": "getSystemInfo",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "System information"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Get system information",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/system/status": {
+      "get": {
+        "operationId": "getSystemStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cpu_percent": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "mem_percent": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "vm_count": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Current VM count and resource usage"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "System status summary",
+        "tags": [
+          "status"
+        ]
+      }
+    },
+    "/api/v1/vfio/devices/bind": {
+      "post": {
+        "description": "Bind PCI devices to the vfio-pci driver for passthrough",
+        "operationId": "bindVFIODevices",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "pci_addresses": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "bound_devices": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bind result"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Bind devices to vfio-pci",
+        "tags": [
+          "vfio"
+        ]
+      }
+    },
+    "/api/v1/vfio/devices/group-paths": {
+      "post": {
+        "description": "Get /dev/vfio/GROUP_NUMBER paths for specified PCI devices",
+        "operationId": "getVFIOGroupPaths",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "pci_addresses": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "group_paths": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "VFIO group paths"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Get VFIO group paths",
+        "tags": [
+          "vfio"
+        ]
+      }
+    },
+    "/api/v1/vfio/devices/info": {
+      "post": {
+        "description": "Retrieve detailed information about a specific PCI device including vendor, device ID, driver, IOMMU group, and NUMA node",
+        "operationId": "getVFIODeviceInfo",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "pci_address": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "address": {
+                      "type": "string"
+                    },
+                    "device": {
+                      "type": "string"
+                    },
+                    "driver": {
+                      "type": "string"
+                    },
+                    "iommu_group": {
+                      "type": "string"
+                    },
+                    "numa_node": {
+                      "type": "string"
+                    },
+                    "vendor": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Device information"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Get VFIO device information",
+        "tags": [
+          "vfio"
+        ]
+      }
+    },
+    "/api/v1/vfio/devices/iommu-groups": {
+      "post": {
+        "description": "Get IOMMU group information for specified PCI devices",
+        "operationId": "checkVFIOIOMMUGroups",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "allowlist": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "pci_addresses": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "devices": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "IOMMU group information"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Check IOMMU groups",
+        "tags": [
+          "vfio"
+        ]
+      }
+    },
+    "/api/v1/vfio/devices/unbind": {
+      "post": {
+        "description": "Unbind PCI devices from the vfio-pci driver and restore original driver",
+        "operationId": "unbindVFIODevices",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "pci_addresses": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "unbound_devices": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unbind result"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Unbind devices from vfio-pci",
+        "tags": [
+          "vfio"
+        ]
+      }
+    },
+    "/api/v1/vfio/devices/validate": {
+      "post": {
+        "description": "Validate PCI addresses and check against optional allowlist patterns",
+        "operationId": "validateVFIODevices",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "allowlist": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "pci_addresses": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "errors": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "valid": {
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Validation result"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Validate VFIO devices",
+        "tags": [
+          "vfio"
+        ]
+      }
+    },
+    "/api/v1/vms": {
+      "get": {
+        "operationId": "listVMs",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "cpu_cores": {
+                        "type": "integer"
+                      },
+                      "created_at": {
+                        "format": "date-time",
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "id": {
+                        "format": "int64",
+                        "type": "integer"
+                      },
+                      "ip_address": {
+                        "type": "string"
+                      },
+                      "kernel_cmdline": {
+                        "type": "string"
+                      },
+                      "mac_address": {
+                        "type": "string"
+                      },
+                      "memory_mb": {
+                        "type": "integer"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "pid": {
+                        "format": "int64",
+                        "nullable": true,
+                        "type": "integer"
+                      },
+                      "runtime": {
+                        "type": "string"
+                      },
+                      "serial_socket": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "updated_at": {
+                        "format": "date-time",
+                        "nullable": true,
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Array of VMs"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "List VMs",
+        "tags": [
+          "vm"
+        ]
+      },
+      "post": {
+        "operationId": "createVM",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "api_host": {
+                    "type": "string"
+                  },
+                  "api_port": {
+                    "type": "string"
+                  },
+                  "config": {
+                    "$ref": "#/components/schemas/Config"
+                  },
+                  "cpu_cores": {
+                    "type": "integer"
+                  },
+                  "kernel_cmdline": {
+                    "type": "string"
+                  },
+                  "memory_mb": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "plugin": {
+                    "type": "string"
+                  },
+                  "runtime": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cpu_cores": {
+                      "type": "integer"
+                    },
+                    "created_at": {
+                      "format": "date-time",
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "id": {
+                      "format": "int64",
+                      "type": "integer"
+                    },
+                    "ip_address": {
+                      "type": "string"
+                    },
+                    "kernel_cmdline": {
+                      "type": "string"
+                    },
+                    "mac_address": {
+                      "type": "string"
+                    },
+                    "memory_mb": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "pid": {
+                      "format": "int64",
+                      "nullable": true,
+                      "type": "integer"
+                    },
+                    "runtime": {
+                      "type": "string"
+                    },
+                    "serial_socket": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "format": "date-time",
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "VM created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Create VM",
+        "tags": [
+          "vm"
+        ]
+      }
+    },
+    "/api/v1/vms/{name}": {
+      "delete": {
+        "operationId": "destroyVM",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Destroy VM",
+        "tags": [
+          "vm"
+        ]
+      },
+      "get": {
+        "operationId": "getVMByName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cpu_cores": {
+                      "type": "integer"
+                    },
+                    "created_at": {
+                      "format": "date-time",
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "id": {
+                      "format": "int64",
+                      "type": "integer"
+                    },
+                    "ip_address": {
+                      "type": "string"
+                    },
+                    "kernel_cmdline": {
+                      "type": "string"
+                    },
+                    "mac_address": {
+                      "type": "string"
+                    },
+                    "memory_mb": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "pid": {
+                      "format": "int64",
+                      "nullable": true,
+                      "type": "integer"
+                    },
+                    "runtime": {
+                      "type": "string"
+                    },
+                    "serial_socket": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "format": "date-time",
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "VM"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Fetch VM by name",
+        "tags": [
+          "vm"
+        ]
+      }
+    },
+    "/api/v1/vms/{name}/config": {
+      "get": {
+        "operationId": "getVMConfig",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "VM configuration"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Get VM configuration",
+        "tags": [
+          "vm",
+          "config"
+        ]
+      },
+      "patch": {
+        "operationId": "updateVMConfig",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Configuration updated"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Update VM configuration",
+        "tags": [
+          "vm",
+          "config"
+        ]
+      }
+    },
+    "/api/v1/vms/{name}/config/history": {
+      "get": {
+        "operationId": "getVMConfigHistory",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Configuration history"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Get VM configuration history",
+        "tags": [
+          "vm",
+          "config"
+        ]
+      }
+    },
+    "/api/v1/vms/{name}/openapi": {
+      "get": {
+        "operationId": "getVMOpenAPI",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OpenAPI specification"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Get VM plugin OpenAPI spec",
+        "tags": [
+          "vm"
+        ]
+      }
+    },
+    "/api/v1/vms/{name}/restart": {
+      "post": {
+        "operationId": "restartVM",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cpu_cores": {
+                      "type": "integer"
+                    },
+                    "created_at": {
+                      "format": "date-time",
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "id": {
+                      "format": "int64",
+                      "type": "integer"
+                    },
+                    "ip_address": {
+                      "type": "string"
+                    },
+                    "kernel_cmdline": {
+                      "type": "string"
+                    },
+                    "mac_address": {
+                      "type": "string"
+                    },
+                    "memory_mb": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "pid": {
+                      "format": "int64",
+                      "nullable": true,
+                      "type": "integer"
+                    },
+                    "runtime": {
+                      "type": "string"
+                    },
+                    "serial_socket": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "format": "date-time",
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "VM restarted"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Restart a VM",
+        "tags": [
+          "vm"
+        ]
+      }
+    },
+    "/api/v1/vms/{name}/start": {
+      "post": {
+        "operationId": "startVM",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cpu_cores": {
+                      "type": "integer"
+                    },
+                    "created_at": {
+                      "format": "date-time",
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "id": {
+                      "format": "int64",
+                      "type": "integer"
+                    },
+                    "ip_address": {
+                      "type": "string"
+                    },
+                    "kernel_cmdline": {
+                      "type": "string"
+                    },
+                    "mac_address": {
+                      "type": "string"
+                    },
+                    "memory_mb": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "pid": {
+                      "format": "int64",
+                      "nullable": true,
+                      "type": "integer"
+                    },
+                    "runtime": {
+                      "type": "string"
+                    },
+                    "serial_socket": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "format": "date-time",
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "VM started"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Start a stopped VM",
+        "tags": [
+          "vm"
+        ]
+      }
+    },
+    "/api/v1/vms/{name}/stop": {
+      "post": {
+        "operationId": "stopVM",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cpu_cores": {
+                      "type": "integer"
+                    },
+                    "created_at": {
+                      "format": "date-time",
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "id": {
+                      "format": "int64",
+                      "type": "integer"
+                    },
+                    "ip_address": {
+                      "type": "string"
+                    },
+                    "kernel_cmdline": {
+                      "type": "string"
+                    },
+                    "mac_address": {
+                      "type": "string"
+                    },
+                    "memory_mb": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "pid": {
+                      "format": "int64",
+                      "nullable": true,
+                      "type": "integer"
+                    },
+                    "runtime": {
+                      "type": "string"
+                    },
+                    "serial_socket": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "format": "date-time",
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "VM stopped"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Stop a running VM",
+        "tags": [
+          "vm"
+        ]
+      }
+    },
+    "/healthz": {
+      "get": {
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Service is healthy"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Health check",
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:7777"
+    }
+  ]
+}
