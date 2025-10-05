@@ -226,14 +226,14 @@ resolve_version() {
 }
 
 download_and_install_artifacts() {
-  local base_url="https://github.com/${REPO}/releases/download/${RESOLVED_VERSION}"
+  local base_url="https://github.com/${REPO}/releases/latest/download/"
   local artifacts=("volar" "kestrel" "volantd" "bzImage" "checksums.txt")
 
-  log_info "Downloading volant artifacts from release ${RESOLVED_VERSION}..."
+  log_info "Downloading volant artifacts..."
   for artifact in "${artifacts[@]}"; do
     log_info "Downloading ${artifact}..."
     if ! curl -fL "${base_url}/${artifact}" -o "${TMP_DIR}/${artifact}"; then
-      log_error "Failed to download ${artifact}. Please check release assets for version ${RESOLVED_VERSION}."
+      log_error "Failed to download ${artifact}. Please check release assets."
       exit 1
     fi
   done
