@@ -2,8 +2,8 @@
 
 This document specifies the Volant plugin manifest fields as implemented in code.
 
-Single source of truth in code:
-- File: internal/pluginspec/spec.go
+References:
+- internal/pluginspec/spec.go
 
 Summary of required fields:
 - schema_version: string

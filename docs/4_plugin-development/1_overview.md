@@ -3,10 +3,10 @@
  This section is the canonical guide for authoring Volant plugins using Fledge.
  It explains when to choose initramfs vs. OCI Rootfs, how fledge.toml maps to build outputs, and how those outputs map to a plugin manifest consumed by Volant.
 
- Ground truth references:
- - Fledge config: fledge/internal/config/schema.go, config.go
- - Fledge builders: fledge/internal/builder/*.go
- - Volant manifest: volant/internal/pluginspec/spec.go
+References:
+- Fledge config: fledge/internal/config/schema.go, config.go
+- Fledge builders: fledge/internal/builder/*.go
+- Volant manifest: volant/internal/pluginspec/spec.go
 
  ## Choosing a Boot Strategy
 

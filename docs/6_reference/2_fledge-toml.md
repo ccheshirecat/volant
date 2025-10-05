@@ -1,7 +1,9 @@
  
 # fledge.toml reference
 
-Source of truth: fledge/internal/config/schema.go and config.go. Validation rules are enforced in Validate().
+References:
+- fledge/internal/config/schema.go
+- fledge/internal/config/config.go (Validation rules are enforced in Validate())
 
 ## Editor integration
 

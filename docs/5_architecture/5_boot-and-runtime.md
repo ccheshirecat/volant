@@ -2,11 +2,13 @@
 
 ## Kernel Selection
 
+References:
+- internal/server/orchestrator/cloudhypervisor/launcher.go (kernelSrc selection)
+
 - Launcher preference:
   - If LaunchSpec.KernelOverride set → use that path
   - Else if Initramfs present → use vmlinux (uncompressed)
   - Else → use bzImage (compressed)
-- Code: internal/server/orchestrator/cloudhypervisor/launcher.go (kernelSrc selection)
 
 ## Boot Media
 

@@ -2,7 +2,7 @@
 
 This guide reflects the actual installer and setup logic in this repository.
 
-Sources of truth:
+References:
 - scripts/install.sh
 - internal/setup and the CLI command `volar setup`
 
