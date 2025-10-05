@@ -44,7 +44,7 @@ However, Volant is built to be modular, scriptable and configurable beyond those
 
 For instance, the Kestrel agent acts as a robust PID1 and is responsible for setting up the guest environment in multiple scenarios, and also acts as a secure proxy to workloads inside network-isolated VM's over vsock, providing a frictionless path to maximum isolation.
 
-If you require more fine-grained control, it is possible to override the kernel paths and the fledge artifact builder has flags for --no-kernel, --no-init, or --init <path>. Refer to the documentation for more details.
+If you require more fine-grained control, it is possible to override the kernel paths and the fledge artifact builder has configuration settings for using your own init. Refer to the documentation for more details.
 
 ---
 
