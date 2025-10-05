@@ -20,6 +20,10 @@
 💡 Need help deploying or extending this? → hello@volantvm.com
 
 ---
+<p align="center">
+  <img src="https://github.com/ccheshirecat/volant-demo/raw/refs/heads/main/demo.gif" width="800" />
+</p>
+
 
 # Volant
 
@@ -69,16 +73,34 @@ Volant provides:
 
 ```bash
 # Install Volant toolchain
+# Note: This configures the runtime directory to ~/.volant and sets up a default IPv4 bridge
+# use --skip-setup if you want to configure the defaults
+# Then run sudo volar setup --help to view the options
 curl -fsSL https://get.volantvm.com | bash
-
-# Configure host (bridge network, NAT, systemd)
-sudo volar setup
-
+```
+```bash
+# If you want to skip the setup
+curl -fsSL https://get.volantvm.com | bash -s -- --skip-setup
+```
+```bash
+# Then run volar setup to view the options for configuration
+volar setup
+```
+      
+```bash
 # Install a pre-built plugin from a manifest URL, see the example plugin repositories for more details
-volar plugins install --manifest https://raw.githubusercontent.com/volantvm/initramfs-plugin-example/main/manifest/caddy.json
-
+volar plugins install --manifest https://github.com/volantvm/initramfs-plugin-example/releases/latest/download/caddy.json
+```
+```bash
 # Create and run a VM
 volar vms create web --plugin caddy --cpu 2 --memory 512
+```
+```bash
+# Your VM is live
+curl 192.168.127.10
+```
+
+```bash
 volar vms list
 
 # Scale declaratively with deployments
