@@ -98,7 +98,7 @@ curl -fsSL https://get.volantvm.com | bash -s -- --skip-setup
 
 ### 2. Install a pre-built plugin
 
-Let’s start with the **Caddy web server**, built as a lightweight initramfs appliance:
+Let’s start with a Caddy initramfs plugin [(initramfs-plugin-example)](https://github.com/volantvm/oci-plugin-example)
 
 ```bash
 volar plugins install --manifest \
@@ -120,7 +120,7 @@ curl 192.168.127.10
 
 ---
 
-### 4. Try a Docker-based workload (OCI rootfs)
+### 4. Try a Docker-based workload [(oci-plugin-example)](https://github.com/volantvm/oci-plugin-example)
 
 This example runs **NGINX** directly from the official Docker image:
 ```bash
@@ -167,21 +167,6 @@ Use **[fledge](https://github.com/volantvm/fledge)** to build custom plugins fro
 - [initramfs-plugin-example](https://github.com/volantvm/initramfs-plugin-example) — Caddy web server (fast boot, minimal size)
 - [oci-plugin-example](https://github.com/volantvm/oci-plugin-example) — NGINX from Docker image (Docker compatibility)
 
-### Install & Run Pre-Built Plugins
-
-Both examples include GitHub Actions workflows that build artifacts automatically. Install directly from their manifests:
-
-```bash
-# Initramfs example (Caddy)
-volar plugins install --manifest https://raw.githubusercontent.com/volantvm/initramfs-plugin-example/main/manifest/caddy.json
-volar vms create web --plugin caddy --cpu 1 --memory 512
-
-# OCI example (NGINX)
-volar plugins install --manifest https://raw.githubusercontent.com/volantvm/oci-plugin-example/main/manifest/nginx.json
-volar vms create web --plugin nginx --cpu 2 --memory 1024
-```
-
-Volant downloads the pre-built artifacts (from GitHub releases) and boots your VM immediately.
 
 ---
 
@@ -191,7 +176,7 @@ Volant downloads the pre-built artifacts (from GitHub releases) and boots your V
 |---------|-----------|----------------|
 | **Isolation** | Kernel shared | Hardware-level (dedicated kernel) |
 | **Boot time** | ~1s | 50-150ms (initramfs) / 2-5s (rootfs) |
-| **Image size** | 197 MB (NGINX) | 12 MB (full appliance) |
+| **Image size** | 80 MB (NGINX) | 20 MB (full appliance) |
 | **Security** | Namespaces | Full VM isolation |
 | **Overhead** | Shared kernel | ~25 MB per VM |
 | **Networking** | NAT/bridge/overlay | Simple Linux bridge |
@@ -275,7 +260,7 @@ See [ROADMAP.md](ROADMAP.md) for the full vision.
 -  **Discord**: *(coming soon)*
 -  **Email**: hello@volantvm.com
 
-**Contributing**: See [docs/7_development/1_contributing.md](docs/7_development/1_contributing.md)
+**Contributing**: See [contributing]([docs/7_development/1_contributing.md](https://docs.volantvm.com/contributing-1646061m0))
 
 ---
 
