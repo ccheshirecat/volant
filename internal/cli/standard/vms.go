@@ -151,6 +151,19 @@ func newVMsCreateCmd() *cobra.Command {
 		Short: "Create a microVM",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+            // Read boot media override flags (CLI-level overrides)
+            kernelPathFlag, err := cmd.Flags().GetString("kernel")
+            if err != nil {
+                return err
+            }
+            initramfsFlag, err := cmd.Flags().GetString("initramfs")
+            if err != nil {
+                return err
+            }
+            initramfsChecksumFlag, err := cmd.Flags().GetString("initramfs-checksum")
+            if err != nil {
+                return err
+            }
 			runtimeFlag, err := cmd.Flags().GetString("runtime")
 			if err != nil {
 				return err
@@ -212,7 +225,7 @@ func newVMsCreateCmd() *cobra.Command {
 				return fmt.Errorf("plugin is required (flag or config file)")
 			}
 
-			api, err := clientFromCmd(cmd)
+            api, err := clientFromCmd(cmd)
 			if err != nil {
 				return err
 			}
@@ -282,7 +295,7 @@ func newVMsCreateCmd() *cobra.Command {
 				return err
 			}
 
-			req := client.CreateVMRequest{
+            req := client.CreateVMRequest{
 				Name:          args[0],
 				Plugin:        pluginName,
 				Runtime:       runtimeName,
@@ -292,7 +305,7 @@ func newVMsCreateCmd() *cobra.Command {
 				APIHost:       apiHost,
 				APIPort:       apiPort,
 			}
-			if cfg != nil {
+            if cfg != nil {
 				cfgClone := cfg.Clone()
 				cfgClone.Plugin = pluginName
 				cfgClone.Runtime = runtimeName
@@ -303,28 +316,72 @@ func newVMsCreateCmd() *cobra.Command {
 				// Merge device flags with config
 				if len(deviceFlag) > 0 || len(deviceAllowlistFlag) > 0 {
 					if cfgClone.Manifest != nil && cfgClone.Manifest.Devices == nil {
-						manifest.Devices = &pluginspec.DeviceConfig{}
+                        cfgClone.Manifest.Devices = &pluginspec.DeviceConfig{}
 					}
 					if len(deviceFlag) > 0 {
-						manifest.Devices.PCIPassthrough = deviceFlag
+                        cfgClone.Manifest.Devices.PCIPassthrough = deviceFlag
 					}
 					if len(deviceAllowlistFlag) > 0 {
-						manifest.Devices.Allowlist = deviceAllowlistFlag
+                        cfgClone.Manifest.Devices.Allowlist = deviceAllowlistFlag
 					}
 				}
+
+                // Apply CLI boot media overrides over config
+                if strings.TrimSpace(kernelPathFlag) != "" {
+                    cfgClone.KernelOverride = strings.TrimSpace(kernelPathFlag)
+                }
+                if strings.TrimSpace(initramfsFlag) != "" {
+                    cfgClone.Initramfs = &pluginspec.Initramfs{
+                        URL:      strings.TrimSpace(initramfsFlag),
+                        Checksum: strings.TrimSpace(initramfsChecksumFlag),
+                    }
+                    // Ensure RootFS override cleared by server on apply; server enforces exclusivity
+                }
 				
 				req.Config = &cfgClone
-			} else if len(deviceFlag) > 0 || len(deviceAllowlistFlag) > 0 {
-				// No config but device flags provided - need to add to manifest
-				if manifest.Devices == nil {
-					manifest.Devices = &pluginspec.DeviceConfig{}
-				}
-				if len(deviceFlag) > 0 {
-					manifest.Devices.PCIPassthrough = deviceFlag
-				}
-				if len(deviceAllowlistFlag) > 0 {
-					manifest.Devices.Allowlist = deviceAllowlistFlag
-				}
+            } else {
+                // Build a minimal config if CLI overrides are provided without a --config file.
+                needConfig := len(deviceFlag) > 0 || len(deviceAllowlistFlag) > 0 ||
+                    strings.TrimSpace(kernelPathFlag) != "" || strings.TrimSpace(initramfsFlag) != ""
+
+                if needConfig {
+                    cfgClone := vmconfig.Config{
+                        Plugin:        pluginName,
+                        Runtime:       runtimeName,
+                        KernelCmdline: kernelExtra,
+                        Resources:     vmconfig.Resources{CPUCores: cpu, MemoryMB: mem},
+                        API:           vmconfig.API{Host: apiHost, Port: apiPort},
+                    }
+                    // Attach manifest to embed device allowlists/passthroughs
+                    if manifest != nil {
+                        manifestCopy := *manifest
+                        manifestCopy.Normalize()
+                        cfgClone.Manifest = &manifestCopy
+                    }
+                    if len(deviceFlag) > 0 || len(deviceAllowlistFlag) > 0 {
+                        if cfgClone.Manifest != nil {
+                            if cfgClone.Manifest.Devices == nil {
+                                cfgClone.Manifest.Devices = &pluginspec.DeviceConfig{}
+                            }
+                            if len(deviceFlag) > 0 {
+                                cfgClone.Manifest.Devices.PCIPassthrough = deviceFlag
+                            }
+                            if len(deviceAllowlistFlag) > 0 {
+                                cfgClone.Manifest.Devices.Allowlist = deviceAllowlistFlag
+                            }
+                        }
+                    }
+                    if strings.TrimSpace(kernelPathFlag) != "" {
+                        cfgClone.KernelOverride = strings.TrimSpace(kernelPathFlag)
+                    }
+                    if strings.TrimSpace(initramfsFlag) != "" {
+                        cfgClone.Initramfs = &pluginspec.Initramfs{
+                            URL:      strings.TrimSpace(initramfsFlag),
+                            Checksum: strings.TrimSpace(initramfsChecksumFlag),
+                        }
+                    }
+                    req.Config = &cfgClone
+                }
 			}
 
 			vm, err := api.CreateVM(ctx, req)
@@ -339,6 +396,9 @@ func newVMsCreateCmd() *cobra.Command {
 	cmd.Flags().Int("cpu", 2, "Number of virtual CPU cores")
 	cmd.Flags().Int("memory", 2048, "Memory (MB)")
 	cmd.Flags().String("kernel-cmdline", "", "Additional kernel cmdline parameters")
+    cmd.Flags().String("kernel", "", "Override kernel image path (vmlinux)")
+    cmd.Flags().String("initramfs", "", "Override initramfs image path (.cpio.gz)")
+    cmd.Flags().String("initramfs-checksum", "", "Checksum for initramfs (e.g., sha256:deadbeef...) (optional)")
 	cmd.Flags().String("plugin", "", "Plugin name to use when creating the VM")
 	cmd.Flags().StringVar(&configPath, "config", "", "Path to a VM config JSON file")
 	cmd.Flags().String("api-host", "", "Override agent API host for the VM")
