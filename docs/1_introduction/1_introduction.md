@@ -27,7 +27,7 @@ Volant replaces orchestration sprawl with a single, composable system that does 
 Something is off with how we run software today.
 We don’t hate containers — they’re indispensable — but somewhere along the way, we lost the plot.
 
-A simple web server shouldn’t weigh **197 MB**. It shouldn’t drag in an entire userland, package manager, and libraries it never touches. Yet that’s become our definition of “lightweight.”
+A simple web server or application shouldn’t weigh as much as they do. It shouldn’t drag in an entire userland, package manager, and libraries it never touches. Yet that’s become our definition of “lightweight.”
 
 A decade of comfort left us with runtimes that are **bloated, opaque, and fragile** — systems so heavy with tooling that debugging the tooling takes longer than building the software itself.
 
