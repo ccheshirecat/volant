@@ -98,7 +98,7 @@ curl -fsSL https://get.volantvm.com | bash -s -- --skip-setup
 
 ### 2. Install a pre-built plugin
 
-Let’s start with a Caddy initramfs plugin [(initramfs-plugin-example)](https://github.com/volantvm/oci-plugin-example)
+Let’s start with a Caddy initramfs plugin [(initramfs-plugin-example)](https://github.com/volantvm/initramfs-plugin-example)
 
 ```bash
 volar plugins install --manifest \
@@ -211,9 +211,34 @@ Use **[fledge](https://github.com/volantvm/fledge)** to build custom plugins fro
 └─────────────────────────────────────────┘
 ```
 
-**Dual-kernel design**:
-- `bzImage` — For rootfs (baked-in initramfs bootloader)
-- `vmlinux` — For custom initramfs (pristine kernel)
+**Unified kernel boot**:
+- Defaults to `bzImage` for maximum compatibility
+- Optional `vmlinux` override when needed
+- Both initramfs and rootfs can be supplied; the agent selects the boot path via `volant.boot` (auto | initramfs | rootfs)
+
+### Web UI and API
+
+- CORS: set `VOLANT_CORS_ORIGINS="http://localhost:3000,https://app.example.com"` to enable browser-based UIs
+- IP allowlist: `VOLANT_API_ALLOW_CIDR="127.0.0.1/32,192.168.0.0/16"`
+- API key: `VOLANT_API_KEY=...` then send header `X-Volant-API-Key: <key>`
+- System summary: `GET /api/v1/system/summary`
+- VM list with filters/pagination: `GET /api/v1/vms?status=running&runtime=browser&plugin=caddy&q=web&limit=20&offset=0&sort=created_at&order=desc` (returns `X-Total-Count`)
+- Console WebSocket: `GET ws://<host>/ws/v1/vms/:name/console` (raw serial bridge)
+- Plugin artifacts API:
+  - List: `GET /api/v1/plugins/:plugin/artifacts?version=v1`
+  - Upsert: `POST /api/v1/plugins/:plugin/artifacts`
+  - Delete: `DELETE /api/v1/plugins/:plugin/artifacts?version=v1`
+
+VM-level device overrides (VFIO):
+
+```json
+{
+  "devices": {
+    "vfio": ["0000:01:00.0", "0000:01:00.1"]
+  }
+}
+```
+Apply with `PATCH /api/v1/vms/:name/config` or via `volar` config patching.
 
 ---
 
@@ -239,7 +264,7 @@ Quick links:
 - [Networking](docs/3_guides/1_networking.md) · [Cloud-init](docs/3_guides/2_cloud-init.md) · [Deployments](docs/3_guides/3_deployments.md) · [GPU](docs/3_guides/4_gpu-passthrough.md)
 - [Plugin Development](docs/4_plugin-development/1_overview.md) · [Initramfs](docs/4_plugin-development/2_initramfs.md) · [OCI Rootfs](docs/4_plugin-development/3_oci-rootfs.md)
 - [Architecture Overview](docs/5_architecture/1_overview.md)
-- [Reference: Manifest](docs/6_reference/1_manifest-schema.md) · [fledge.toml](docs/6_reference/2_fledge-toml.md) · [CLI](docs/6_reference/cli-volar.md)
+- [Reference: Manifest](docs/6_reference/1_manifest-schema.md) · [fledge.toml](docs/6_reference/2_fledge-toml.md) · [CLI](docs/6_reference/cli-volar.md) · [OpenAPI](docs/api-reference/openapi.json)
 - [Contributing](docs/7_development/1_contributing.md) · [Security](docs/7_development/2_security.md)
 
 ---

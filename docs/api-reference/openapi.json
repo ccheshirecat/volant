@@ -74,6 +74,9 @@
           "cloud_init": {
             "$ref": "#/components/schemas/CloudInit"
           },
+          "devices": {
+            "$ref": "#/components/schemas/DeviceConfig"
+          },
           "expose": {
             "items": {
               "$ref": "#/components/schemas/Expose"
@@ -357,6 +360,20 @@
             "type": "string"
           },
           "workdir": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "pluginSummary": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
             "type": "string"
           }
         },
@@ -886,6 +903,239 @@
         ]
       }
     },
+    "/api/v1/plugins/{plugin}/artifacts": {
+      "delete": {
+        "operationId": "deletePluginArtifacts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Delete artifacts for a specific version (optional)",
+            "in": "query",
+            "name": "version",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Delete plugin artifacts",
+        "tags": [
+          "plugins",
+          "artifacts"
+        ]
+      },
+      "get": {
+        "operationId": "listPluginArtifacts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by version",
+            "in": "query",
+            "name": "version",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {},
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Artifacts list"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "List plugin artifacts",
+        "tags": [
+          "plugins",
+          "artifacts"
+        ]
+      },
+      "post": {
+        "operationId": "upsertPluginArtifact",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "artifact_name": {
+                    "type": "string"
+                  },
+                  "checksum": {
+                    "type": "string"
+                  },
+                  "format": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "local_path": {
+                    "type": "string"
+                  },
+                  "size_bytes": {
+                    "format": "int64",
+                    "type": "integer"
+                  },
+                  "source_url": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Create or update a plugin artifact",
+        "tags": [
+          "plugins",
+          "artifacts"
+        ]
+      }
+    },
+    "/api/v1/plugins/{plugin}/artifacts/{artifact}": {
+      "get": {
+        "operationId": "getPluginArtifact",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Artifact version",
+            "in": "query",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Artifact"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "Get a plugin artifact by name and version",
+        "tags": [
+          "plugins",
+          "artifacts"
+        ]
+      }
+    },
     "/api/v1/plugins/{plugin}/enabled": {
       "post": {
         "operationId": "setPluginEnabled",
@@ -1005,6 +1255,59 @@
           }
         },
         "summary": "System status summary",
+        "tags": [
+          "status"
+        ]
+      }
+    },
+    "/api/v1/system/summary": {
+      "get": {
+        "operationId": "getSystemSummary",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "by_runtime": {
+                      "additionalProperties": {
+                        "type": "integer"
+                      },
+                      "type": "object"
+                    },
+                    "by_status": {
+                      "additionalProperties": {
+                        "type": "integer"
+                      },
+                      "type": "object"
+                    },
+                    "enabled_plugins": {
+                      "type": "integer"
+                    },
+                    "plugins": {
+                      "items": {
+                        "$ref": "#/components/schemas/pluginSummary"
+                      },
+                      "type": "array"
+                    },
+                    "total_plugins": {
+                      "type": "integer"
+                    },
+                    "total_vms": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Counts and plugin info"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "System summary for dashboards",
         "tags": [
           "status"
         ]
@@ -1595,6 +1898,72 @@
     "/api/v1/vms": {
       "get": {
         "operationId": "listVMs",
+        "parameters": [
+          {
+            "description": "Filter by status (repeatable or comma-separated)",
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by runtime",
+            "in": "query",
+            "name": "runtime",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by plugin name",
+            "in": "query",
+            "name": "plugin",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Free text search (name, ip, runtime)",
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max items to return",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Items to skip (for pagination)",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sort field (name,status,runtime,created_at,updated_at)",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort order (asc,desc)",
+            "in": "query",
+            "name": "order",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1655,7 +2024,14 @@
                 }
               }
             },
-            "description": "Array of VMs"
+            "description": "Array of VMs",
+            "headers": {
+              "X-Total-Count": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -2625,11 +3001,43 @@
           "health"
         ]
       }
+    },
+    "/ws/v1/vms/{name}/console": {
+      "get": {
+        "description": "Upgrades to a WebSocket connection streaming the VM serial console",
+        "operationId": "vmConsoleWebSocket",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "Switching Protocols (WebSocket)"
+          },
+          "200": {
+            "description": "OK (non-upgrade)"
+          },
+          "default": {
+            "description": ""
+          }
+        },
+        "summary": "WebSocket console for VM",
+        "tags": [
+          "vm",
+          "console"
+        ]
+      }
     }
   },
   "servers": [
     {
-      "url": "http://127.0.0.1:7777"
+      "url": "https://docs.volantvm.com"
     }
   ]
 }
