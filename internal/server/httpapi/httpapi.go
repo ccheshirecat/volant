@@ -59,6 +59,12 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 	r.Use(gin.Recovery())
 	r.Use(requestLogger(logger))
 
+    // CORS (optional, for browser-based UI)
+    if raw := os.Getenv("VOLANT_CORS_ORIGINS"); raw != "" {
+        origins := strings.Split(raw, ",")
+        r.Use(corsMiddleware(logger, origins))
+    }
+
 	if cidr := os.Getenv("VOLANT_API_ALLOW_CIDR"); cidr != "" {
 		allowList := strings.Split(cidr, ",")
 		r.Use(ipFilterMiddleware(logger, allowList))
@@ -254,6 +260,55 @@ func apiKeyMiddleware(expected string) gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// corsMiddleware enables configurable CORS for browser-based clients.
+// Allowed origins are provided via configuration; methods/headers use sane defaults.
+func corsMiddleware(logger *slog.Logger, allowed []string) gin.HandlerFunc {
+    normalized := make([]string, 0, len(allowed))
+    allowAll := false
+    for _, o := range allowed {
+        v := strings.TrimSpace(o)
+        if v == "" {
+            continue
+        }
+        if v == "*" {
+            allowAll = true
+        }
+        normalized = append(normalized, v)
+    }
+    return func(c *gin.Context) {
+        origin := c.GetHeader("Origin")
+        // Set CORS headers if origin is allowed
+        if origin != "" {
+            allowedOrigin := ""
+            if allowAll {
+                allowedOrigin = "*"
+            } else {
+                lo := strings.ToLower(origin)
+                for _, o := range normalized {
+                    if strings.EqualFold(o, origin) || strings.EqualFold(o, lo) {
+                        allowedOrigin = origin
+                        break
+                    }
+                }
+            }
+            if allowedOrigin != "" {
+                c.Header("Access-Control-Allow-Origin", allowedOrigin)
+                c.Header("Vary", "Origin")
+                c.Header("Access-Control-Allow-Credentials", "true")
+                c.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+                c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-Volant-API-Key")
+                c.Header("Access-Control-Expose-Headers", "Content-Type, X-Total-Count")
+            }
+        }
+        if c.Request.Method == http.MethodOptions {
+            c.Status(http.StatusNoContent)
+            c.Abort()
+            return
+        }
+        c.Next()
+    }
 }
 
 type apiServer struct {
