@@ -553,30 +553,30 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 	}
 	spec.Args = cmdArgs
 
-    if req.Manifest != nil {
-        // Start from manifest defaults; allow both initramfs and rootfs when provided
-        if url := strings.TrimSpace(req.Manifest.Initramfs.URL); url != "" {
-            spec.Initramfs = url
-            spec.InitramfsChecksum = strings.TrimSpace(req.Manifest.Initramfs.Checksum)
-        }
-        if url := strings.TrimSpace(req.Manifest.RootFS.URL); url != "" {
-            spec.RootFS = url
-            spec.RootFSChecksum = strings.TrimSpace(req.Manifest.RootFS.Checksum)
-        }
-    }
+	if req.Manifest != nil {
+		// Start from manifest defaults; allow both initramfs and rootfs when provided
+		if url := strings.TrimSpace(req.Manifest.Initramfs.URL); url != "" {
+			spec.Initramfs = url
+			spec.InitramfsChecksum = strings.TrimSpace(req.Manifest.Initramfs.Checksum)
+		}
+		if url := strings.TrimSpace(req.Manifest.RootFS.URL); url != "" {
+			spec.RootFS = url
+			spec.RootFSChecksum = strings.TrimSpace(req.Manifest.RootFS.Checksum)
+		}
+	}
 	// Apply per-VM overrides from config when provided
-    if configToStore.Initramfs != nil {
-        if url := strings.TrimSpace(configToStore.Initramfs.URL); url != "" {
-            spec.Initramfs = url
-            spec.InitramfsChecksum = strings.TrimSpace(configToStore.Initramfs.Checksum)
-        }
-    }
-    if configToStore.RootFS != nil {
-        if url := strings.TrimSpace(configToStore.RootFS.URL); url != "" {
-            spec.RootFS = url
-            spec.RootFSChecksum = strings.TrimSpace(configToStore.RootFS.Checksum)
-        }
-    }
+	if configToStore.Initramfs != nil {
+		if url := strings.TrimSpace(configToStore.Initramfs.URL); url != "" {
+			spec.Initramfs = url
+			spec.InitramfsChecksum = strings.TrimSpace(configToStore.Initramfs.Checksum)
+		}
+	}
+	if configToStore.RootFS != nil {
+		if url := strings.TrimSpace(configToStore.RootFS.URL); url != "" {
+			spec.RootFS = url
+			spec.RootFSChecksum = strings.TrimSpace(configToStore.RootFS.Checksum)
+		}
+	}
 	// Kernel override per-VM
 	spec.KernelOverride = strings.TrimSpace(configToStore.KernelOverride)
 	// If RootFS is set, ensure default device/fstype args unless already supplied by the runtime
@@ -589,16 +589,16 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		}
 	}
 
-    // Handle VFIO GPU/device passthrough if configured (prefer VM-level overrides)
-    var devCfg *pluginspec.DeviceConfig
-    if configToStore.Devices != nil {
-        devCfg = configToStore.Devices
-    } else if req.Manifest != nil && req.Manifest.Devices != nil {
-        devCfg = req.Manifest.Devices
-    }
-    if devCfg != nil && len(devCfg.PCIPassthrough) > 0 {
-        pciAddrs := devCfg.PCIPassthrough
-        allowlist := devCfg.Allowlist
+	// Handle VFIO GPU/device passthrough if configured (prefer VM-level overrides)
+	var devCfg *pluginspec.DeviceConfig
+	if configToStore.Devices != nil {
+		devCfg = configToStore.Devices
+	} else if req.Manifest != nil && req.Manifest.Devices != nil {
+		devCfg = req.Manifest.Devices
+	}
+	if devCfg != nil && len(devCfg.PCIPassthrough) > 0 {
+		pciAddrs := devCfg.PCIPassthrough
+		allowlist := devCfg.Allowlist
 
 		e.logger.Info("vfio passthrough requested", "vm", req.Name, "devices", pciAddrs)
 
@@ -770,22 +770,22 @@ func (e *engine) destroyVM(ctx context.Context, name string, reconcile bool) (*d
 	if vmRecord != nil && vmRecord.ID > 0 {
 		// Fetch the VM config to check for device passthrough
 		cfgRepo := e.store.Queries().VMConfigs()
-        if cfgRecord, err := cfgRepo.GetCurrent(ctx, vmRecord.ID); err == nil && cfgRecord != nil {
-            versioned, decodeErr := vmconfig.FromDB(*cfgRecord)
-            if decodeErr == nil {
-                var devCfg *pluginspec.DeviceConfig
-                if versioned.Config.Devices != nil {
-                    devCfg = versioned.Config.Devices
-                } else if versioned.Config.Manifest != nil {
-                    devCfg = versioned.Config.Manifest.Devices
-                }
-                if devCfg != nil && len(devCfg.PCIPassthrough) > 0 {
-                    e.logger.Info("unbinding vfio devices", "vm", name, "devices", devCfg.PCIPassthrough)
-                    if unbindErr := e.vfioMgr.UnbindDevices(devCfg.PCIPassthrough); unbindErr != nil {
-					e.logger.Warn("failed to unbind vfio devices", "vm", name, "error", unbindErr)
-					// Don't fail deletion - device cleanup is best-effort
-                    }
-                }
+		if cfgRecord, err := cfgRepo.GetCurrent(ctx, vmRecord.ID); err == nil && cfgRecord != nil {
+			versioned, decodeErr := vmconfig.FromDB(*cfgRecord)
+			if decodeErr == nil {
+				var devCfg *pluginspec.DeviceConfig
+				if versioned.Config.Devices != nil {
+					devCfg = versioned.Config.Devices
+				} else if versioned.Config.Manifest != nil {
+					devCfg = versioned.Config.Manifest.Devices
+				}
+				if devCfg != nil && len(devCfg.PCIPassthrough) > 0 {
+					e.logger.Info("unbinding vfio devices", "vm", name, "devices", devCfg.PCIPassthrough)
+					if unbindErr := e.vfioMgr.UnbindDevices(devCfg.PCIPassthrough); unbindErr != nil {
+						e.logger.Warn("failed to unbind vfio devices", "vm", name, "error", unbindErr)
+						// Don't fail deletion - device cleanup is best-effort
+					}
+				}
 			}
 		}
 	}
@@ -1072,28 +1072,28 @@ func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
 	}
 	cmdArgs[pluginspec.CmdlineKey] = encodedManifest
 	spec.Args = cmdArgs
-    // Allow both initramfs and rootfs to be provided by the manifest
-    if url := strings.TrimSpace(manifest.Initramfs.URL); url != "" {
-        spec.Initramfs = url
-        spec.InitramfsChecksum = strings.TrimSpace(manifest.Initramfs.Checksum)
-    }
-    if url := strings.TrimSpace(manifest.RootFS.URL); url != "" {
-        spec.RootFS = url
-        spec.RootFSChecksum = strings.TrimSpace(manifest.RootFS.Checksum)
-    }
-    // Apply overrides without clearing the other medium
-    if cfg.Initramfs != nil {
-        if url := strings.TrimSpace(cfg.Initramfs.URL); url != "" {
-            spec.Initramfs = url
-            spec.InitramfsChecksum = strings.TrimSpace(cfg.Initramfs.Checksum)
-        }
-    }
-    if cfg.RootFS != nil {
-        if url := strings.TrimSpace(cfg.RootFS.URL); url != "" {
-            spec.RootFS = url
-            spec.RootFSChecksum = strings.TrimSpace(cfg.RootFS.Checksum)
-        }
-    }
+	// Allow both initramfs and rootfs to be provided by the manifest
+	if url := strings.TrimSpace(manifest.Initramfs.URL); url != "" {
+		spec.Initramfs = url
+		spec.InitramfsChecksum = strings.TrimSpace(manifest.Initramfs.Checksum)
+	}
+	if url := strings.TrimSpace(manifest.RootFS.URL); url != "" {
+		spec.RootFS = url
+		spec.RootFSChecksum = strings.TrimSpace(manifest.RootFS.Checksum)
+	}
+	// Apply overrides without clearing the other medium
+	if cfg.Initramfs != nil {
+		if url := strings.TrimSpace(cfg.Initramfs.URL); url != "" {
+			spec.Initramfs = url
+			spec.InitramfsChecksum = strings.TrimSpace(cfg.Initramfs.Checksum)
+		}
+	}
+	if cfg.RootFS != nil {
+		if url := strings.TrimSpace(cfg.RootFS.URL); url != "" {
+			spec.RootFS = url
+			spec.RootFSChecksum = strings.TrimSpace(cfg.RootFS.Checksum)
+		}
+	}
 	spec.KernelOverride = strings.TrimSpace(cfg.KernelOverride)
 	if spec.RootFS != "" {
 		if _, ok := cmdArgs[pluginspec.RootFSDeviceKey]; !ok {
@@ -1104,39 +1104,45 @@ func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
 		}
 	}
 
-    // Handle VFIO device passthrough if configured (prefer VM-level overrides)
-    var devCfg *pluginspec.DeviceConfig
-    if cfg.Devices != nil {
-        devCfg = cfg.Devices
-    } else if manifest != nil && manifest.Devices != nil {
-        devCfg = manifest.Devices
-    }
-    if devCfg != nil && len(devCfg.PCIPassthrough) > 0 {
-        pciAddrs := devCfg.PCIPassthrough
-        allowlist := devCfg.Allowlist
-        e.logger.Info("vfio passthrough requested", "vm", vmRecord.Name, "devices", pciAddrs)
-        if err := e.vfioMgr.ValidateDevices(pciAddrs, allowlist); err != nil {
-            _ = e.network.CleanupTap(ctx, tapName)
-            if seedDisk != nil { _ = os.Remove(seedDisk.Path) }
-            e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
-            return nil, fmt.Errorf("device validation failed: %w", err)
-        }
-        if err := e.vfioMgr.BindDevices(pciAddrs); err != nil {
-            _ = e.network.CleanupTap(ctx, tapName)
-            if seedDisk != nil { _ = os.Remove(seedDisk.Path) }
-            e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
-            return nil, fmt.Errorf("device binding failed: %w", err)
-        }
-        vfioPaths, err := e.vfioMgr.GetVFIOGroupPaths(pciAddrs)
-        if err != nil {
-            _ = e.vfioMgr.UnbindDevices(pciAddrs)
-            _ = e.network.CleanupTap(ctx, tapName)
-            if seedDisk != nil { _ = os.Remove(seedDisk.Path) }
-            e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
-            return nil, fmt.Errorf("get vfio group paths: %w", err)
-        }
-        spec.VFIODevicePaths = vfioPaths
-    }
+	// Handle VFIO device passthrough if configured (prefer VM-level overrides)
+	var devCfg *pluginspec.DeviceConfig
+	if cfg.Devices != nil {
+		devCfg = cfg.Devices
+	} else if manifest != nil && manifest.Devices != nil {
+		devCfg = manifest.Devices
+	}
+	if devCfg != nil && len(devCfg.PCIPassthrough) > 0 {
+		pciAddrs := devCfg.PCIPassthrough
+		allowlist := devCfg.Allowlist
+		e.logger.Info("vfio passthrough requested", "vm", vmRecord.Name, "devices", pciAddrs)
+		if err := e.vfioMgr.ValidateDevices(pciAddrs, allowlist); err != nil {
+			_ = e.network.CleanupTap(ctx, tapName)
+			if seedDisk != nil {
+				_ = os.Remove(seedDisk.Path)
+			}
+			e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+			return nil, fmt.Errorf("device validation failed: %w", err)
+		}
+		if err := e.vfioMgr.BindDevices(pciAddrs); err != nil {
+			_ = e.network.CleanupTap(ctx, tapName)
+			if seedDisk != nil {
+				_ = os.Remove(seedDisk.Path)
+			}
+			e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+			return nil, fmt.Errorf("device binding failed: %w", err)
+		}
+		vfioPaths, err := e.vfioMgr.GetVFIOGroupPaths(pciAddrs)
+		if err != nil {
+			_ = e.vfioMgr.UnbindDevices(pciAddrs)
+			_ = e.network.CleanupTap(ctx, tapName)
+			if seedDisk != nil {
+				_ = os.Remove(seedDisk.Path)
+			}
+			e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+			return nil, fmt.Errorf("get vfio group paths: %w", err)
+		}
+		spec.VFIODevicePaths = vfioPaths
+	}
 
 	if cloudInitToStore != nil {
 		cloudInitToStore.VMID = vmRecord.ID

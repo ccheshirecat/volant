@@ -9,6 +9,6 @@ package network
 // NewBridgeManager returns a no-op manager on non-Linux hosts so that
 // non-Linux builds can compile without Linux-specific netlink symbols.
 func NewBridgeManager(bridge string) Manager { // bridge kept for API symmetry
-    _ = bridge
-    return NewNoop()
+	_ = bridge
+	return NewNoop()
 }

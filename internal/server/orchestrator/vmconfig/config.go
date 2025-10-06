@@ -37,21 +37,21 @@ type Expose struct {
 
 // Config represents the persisted, user-editable configuration of a VM.
 type Config struct {
-	Plugin         string                    `json:"plugin"`
-	Runtime        string                    `json:"runtime,omitempty"`
-	KernelCmdline  string                    `json:"kernel_cmdline,omitempty"`
-	KernelOverride string                    `json:"kernel_override,omitempty"`
-	Resources      Resources                 `json:"resources"`
-	API            API                       `json:"api,omitempty"`
-    Manifest       *pluginspec.Manifest      `json:"manifest,omitempty"`
-    // Devices allows VM-level device passthrough overrides (takes precedence over manifest.devices)
-    Devices        *pluginspec.DeviceConfig  `json:"devices,omitempty"`
-	Metadata       map[string]any            `json:"metadata,omitempty"`
-	Expose         []Expose                  `json:"expose,omitempty"`
-	CloudInit      *pluginspec.CloudInit     `json:"cloud_init,omitempty"`
-	Network        *pluginspec.NetworkConfig `json:"network,omitempty"`
-	Initramfs      *pluginspec.Initramfs     `json:"initramfs,omitempty"`
-	RootFS         *pluginspec.RootFS        `json:"rootfs,omitempty"`
+	Plugin         string               `json:"plugin"`
+	Runtime        string               `json:"runtime,omitempty"`
+	KernelCmdline  string               `json:"kernel_cmdline,omitempty"`
+	KernelOverride string               `json:"kernel_override,omitempty"`
+	Resources      Resources            `json:"resources"`
+	API            API                  `json:"api,omitempty"`
+	Manifest       *pluginspec.Manifest `json:"manifest,omitempty"`
+	// Devices allows VM-level device passthrough overrides (takes precedence over manifest.devices)
+	Devices   *pluginspec.DeviceConfig  `json:"devices,omitempty"`
+	Metadata  map[string]any            `json:"metadata,omitempty"`
+	Expose    []Expose                  `json:"expose,omitempty"`
+	CloudInit *pluginspec.CloudInit     `json:"cloud_init,omitempty"`
+	Network   *pluginspec.NetworkConfig `json:"network,omitempty"`
+	Initramfs *pluginspec.Initramfs     `json:"initramfs,omitempty"`
+	RootFS    *pluginspec.RootFS        `json:"rootfs,omitempty"`
 }
 
 // Versioned associates a configuration with its version metadata.
@@ -76,7 +76,7 @@ type Patch struct {
 	Resources     *ResourcesPatch           `json:"resources,omitempty"`
 	API           *APIPatch                 `json:"api,omitempty"`
 	Manifest      *pluginspec.Manifest      `json:"manifest,omitempty"`
-    Devices       *pluginspec.DeviceConfig  `json:"devices,omitempty"`
+	Devices       *pluginspec.DeviceConfig  `json:"devices,omitempty"`
 	Metadata      *map[string]any           `json:"metadata,omitempty"`
 	Expose        *[]Expose                 `json:"expose,omitempty"`
 	CloudInit     *pluginspec.CloudInit     `json:"cloud_init,omitempty"`
@@ -106,10 +106,10 @@ func (c Config) Clone() Config {
 		manifestCopy := *c.Manifest
 		clone.Manifest = &manifestCopy
 	}
-    if c.Devices != nil {
-        devicesCopy := *c.Devices
-        clone.Devices = &devicesCopy
-    }
+	if c.Devices != nil {
+		devicesCopy := *c.Devices
+		clone.Devices = &devicesCopy
+	}
 	if c.CloudInit != nil {
 		cloudCopy := *c.CloudInit
 		cloudCopy.Normalize()
@@ -213,7 +213,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("vmconfig: %w", err)
 		}
 	}
-    // Optional boot media overrides: allow both initramfs and rootfs to be specified
+	// Optional boot media overrides: allow both initramfs and rootfs to be specified
 	if c.Initramfs != nil {
 		if err := c.Initramfs.Validate(); err != nil {
 			return fmt.Errorf("vmconfig: %w", err)
