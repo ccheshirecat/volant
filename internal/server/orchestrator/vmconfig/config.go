@@ -206,12 +206,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("vmconfig: %w", err)
 		}
 	}
-	// Optional boot media overrides: allow at most one of initramfs or rootfs
-	initramfsSet := c.Initramfs != nil && strings.TrimSpace(c.Initramfs.URL) != ""
-	rootfsSet := c.RootFS != nil && strings.TrimSpace(c.RootFS.URL) != ""
-	if initramfsSet && rootfsSet {
-		return fmt.Errorf("vmconfig: cannot set both initramfs and rootfs overrides")
-	}
+    // Optional boot media overrides: allow both initramfs and rootfs to be specified
 	if c.Initramfs != nil {
 		if err := c.Initramfs.Validate(); err != nil {
 			return fmt.Errorf("vmconfig: %w", err)
