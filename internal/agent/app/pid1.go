@@ -60,63 +60,63 @@ func (a *App) bootstrapPID1Inner() error {
 	if err := mountInitial(); err != nil {
 		return fmt.Errorf("mount initial filesystems: %w", err)
 	}
-    // Determine boot mode: auto (default), initramfs, or rootfs
-    mode := resolveBootMode()
-    switch mode {
-    case "initramfs":
-        a.log.Printf("pid1 bootstrap: volant.boot=initramfs, staying on initramfs")
-        return a.enterStage2(true)
-    case "rootfs":
-        a.log.Printf("pid1 bootstrap: volant.boot=rootfs, pivoting to rootfs")
-        device := resolveRootfsDevice()
-        if device == "" {
-            return fmt.Errorf("volant.boot=rootfs but no rootfs device detected")
-        }
-        if !strings.HasPrefix(device, "/dev/") {
-            device = "/dev/" + device
-        }
-        fsType := resolveRootfsFSType()
-        if err := waitForDevice(device, 10*time.Second); err != nil {
-            return err
-        }
-        if err := mountRootfs(device, fsType); err != nil {
-            return err
-        }
-        if err := copySelfToRoot(); err != nil {
-            return fmt.Errorf("pid1 bootstrap error: copy self failed: %w", err)
-        }
-        a.log.Printf("Handing off to switch_root to pivot and re-execute for Stage 2 (rootfs mode)...")
-        err := syscall.Exec("/bin/busybox", []string{"/bin/busybox", "switch_root", rootMountPoint, "/usr/local/bin/kestrel", "stage2"}, os.Environ())
-        if err != nil {
-            return fmt.Errorf("switch_root exec failed: %w", err)
-        }
-        return nil // Unreachable
-    default: // auto
-        device := resolveRootfsDevice()
-        if device == "" {
-            a.log.Printf("pid1 bootstrap: volant.boot=auto, no rootfs device detected; staying on initramfs")
-            return a.enterStage2(true)
-        }
-        if !strings.HasPrefix(device, "/dev/") {
-            device = "/dev/" + device
-        }
-        fsType := resolveRootfsFSType()
-        if err := waitForDevice(device, 10*time.Second); err != nil {
-            return err
-        }
-        if err := mountRootfs(device, fsType); err != nil {
-            return err
-        }
-        if err := copySelfToRoot(); err != nil {
-            return fmt.Errorf("pid1 bootstrap error: copy self failed: %w", err)
-        }
-        a.log.Printf("Handing off to switch_root to pivot and re-execute for Stage 2 (auto mode)...")
-        err := syscall.Exec("/bin/busybox", []string{"/bin/busybox", "switch_root", rootMountPoint, "/usr/local/bin/kestrel", "stage2"}, os.Environ())
-        if err != nil {
-            return fmt.Errorf("switch_root exec failed: %w", err)
-        }
-        return nil // Unreachable
-    }
+	// Determine boot mode: auto (default), initramfs, or rootfs
+	mode := resolveBootMode()
+	switch mode {
+	case "initramfs":
+		a.log.Printf("pid1 bootstrap: volant.boot=initramfs, staying on initramfs")
+		return a.enterStage2(true)
+	case "rootfs":
+		a.log.Printf("pid1 bootstrap: volant.boot=rootfs, pivoting to rootfs")
+		device := resolveRootfsDevice()
+		if device == "" {
+			return fmt.Errorf("volant.boot=rootfs but no rootfs device detected")
+		}
+		if !strings.HasPrefix(device, "/dev/") {
+			device = "/dev/" + device
+		}
+		fsType := resolveRootfsFSType()
+		if err := waitForDevice(device, 10*time.Second); err != nil {
+			return err
+		}
+		if err := mountRootfs(device, fsType); err != nil {
+			return err
+		}
+		if err := copySelfToRoot(); err != nil {
+			return fmt.Errorf("pid1 bootstrap error: copy self failed: %w", err)
+		}
+		a.log.Printf("Handing off to switch_root to pivot and re-execute for Stage 2 (rootfs mode)...")
+		err := syscall.Exec("/bin/busybox", []string{"/bin/busybox", "switch_root", rootMountPoint, "/usr/local/bin/kestrel", "stage2"}, os.Environ())
+		if err != nil {
+			return fmt.Errorf("switch_root exec failed: %w", err)
+		}
+		return nil // Unreachable
+	default: // auto
+		device := resolveRootfsDevice()
+		if device == "" {
+			a.log.Printf("pid1 bootstrap: volant.boot=auto, no rootfs device detected; staying on initramfs")
+			return a.enterStage2(true)
+		}
+		if !strings.HasPrefix(device, "/dev/") {
+			device = "/dev/" + device
+		}
+		fsType := resolveRootfsFSType()
+		if err := waitForDevice(device, 10*time.Second); err != nil {
+			return err
+		}
+		if err := mountRootfs(device, fsType); err != nil {
+			return err
+		}
+		if err := copySelfToRoot(); err != nil {
+			return fmt.Errorf("pid1 bootstrap error: copy self failed: %w", err)
+		}
+		a.log.Printf("Handing off to switch_root to pivot and re-execute for Stage 2 (auto mode)...")
+		err := syscall.Exec("/bin/busybox", []string{"/bin/busybox", "switch_root", rootMountPoint, "/usr/local/bin/kestrel", "stage2"}, os.Environ())
+		if err != nil {
+			return fmt.Errorf("switch_root exec failed: %w", err)
+		}
+		return nil // Unreachable
+	}
 }
 
 func (a *App) enterStage2(fromInitramfs bool) error {
@@ -201,13 +201,13 @@ func resolveRootfsFSType() string {
 }
 
 func resolveBootMode() string {
-    mode := strings.ToLower(strings.TrimSpace(cmdlineValue(pluginspec.BootModeKey)))
-    switch mode {
-    case "initramfs", "rootfs":
-        return mode
-    default:
-        return "auto"
-    }
+	mode := strings.ToLower(strings.TrimSpace(cmdlineValue(pluginspec.BootModeKey)))
+	switch mode {
+	case "initramfs", "rootfs":
+		return mode
+	default:
+		return "auto"
+	}
 }
 
 func cmdlineValue(key string) string {

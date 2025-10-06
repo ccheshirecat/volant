@@ -125,25 +125,25 @@ func newPluginsInstallCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Allow positional arg as shorthand for --manifest or --url
 			if len(args) == 1 {
-                token := cleanToken(strings.TrimSpace(args[0]))
+				token := cleanToken(strings.TrimSpace(args[0]))
 				if strings.HasPrefix(token, "http://") || strings.HasPrefix(token, "https://") {
 					manifestURL = token
 				} else {
 					manifestPath = token
 				}
 			}
-            // If --manifest was provided with an http(s) URL, treat it as --url
-            if u := cleanToken(strings.TrimSpace(manifestPath)); u != "" {
-                if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
-                    manifestURL = u
-                    manifestPath = ""
-                } else {
-                    manifestPath = u
-                }
-            }
-            if u := cleanToken(strings.TrimSpace(manifestURL)); u != "" {
-                manifestURL = u
-            }
+			// If --manifest was provided with an http(s) URL, treat it as --url
+			if u := cleanToken(strings.TrimSpace(manifestPath)); u != "" {
+				if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+					manifestURL = u
+					manifestPath = ""
+				} else {
+					manifestPath = u
+				}
+			}
+			if u := cleanToken(strings.TrimSpace(manifestURL)); u != "" {
+				manifestURL = u
+			}
 			var data []byte
 			var err error
 			if strings.TrimSpace(manifestURL) != "" {
@@ -278,22 +278,22 @@ func fetchURL(ctx context.Context, raw string) ([]byte, error) {
 // cleanToken removes simple chat/markup wrappers like <user-mention ...>URL</user-mention>
 // and trims spaces so users can paste URLs from rich UIs without errors.
 func cleanToken(s string) string {
-    if s == "" {
-        return s
-    }
-    // Strip any XML/HTML-like tags: repeatedly remove substrings like <...>
-    for {
-        start := strings.IndexByte(s, '<')
-        if start == -1 {
-            break
-        }
-        end := strings.IndexByte(s[start:], '>')
-        if end == -1 {
-            break
-        }
-        s = s[:start] + s[start+end+1:]
-    }
-    return strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	// Strip any XML/HTML-like tags: repeatedly remove substrings like <...>
+	for {
+		start := strings.IndexByte(s, '<')
+		if start == -1 {
+			break
+		}
+		end := strings.IndexByte(s[start:], '>')
+		if end == -1 {
+			break
+		}
+		s = s[:start] + s[start+end+1:]
+	}
+	return strings.TrimSpace(s)
 }
 
 func togglePlugin(cmd *cobra.Command, name string, enabled bool) error {

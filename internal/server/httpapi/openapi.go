@@ -14,6 +14,7 @@ import (
 	openapi3 "github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3gen"
 
+	"github.com/volantvm/volant/internal/server/db"
 	orchestratorevents "github.com/volantvm/volant/internal/server/orchestrator/events"
 )
 
@@ -76,6 +77,10 @@ func BuildOpenAPISpec(baseURL string) (*openapi3.T, error) {
 	sysStatusRef, _ := gen.NewSchemaRefForValue(&SystemStatusResponse{}, spec.Components.Schemas)
 	mcpReqRef, _ := gen.NewSchemaRefForValue(&MCPRequest{}, spec.Components.Schemas)
 	mcpRespRef, _ := gen.NewSchemaRefForValue(&MCPResponse{}, spec.Components.Schemas)
+	// Phase 3 additions
+	sysSummaryRef, _ := gen.NewSchemaRefForValue(&systemSummaryResponse{}, spec.Components.Schemas)
+	pluginArtifactRef, _ := gen.NewSchemaRefForValue(&db.PluginArtifact{}, spec.Components.Schemas)
+	upsertArtifactReqRef, _ := gen.NewSchemaRefForValue(&upsertArtifactRequest{}, spec.Components.Schemas)
 	// Events
 	vmEventRef, _ := gen.NewSchemaRefForValue(&orchestratorevents.VMEvent{}, spec.Components.Schemas)
 
@@ -131,17 +136,48 @@ func BuildOpenAPISpec(baseURL string) (*openapi3.T, error) {
 		return op
 	}())
 
+	// /api/v1/system/summary
+	spec.AddOperation("/api/v1/system/summary", http.MethodGet, func() *openapi3.Operation {
+		op := openapi3.NewOperation()
+		op.Summary = "System summary for dashboards"
+		op.OperationID = "getSystemSummary"
+		op.Tags = []string{"status"}
+		op.Responses = openapi3.NewResponses()
+		{
+			resp := openapi3.NewResponse().WithDescription("Counts and plugin info")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(sysSummaryRef)
+			op.Responses.Set("200", &openapi3.ResponseRef{Value: resp})
+		}
+		return op
+	}())
+
 	// /api/v1/vms
 	spec.AddOperation("/api/v1/vms", http.MethodGet, func() *openapi3.Operation {
 		op := openapi3.NewOperation()
 		op.Summary = "List VMs"
 		op.OperationID = "listVMs"
 		op.Tags = []string{"vm"}
+		// Query parameters
+		op.Parameters = append(op.Parameters,
+			&openapi3.ParameterRef{Value: &openapi3.Parameter{Name: "status", In: openapi3.ParameterInQuery, Description: "Filter by status (repeatable or comma-separated)", Schema: openapi3.NewSchemaRef("", openapi3.NewStringSchema())}},
+			&openapi3.ParameterRef{Value: &openapi3.Parameter{Name: "runtime", In: openapi3.ParameterInQuery, Description: "Filter by runtime", Schema: openapi3.NewSchemaRef("", openapi3.NewStringSchema())}},
+			&openapi3.ParameterRef{Value: &openapi3.Parameter{Name: "plugin", In: openapi3.ParameterInQuery, Description: "Filter by plugin name", Schema: openapi3.NewSchemaRef("", openapi3.NewStringSchema())}},
+			&openapi3.ParameterRef{Value: &openapi3.Parameter{Name: "q", In: openapi3.ParameterInQuery, Description: "Free text search (name, ip, runtime)", Schema: openapi3.NewSchemaRef("", openapi3.NewStringSchema())}},
+			&openapi3.ParameterRef{Value: &openapi3.Parameter{Name: "limit", In: openapi3.ParameterInQuery, Description: "Max items to return", Schema: openapi3.NewSchemaRef("", openapi3.NewIntegerSchema())}},
+			&openapi3.ParameterRef{Value: &openapi3.Parameter{Name: "offset", In: openapi3.ParameterInQuery, Description: "Items to skip (for pagination)", Schema: openapi3.NewSchemaRef("", openapi3.NewIntegerSchema())}},
+			&openapi3.ParameterRef{Value: &openapi3.Parameter{Name: "sort", In: openapi3.ParameterInQuery, Description: "Sort field (name,status,runtime,created_at,updated_at)", Schema: openapi3.NewSchemaRef("", openapi3.NewStringSchema())}},
+			&openapi3.ParameterRef{Value: &openapi3.Parameter{Name: "order", In: openapi3.ParameterInQuery, Description: "Sort order (asc,desc)", Schema: openapi3.NewSchemaRef("", openapi3.NewStringSchema())}},
+		)
 		op.Responses = openapi3.NewResponses()
 		{
 			resp := openapi3.NewResponse().WithDescription("Array of VMs")
 			arr := &openapi3.Schema{Type: &openapi3.Types{openapi3.TypeArray}, Items: vmRespRef}
 			resp.Content = openapi3.NewContentWithJSONSchema(arr)
+			// X-Total-Count header
+			if resp.Headers == nil {
+				resp.Headers = openapi3.Headers{}
+			}
+			resp.Headers["X-Total-Count"] = &openapi3.HeaderRef{Value: &openapi3.Header{Parameter: openapi3.Parameter{Schema: openapi3.NewSchemaRef("", openapi3.NewIntegerSchema())}}}
 			op.Responses.Set("200", &openapi3.ResponseRef{Value: resp})
 		}
 		{
@@ -610,6 +646,88 @@ func BuildOpenAPISpec(baseURL string) (*openapi3.T, error) {
 		op.RequestBody = &openapi3.RequestBodyRef{Value: &openapi3.RequestBody{Required: true, Content: openapi3.NewContentWithJSONSchema(enabledSchema)}}
 		op.Responses = openapi3.NewResponses()
 		op.Responses.Set("200", &openapi3.ResponseRef{Value: openapi3.NewResponse().WithDescription("Status updated")})
+		return op
+	}())
+
+	// Plugin artifacts
+	spec.AddOperation("/api/v1/plugins/{plugin}/artifacts", http.MethodGet, func() *openapi3.Operation {
+		op := openapi3.NewOperation()
+		op.Summary = "List plugin artifacts"
+		op.OperationID = "listPluginArtifacts"
+		op.Tags = []string{"plugins", "artifacts"}
+		op.Parameters = openapi3.Parameters{
+			pluginParam,
+			&openapi3.ParameterRef{Value: &openapi3.Parameter{Name: "version", In: openapi3.ParameterInQuery, Description: "Filter by version", Schema: openapi3.NewSchemaRef("", openapi3.NewStringSchema())}},
+		}
+		op.Responses = openapi3.NewResponses()
+		{
+			resp := openapi3.NewResponse().WithDescription("Artifacts list")
+			arr := &openapi3.Schema{Type: &openapi3.Types{openapi3.TypeArray}, Items: pluginArtifactRef}
+			resp.Content = openapi3.NewContentWithJSONSchema(arr)
+			op.Responses.Set("200", &openapi3.ResponseRef{Value: resp})
+		}
+		return op
+	}())
+
+	spec.AddOperation("/api/v1/plugins/{plugin}/artifacts", http.MethodPost, func() *openapi3.Operation {
+		op := openapi3.NewOperation()
+		op.Summary = "Create or update a plugin artifact"
+		op.OperationID = "upsertPluginArtifact"
+		op.Tags = []string{"plugins", "artifacts"}
+		op.Parameters = openapi3.Parameters{pluginParam}
+		op.RequestBody = &openapi3.RequestBodyRef{Value: &openapi3.RequestBody{Required: true, Content: openapi3.NewContentWithJSONSchemaRef(upsertArtifactReqRef)}}
+		op.Responses = openapi3.NewResponses()
+		op.Responses.Set("201", &openapi3.ResponseRef{Value: openapi3.NewResponse().WithDescription("Created")})
+		op.Responses.Set("400", &openapi3.ResponseRef{Value: openapi3.NewResponse().WithDescription("Bad request").WithContent(openapi3.NewContentWithJSONSchemaRef(errorSchema))})
+		return op
+	}())
+
+	spec.AddOperation("/api/v1/plugins/{plugin}/artifacts", http.MethodDelete, func() *openapi3.Operation {
+		op := openapi3.NewOperation()
+		op.Summary = "Delete plugin artifacts"
+		op.OperationID = "deletePluginArtifacts"
+		op.Tags = []string{"plugins", "artifacts"}
+		op.Parameters = openapi3.Parameters{
+			pluginParam,
+			&openapi3.ParameterRef{Value: &openapi3.Parameter{Name: "version", In: openapi3.ParameterInQuery, Description: "Delete artifacts for a specific version (optional)", Schema: openapi3.NewSchemaRef("", openapi3.NewStringSchema())}},
+		}
+		op.Responses = openapi3.NewResponses()
+		op.Responses.Set("204", &openapi3.ResponseRef{Value: openapi3.NewResponse().WithDescription("Deleted")})
+		return op
+	}())
+
+	artifactParam := &openapi3.ParameterRef{Value: &openapi3.Parameter{Name: "artifact", In: openapi3.ParameterInPath, Required: true, Schema: openapi3.NewSchemaRef("", openapi3.NewStringSchema())}}
+	spec.AddOperation("/api/v1/plugins/{plugin}/artifacts/{artifact}", http.MethodGet, func() *openapi3.Operation {
+		op := openapi3.NewOperation()
+		op.Summary = "Get a plugin artifact by name and version"
+		op.OperationID = "getPluginArtifact"
+		op.Tags = []string{"plugins", "artifacts"}
+		op.Parameters = openapi3.Parameters{
+			pluginParam,
+			artifactParam,
+			&openapi3.ParameterRef{Value: &openapi3.Parameter{Name: "version", In: openapi3.ParameterInQuery, Required: true, Description: "Artifact version", Schema: openapi3.NewSchemaRef("", openapi3.NewStringSchema())}},
+		}
+		op.Responses = openapi3.NewResponses()
+		{
+			resp := openapi3.NewResponse().WithDescription("Artifact")
+			resp.Content = openapi3.NewContentWithJSONSchemaRef(pluginArtifactRef)
+			op.Responses.Set("200", &openapi3.ResponseRef{Value: resp})
+		}
+		op.Responses.Set("404", &openapi3.ResponseRef{Value: openapi3.NewResponse().WithDescription("Not found").WithContent(openapi3.NewContentWithJSONSchemaRef(errorSchema))})
+		return op
+	}())
+
+	// WebSocket console endpoint (documented as HTTP GET upgrade)
+	spec.AddOperation("/ws/v1/vms/{name}/console", http.MethodGet, func() *openapi3.Operation {
+		op := openapi3.NewOperation()
+		op.Summary = "WebSocket console for VM"
+		op.Description = "Upgrades to a WebSocket connection streaming the VM serial console"
+		op.OperationID = "vmConsoleWebSocket"
+		op.Tags = []string{"vm", "console"}
+		op.Parameters = openapi3.Parameters{nameParam}
+		op.Responses = openapi3.NewResponses()
+		op.Responses.Set("101", &openapi3.ResponseRef{Value: openapi3.NewResponse().WithDescription("Switching Protocols (WebSocket)")})
+		op.Responses.Set("200", &openapi3.ResponseRef{Value: openapi3.NewResponse().WithDescription("OK (non-upgrade)")})
 		return op
 	}())
 

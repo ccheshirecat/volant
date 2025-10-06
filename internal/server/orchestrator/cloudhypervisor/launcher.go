@@ -62,18 +62,18 @@ func (l *Launcher) Launch(ctx context.Context, spec runtime.LaunchSpec) (runtime
 	apiSocket := filepath.Join(l.RuntimeDir, fmt.Sprintf("%s.sock", spec.Name))
 	_ = os.Remove(apiSocket)
 
-    // Select kernel: explicit override > default bzImage > fallback vmlinux
-    kernelSrc := strings.TrimSpace(spec.KernelOverride)
-    if kernelSrc == "" {
-        if l.BZImagePath != "" {
-            kernelSrc = l.BZImagePath
-        } else {
-            kernelSrc = l.VMLinuxPath
-        }
-    }
-    if strings.TrimSpace(kernelSrc) == "" {
-        return nil, fmt.Errorf("cloudhypervisor: kernel path required")
-    }
+	// Select kernel: explicit override > default bzImage > fallback vmlinux
+	kernelSrc := strings.TrimSpace(spec.KernelOverride)
+	if kernelSrc == "" {
+		if l.BZImagePath != "" {
+			kernelSrc = l.BZImagePath
+		} else {
+			kernelSrc = l.VMLinuxPath
+		}
+	}
+	if strings.TrimSpace(kernelSrc) == "" {
+		return nil, fmt.Errorf("cloudhypervisor: kernel path required")
+	}
 
 	// Preserve extension for readability
 	ext := filepath.Ext(kernelSrc)

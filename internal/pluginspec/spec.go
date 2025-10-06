@@ -36,8 +36,8 @@ const (
 	RootFSDeviceKey = "volant.rootfs_device"
 	// RootFSFSTypeKey indicates the filesystem type for the root filesystem device.
 	RootFSFSTypeKey = "volant.rootfs_fstype"
-    // BootModeKey controls the agent boot strategy: auto|initramfs|rootfs
-    BootModeKey = "volant.boot"
+	// BootModeKey controls the agent boot strategy: auto|initramfs|rootfs
+	BootModeKey = "volant.boot"
 )
 
 // Manifest captures the metadata required to register and boot a runtime plugin.
@@ -254,7 +254,7 @@ func (m Manifest) Validate() error {
 	if err := normalized.Workload.Validate(); err != nil {
 		return err
 	}
-    // Require that at least one of rootfs or initramfs is specified for boot media.
+	// Require that at least one of rootfs or initramfs is specified for boot media.
 	if err := normalized.RootFS.Validate(); err != nil {
 		return err
 	}
@@ -263,8 +263,8 @@ func (m Manifest) Validate() error {
 	}
 	rootfsSet := strings.TrimSpace(normalized.RootFS.URL) != ""
 	initramfsSet := strings.TrimSpace(normalized.Initramfs.URL) != ""
-    if !rootfsSet && !initramfsSet {
-        return fmt.Errorf("plugin manifest: at least one of rootfs.url or initramfs.url must be set")
+	if !rootfsSet && !initramfsSet {
+		return fmt.Errorf("plugin manifest: at least one of rootfs.url or initramfs.url must be set")
 	}
 	for _, disk := range normalized.Disks {
 		if err := disk.Validate(); err != nil {
