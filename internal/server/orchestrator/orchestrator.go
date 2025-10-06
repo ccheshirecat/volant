@@ -589,10 +589,16 @@ func (e *engine) CreateVM(ctx context.Context, req CreateVMRequest) (*db.VM, err
 		}
 	}
 
-	// Handle VFIO GPU/device passthrough if configured
-	if req.Manifest != nil && req.Manifest.Devices != nil && len(req.Manifest.Devices.PCIPassthrough) > 0 {
-		pciAddrs := req.Manifest.Devices.PCIPassthrough
-		allowlist := req.Manifest.Devices.Allowlist
+    // Handle VFIO GPU/device passthrough if configured (prefer VM-level overrides)
+    var devCfg *pluginspec.DeviceConfig
+    if configToStore.Devices != nil {
+        devCfg = configToStore.Devices
+    } else if req.Manifest != nil && req.Manifest.Devices != nil {
+        devCfg = req.Manifest.Devices
+    }
+    if devCfg != nil && len(devCfg.PCIPassthrough) > 0 {
+        pciAddrs := devCfg.PCIPassthrough
+        allowlist := devCfg.Allowlist
 
 		e.logger.Info("vfio passthrough requested", "vm", req.Name, "devices", pciAddrs)
 
@@ -764,14 +770,22 @@ func (e *engine) destroyVM(ctx context.Context, name string, reconcile bool) (*d
 	if vmRecord != nil && vmRecord.ID > 0 {
 		// Fetch the VM config to check for device passthrough
 		cfgRepo := e.store.Queries().VMConfigs()
-		if cfgRecord, err := cfgRepo.GetCurrent(ctx, vmRecord.ID); err == nil && cfgRecord != nil {
-			versioned, decodeErr := vmconfig.FromDB(*cfgRecord)
-			if decodeErr == nil && versioned.Config.Manifest != nil && versioned.Config.Manifest.Devices != nil && len(versioned.Config.Manifest.Devices.PCIPassthrough) > 0 {
-				e.logger.Info("unbinding vfio devices", "vm", name, "devices", versioned.Config.Manifest.Devices.PCIPassthrough)
-				if unbindErr := e.vfioMgr.UnbindDevices(versioned.Config.Manifest.Devices.PCIPassthrough); unbindErr != nil {
+        if cfgRecord, err := cfgRepo.GetCurrent(ctx, vmRecord.ID); err == nil && cfgRecord != nil {
+            versioned, decodeErr := vmconfig.FromDB(*cfgRecord)
+            if decodeErr == nil {
+                var devCfg *pluginspec.DeviceConfig
+                if versioned.Config.Devices != nil {
+                    devCfg = versioned.Config.Devices
+                } else if versioned.Config.Manifest != nil {
+                    devCfg = versioned.Config.Manifest.Devices
+                }
+                if devCfg != nil && len(devCfg.PCIPassthrough) > 0 {
+                    e.logger.Info("unbinding vfio devices", "vm", name, "devices", devCfg.PCIPassthrough)
+                    if unbindErr := e.vfioMgr.UnbindDevices(devCfg.PCIPassthrough); unbindErr != nil {
 					e.logger.Warn("failed to unbind vfio devices", "vm", name, "error", unbindErr)
 					// Don't fail deletion - device cleanup is best-effort
-				}
+                    }
+                }
 			}
 		}
 	}
@@ -1089,6 +1103,40 @@ func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
 			cmdArgs[pluginspec.RootFSFSTypeKey] = "ext4"
 		}
 	}
+
+    // Handle VFIO device passthrough if configured (prefer VM-level overrides)
+    var devCfg *pluginspec.DeviceConfig
+    if cfg.Devices != nil {
+        devCfg = cfg.Devices
+    } else if manifest != nil && manifest.Devices != nil {
+        devCfg = manifest.Devices
+    }
+    if devCfg != nil && len(devCfg.PCIPassthrough) > 0 {
+        pciAddrs := devCfg.PCIPassthrough
+        allowlist := devCfg.Allowlist
+        e.logger.Info("vfio passthrough requested", "vm", vmRecord.Name, "devices", pciAddrs)
+        if err := e.vfioMgr.ValidateDevices(pciAddrs, allowlist); err != nil {
+            _ = e.network.CleanupTap(ctx, tapName)
+            if seedDisk != nil { _ = os.Remove(seedDisk.Path) }
+            e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+            return nil, fmt.Errorf("device validation failed: %w", err)
+        }
+        if err := e.vfioMgr.BindDevices(pciAddrs); err != nil {
+            _ = e.network.CleanupTap(ctx, tapName)
+            if seedDisk != nil { _ = os.Remove(seedDisk.Path) }
+            e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+            return nil, fmt.Errorf("device binding failed: %w", err)
+        }
+        vfioPaths, err := e.vfioMgr.GetVFIOGroupPaths(pciAddrs)
+        if err != nil {
+            _ = e.vfioMgr.UnbindDevices(pciAddrs)
+            _ = e.network.CleanupTap(ctx, tapName)
+            if seedDisk != nil { _ = os.Remove(seedDisk.Path) }
+            e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+            return nil, fmt.Errorf("get vfio group paths: %w", err)
+        }
+        spec.VFIODevicePaths = vfioPaths
+    }
 
 	if cloudInitToStore != nil {
 		cloudInitToStore.VMID = vmRecord.ID

@@ -43,7 +43,9 @@ type Config struct {
 	KernelOverride string                    `json:"kernel_override,omitempty"`
 	Resources      Resources                 `json:"resources"`
 	API            API                       `json:"api,omitempty"`
-	Manifest       *pluginspec.Manifest      `json:"manifest,omitempty"`
+    Manifest       *pluginspec.Manifest      `json:"manifest,omitempty"`
+    // Devices allows VM-level device passthrough overrides (takes precedence over manifest.devices)
+    Devices        *pluginspec.DeviceConfig  `json:"devices,omitempty"`
 	Metadata       map[string]any            `json:"metadata,omitempty"`
 	Expose         []Expose                  `json:"expose,omitempty"`
 	CloudInit      *pluginspec.CloudInit     `json:"cloud_init,omitempty"`
@@ -74,6 +76,7 @@ type Patch struct {
 	Resources     *ResourcesPatch           `json:"resources,omitempty"`
 	API           *APIPatch                 `json:"api,omitempty"`
 	Manifest      *pluginspec.Manifest      `json:"manifest,omitempty"`
+    Devices       *pluginspec.DeviceConfig  `json:"devices,omitempty"`
 	Metadata      *map[string]any           `json:"metadata,omitempty"`
 	Expose        *[]Expose                 `json:"expose,omitempty"`
 	CloudInit     *pluginspec.CloudInit     `json:"cloud_init,omitempty"`
@@ -103,6 +106,10 @@ func (c Config) Clone() Config {
 		manifestCopy := *c.Manifest
 		clone.Manifest = &manifestCopy
 	}
+    if c.Devices != nil {
+        devicesCopy := *c.Devices
+        clone.Devices = &devicesCopy
+    }
 	if c.CloudInit != nil {
 		cloudCopy := *c.CloudInit
 		cloudCopy.Normalize()
@@ -279,6 +286,10 @@ func (p Patch) Apply(base Config) (Config, error) {
 		manifestCopy := *p.Manifest
 		manifestCopy.Normalize()
 		updated.Manifest = &manifestCopy
+	}
+	if p.Devices != nil {
+		devicesCopy := *p.Devices
+		updated.Devices = &devicesCopy
 	}
 	if p.Metadata != nil {
 		if *p.Metadata == nil {
