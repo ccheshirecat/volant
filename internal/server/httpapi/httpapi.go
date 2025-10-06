@@ -59,11 +59,11 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 	r.Use(gin.Recovery())
 	r.Use(requestLogger(logger))
 
-    // CORS (optional, for browser-based UI)
-    if raw := os.Getenv("VOLANT_CORS_ORIGINS"); raw != "" {
-        origins := strings.Split(raw, ",")
-        r.Use(corsMiddleware(logger, origins))
-    }
+	// CORS (optional, for browser-based UI)
+	if raw := os.Getenv("VOLANT_CORS_ORIGINS"); raw != "" {
+		origins := strings.Split(raw, ",")
+		r.Use(corsMiddleware(logger, origins))
+	}
 
 	if cidr := os.Getenv("VOLANT_API_ALLOW_CIDR"); cidr != "" {
 		allowList := strings.Split(cidr, ",")
@@ -100,6 +100,7 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 	{
 		v1.GET("/system/status", api.systemStatus)
 		v1.GET("/system/info", api.systemInfo)
+		v1.GET("/system/summary", api.systemSummary)
 		v1.POST("/mcp", api.handleMCP)
 
 		vms := v1.Group("/vms")
@@ -137,6 +138,12 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 			pluginsGroup.DELETE(":plugin", api.removePlugin)
 			pluginsGroup.POST(":plugin/enabled", api.setPluginEnabled)
 			pluginsGroup.POST(":plugin/actions/:action", api.postPluginAction)
+
+			// Plugin artifacts API
+			pluginsGroup.GET(":plugin/artifacts", api.listPluginArtifacts)
+			pluginsGroup.POST(":plugin/artifacts", api.upsertPluginArtifact)
+			pluginsGroup.DELETE(":plugin/artifacts", api.deletePluginArtifacts)
+			pluginsGroup.GET(":plugin/artifacts/:artifact", api.getPluginArtifact)
 		}
 
 		events := v1.Group("/events")
@@ -156,6 +163,7 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 	}
 
 	r.GET("/ws/v1/vms/:name/devtools/*path", api.vmDevToolsWebSocket)
+	r.GET("/ws/v1/vms/:name/console", api.vmConsoleWebSocket)
 	r.GET("/ws/v1/vms/:name/logs", api.vmLogsWebSocket)
 
 	return r
@@ -265,50 +273,50 @@ func apiKeyMiddleware(expected string) gin.HandlerFunc {
 // corsMiddleware enables configurable CORS for browser-based clients.
 // Allowed origins are provided via configuration; methods/headers use sane defaults.
 func corsMiddleware(logger *slog.Logger, allowed []string) gin.HandlerFunc {
-    normalized := make([]string, 0, len(allowed))
-    allowAll := false
-    for _, o := range allowed {
-        v := strings.TrimSpace(o)
-        if v == "" {
-            continue
-        }
-        if v == "*" {
-            allowAll = true
-        }
-        normalized = append(normalized, v)
-    }
-    return func(c *gin.Context) {
-        origin := c.GetHeader("Origin")
-        // Set CORS headers if origin is allowed
-        if origin != "" {
-            allowedOrigin := ""
-            if allowAll {
-                allowedOrigin = "*"
-            } else {
-                lo := strings.ToLower(origin)
-                for _, o := range normalized {
-                    if strings.EqualFold(o, origin) || strings.EqualFold(o, lo) {
-                        allowedOrigin = origin
-                        break
-                    }
-                }
-            }
-            if allowedOrigin != "" {
-                c.Header("Access-Control-Allow-Origin", allowedOrigin)
-                c.Header("Vary", "Origin")
-                c.Header("Access-Control-Allow-Credentials", "true")
-                c.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-                c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-Volant-API-Key")
-                c.Header("Access-Control-Expose-Headers", "Content-Type, X-Total-Count")
-            }
-        }
-        if c.Request.Method == http.MethodOptions {
-            c.Status(http.StatusNoContent)
-            c.Abort()
-            return
-        }
-        c.Next()
-    }
+	normalized := make([]string, 0, len(allowed))
+	allowAll := false
+	for _, o := range allowed {
+		v := strings.TrimSpace(o)
+		if v == "" {
+			continue
+		}
+		if v == "*" {
+			allowAll = true
+		}
+		normalized = append(normalized, v)
+	}
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		// Set CORS headers if origin is allowed
+		if origin != "" {
+			allowedOrigin := ""
+			if allowAll {
+				allowedOrigin = "*"
+			} else {
+				lo := strings.ToLower(origin)
+				for _, o := range normalized {
+					if strings.EqualFold(o, origin) || strings.EqualFold(o, lo) {
+						allowedOrigin = origin
+						break
+					}
+				}
+			}
+			if allowedOrigin != "" {
+				c.Header("Access-Control-Allow-Origin", allowedOrigin)
+				c.Header("Vary", "Origin")
+				c.Header("Access-Control-Allow-Credentials", "true")
+				c.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+				c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-Volant-API-Key")
+				c.Header("Access-Control-Expose-Headers", "Content-Type, X-Total-Count")
+			}
+		}
+		if c.Request.Method == http.MethodOptions {
+			c.Status(http.StatusNoContent)
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
 }
 
 type apiServer struct {
@@ -494,16 +502,198 @@ func deploymentToResponse(dep orchestrator.Deployment) deploymentResponse {
 }
 
 func (api *apiServer) listVMs(c *gin.Context) {
+	// Parse filters
+	statuses := make(map[string]bool)
+	if arr := c.QueryArray("status"); len(arr) > 0 {
+		for _, s := range arr {
+			for _, part := range strings.Split(s, ",") {
+				v := strings.TrimSpace(strings.ToLower(part))
+				if v != "" {
+					statuses[v] = true
+				}
+			}
+		}
+	}
+	runtimeFilter := strings.TrimSpace(c.Query("runtime"))
+	pluginFilter := strings.TrimSpace(c.Query("plugin"))
+	q := strings.ToLower(strings.TrimSpace(c.Query("q")))
+	limit := -1
+	offset := 0
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
+			limit = n
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid limit"})
+			return
+		}
+	}
+	if raw := strings.TrimSpace(c.Query("offset")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
+			offset = n
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid offset"})
+			return
+		}
+	}
+	sortField := strings.ToLower(strings.TrimSpace(c.Query("sort")))
+	if sortField == "" {
+		sortField = "created_at"
+	}
+	order := strings.ToLower(strings.TrimSpace(c.Query("order")))
+	if order != "desc" {
+		order = "asc"
+	}
+
+	// Load all VMs then apply filters in-memory
 	vms, err := api.engine.ListVMs(c.Request.Context())
 	if err != nil {
 		api.logger.Error("list vms", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list vms"})
 		return
 	}
-	resp := make([]vmResponse, 0, len(vms))
+
+	// Optional plugin filter requires reading VM config
+
+	// Filter
+	filtered := make([]db.VM, 0, len(vms))
 	for i := range vms {
 		vm := vms[i]
+		if len(statuses) > 0 && !statuses[strings.ToLower(string(vm.Status))] {
+			continue
+		}
+		if runtimeFilter != "" && !strings.EqualFold(vm.Runtime, runtimeFilter) {
+			continue
+		}
+		if q != "" {
+			if !strings.Contains(strings.ToLower(vm.Name), q) && !strings.Contains(strings.ToLower(vm.IPAddress), q) && !strings.Contains(strings.ToLower(vm.Runtime), q) {
+				continue
+			}
+		}
+		// plugin filter via config lookup
+		if pluginFilter != "" {
+			versioned, cfgErr := api.engine.GetVMConfig(c.Request.Context(), vm.Name)
+			if cfgErr != nil || versioned == nil {
+				continue
+			}
+			effPlugin := strings.TrimSpace(versioned.Config.Plugin)
+			if effPlugin == "" && versioned.Config.Manifest != nil {
+				effPlugin = strings.TrimSpace(versioned.Config.Manifest.Name)
+			}
+			if !strings.EqualFold(effPlugin, pluginFilter) {
+				continue
+			}
+		}
+		filtered = append(filtered, vm)
+	}
+
+	// Sort
+	less := func(i, j int) bool { return true }
+	switch sortField {
+	case "name":
+		less = func(i, j int) bool { return strings.ToLower(filtered[i].Name) < strings.ToLower(filtered[j].Name) }
+	case "status":
+		less = func(i, j int) bool { return string(filtered[i].Status) < string(filtered[j].Status) }
+	case "runtime":
+		less = func(i, j int) bool {
+			return strings.ToLower(filtered[i].Runtime) < strings.ToLower(filtered[j].Runtime)
+		}
+	case "updated_at":
+		less = func(i, j int) bool { return filtered[i].UpdatedAt.Before(filtered[j].UpdatedAt) }
+	default: // created_at
+		less = func(i, j int) bool { return filtered[i].CreatedAt.Before(filtered[j].CreatedAt) }
+	}
+	// Simple stable sort
+	for i := 0; i < len(filtered); i++ {
+		for j := i + 1; j < len(filtered); j++ {
+			if less(j, i) {
+				filtered[i], filtered[j] = filtered[j], filtered[i]
+			}
+		}
+	}
+	if order == "desc" {
+		for i, j := 0, len(filtered)-1; i < j; i, j = i+1, j-1 {
+			filtered[i], filtered[j] = filtered[j], filtered[i]
+		}
+	}
+
+	total := len(filtered)
+	// Paginate
+	start := offset
+	if start > total {
+		start = total
+	}
+	end := total
+	if limit >= 0 {
+		if start+limit < end {
+			end = start + limit
+		}
+	}
+	page := filtered[start:end]
+
+	// Build response and include X-Total-Count
+	resp := make([]vmResponse, 0, len(page))
+	for i := range page {
+		vm := page[i]
 		resp = append(resp, vmToResponse(&vm))
+	}
+	c.Header("X-Total-Count", strconv.Itoa(total))
+	c.JSON(http.StatusOK, resp)
+}
+
+// System summary for dashboard
+type systemSummaryResponse struct {
+	TotalVMs      int             `json:"total_vms"`
+	ByStatus      map[string]int  `json:"by_status"`
+	ByRuntime     map[string]int  `json:"by_runtime"`
+	TotalPlugins  int             `json:"total_plugins"`
+	EnabledPlugin int             `json:"enabled_plugins"`
+	Plugins       []pluginSummary `json:"plugins"`
+}
+
+type pluginSummary struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Enabled bool   `json:"enabled"`
+}
+
+func (api *apiServer) systemSummary(c *gin.Context) {
+	vms, err := api.engine.ListVMs(c.Request.Context())
+	if err != nil {
+		api.logger.Error("system summary list vms", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list vms"})
+		return
+	}
+	byStatus := map[string]int{}
+	byRuntime := map[string]int{}
+	for i := range vms {
+		vm := vms[i]
+		byStatus[strings.ToLower(string(vm.Status))]++
+		if strings.TrimSpace(vm.Runtime) != "" {
+			byRuntime[strings.ToLower(vm.Runtime)]++
+		}
+	}
+	var pluginsList []pluginSummary
+	totalPlugins := 0
+	enabled := 0
+	if api.plugins != nil {
+		names := api.plugins.List()
+		totalPlugins = len(names)
+		for _, name := range names {
+			if manifest, ok := api.plugins.Get(name); ok {
+				pluginsList = append(pluginsList, pluginSummary{Name: manifest.Name, Version: manifest.Version, Enabled: manifest.Enabled})
+				if manifest.Enabled {
+					enabled++
+				}
+			}
+		}
+	}
+	resp := systemSummaryResponse{
+		TotalVMs:      len(vms),
+		ByStatus:      byStatus,
+		ByRuntime:     byRuntime,
+		TotalPlugins:  totalPlugins,
+		EnabledPlugin: enabled,
+		Plugins:       pluginsList,
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -1998,6 +2188,249 @@ func (api *apiServer) getPluginManifest(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, manifest)
+}
+
+// Plugin Artifacts API
+// GET /api/v1/plugins/:plugin/artifacts?version=...
+func (api *apiServer) listPluginArtifacts(c *gin.Context) {
+	plugin := strings.TrimSpace(c.Param("plugin"))
+	if plugin == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "plugin name required"})
+		return
+	}
+	store := api.engine.Store()
+	if store == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "store not configured"})
+		return
+	}
+
+	version := strings.TrimSpace(c.Query("version"))
+	var (
+		result []db.PluginArtifact
+		err    error
+	)
+	if version != "" {
+		result, err = store.Queries().PluginArtifacts().ListByPluginVersion(c.Request.Context(), plugin, version)
+	} else {
+		result, err = store.Queries().PluginArtifacts().ListByPlugin(c.Request.Context(), plugin)
+	}
+	if err != nil {
+		api.logger.Error("list plugin artifacts", "plugin", plugin, "version", version, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list artifacts"})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// GET /api/v1/plugins/:plugin/artifacts/:artifact?version=...
+func (api *apiServer) getPluginArtifact(c *gin.Context) {
+	plugin := strings.TrimSpace(c.Param("plugin"))
+	artifact := strings.TrimSpace(c.Param("artifact"))
+	version := strings.TrimSpace(c.Query("version"))
+	if plugin == "" || artifact == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "plugin and artifact required"})
+		return
+	}
+	if version == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "version query required"})
+		return
+	}
+	store := api.engine.Store()
+	if store == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "store not configured"})
+		return
+	}
+	rec, err := store.Queries().PluginArtifacts().Get(c.Request.Context(), plugin, version, artifact)
+	if err != nil {
+		api.logger.Error("get plugin artifact", "plugin", plugin, "artifact", artifact, "version", version, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get artifact"})
+		return
+	}
+	if rec == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "artifact not found"})
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+type upsertArtifactRequest struct {
+	Version      string `json:"version" binding:"required"`
+	ArtifactName string `json:"artifact_name" binding:"required"`
+	Kind         string `json:"kind"`
+	SourceURL    string `json:"source_url"`
+	Checksum     string `json:"checksum"`
+	Format       string `json:"format"`
+	LocalPath    string `json:"local_path"`
+	SizeBytes    int64  `json:"size_bytes"`
+}
+
+// POST /api/v1/plugins/:plugin/artifacts
+func (api *apiServer) upsertPluginArtifact(c *gin.Context) {
+	plugin := strings.TrimSpace(c.Param("plugin"))
+	if plugin == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "plugin name required"})
+		return
+	}
+	var req upsertArtifactRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	art := db.PluginArtifact{
+		PluginName:   plugin,
+		Version:      strings.TrimSpace(req.Version),
+		ArtifactName: strings.TrimSpace(req.ArtifactName),
+		Kind:         strings.TrimSpace(req.Kind),
+		SourceURL:    strings.TrimSpace(req.SourceURL),
+		Checksum:     strings.TrimSpace(req.Checksum),
+		Format:       strings.TrimSpace(req.Format),
+		LocalPath:    strings.TrimSpace(req.LocalPath),
+		SizeBytes:    req.SizeBytes,
+	}
+	if art.Version == "" || art.ArtifactName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "version and artifact_name required"})
+		return
+	}
+	store := api.engine.Store()
+	if store == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "store not configured"})
+		return
+	}
+	if err := store.WithTx(c.Request.Context(), func(q db.Queries) error {
+		return q.PluginArtifacts().Upsert(c.Request.Context(), art)
+	}); err != nil {
+		api.logger.Error("upsert plugin artifact", "plugin", plugin, "artifact", art.ArtifactName, "version", art.Version, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert artifact"})
+		return
+	}
+	c.Status(http.StatusCreated)
+}
+
+// DELETE /api/v1/plugins/:plugin/artifacts?version=...
+func (api *apiServer) deletePluginArtifacts(c *gin.Context) {
+	plugin := strings.TrimSpace(c.Param("plugin"))
+	if plugin == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "plugin name required"})
+		return
+	}
+	version := strings.TrimSpace(c.Query("version"))
+	store := api.engine.Store()
+	if store == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "store not configured"})
+		return
+	}
+	var err error
+	if version != "" {
+		err = store.WithTx(c.Request.Context(), func(q db.Queries) error {
+			return q.PluginArtifacts().DeleteByPluginVersion(c.Request.Context(), plugin, version)
+		})
+	} else {
+		err = store.WithTx(c.Request.Context(), func(q db.Queries) error {
+			return q.PluginArtifacts().DeleteByPlugin(c.Request.Context(), plugin)
+		})
+	}
+	if err != nil {
+		api.logger.Error("delete plugin artifacts", "plugin", plugin, "version", version, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete artifacts"})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// /ws/v1/vms/:name/console -> bridge to VM serial socket
+func (api *apiServer) vmConsoleWebSocket(c *gin.Context) {
+	vm, ok := api.resolveVM(c)
+	if !ok {
+		return
+	}
+	serial := strings.TrimSpace(vm.SerialSocket)
+	if serial == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "serial socket unavailable"})
+		return
+	}
+
+	// Establish Unix domain socket connection to serial
+	unixConn, err := net.Dial("unix", serial)
+	if err != nil {
+		api.logger.Error("console dial unix", "vm", vm.Name, "socket", serial, "error", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "serial socket unavailable"})
+		return
+	}
+	defer unixConn.Close()
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	wsConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		api.logger.Error("console ws upgrade", "vm", vm.Name, "error", err)
+		return
+	}
+	defer wsConn.Close()
+
+	ctx := c.Request.Context()
+	errCh := make(chan error, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Pipe: VM serial -> WS (binary frames)
+	go func() {
+		defer wg.Done()
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := unixConn.Read(buf)
+			if n > 0 {
+				if writeErr := wsConn.WriteMessage(websocket.BinaryMessage, buf[:n]); writeErr != nil {
+					errCh <- writeErr
+					return
+				}
+			}
+			if readErr != nil {
+				errCh <- readErr
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+		}
+	}()
+
+	// Pipe: WS -> VM serial
+	go func() {
+		defer wg.Done()
+		for {
+			msgType, payload, readErr := wsConn.ReadMessage()
+			if readErr != nil {
+				errCh <- readErr
+				return
+			}
+			// Accept both text and binary frames
+			_ = msgType
+			if _, writeErr := unixConn.Write(payload); writeErr != nil {
+				errCh <- writeErr
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+		}
+	}()
+
+	var bridgeErr error
+	select {
+	case <-ctx.Done():
+		bridgeErr = ctx.Err()
+	case bridgeErr = <-errCh:
+	}
+
+	_ = wsConn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+	wg.Wait()
+
+	if bridgeErr != nil && !errors.Is(bridgeErr, net.ErrClosed) && !errors.Is(bridgeErr, io.EOF) && !websocket.IsCloseError(bridgeErr, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+		api.logger.Debug("console bridge closed", "vm", vm.Name, "error", bridgeErr)
+	}
 }
 
 // VFIO Device Management Handlers
