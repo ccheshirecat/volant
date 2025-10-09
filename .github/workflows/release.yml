@@ -37,6 +37,7 @@ jobs:
           CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o bin/volar ./cmd/volar
           CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o bin/kestrel ./cmd/kestrel
           CGO_ENABLED=1 go build -ldflags="-s -w" -o bin/volantd ./cmd/volantd
+          CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o bin/driftd ./cmd/driftd
 
       - name: Install Kernel Build Toolchain
         run: |
@@ -44,8 +45,16 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             ca-certificates curl git wget \
             build-essential bc bison flex libssl-dev libelf-dev dwarves \
-            cpio xz-utils zstd gcc g++ make file pkg-config
+            cpio xz-utils zstd gcc g++ make file pkg-config \
+            clang llvm
           sudo update-ca-certificates
+
+      - name: Build Drift eBPF Object
+        run: |
+          mkdir -p internal/drift/bpf/bin
+          clang -O2 -g -target bpf -D__TARGET_ARCH_x86 -c internal/drift/bpf/drift_l4.c -o internal/drift/bpf/bin/drift_l4.bpf.o
+          llvm-strip -g internal/drift/bpf/bin/drift_l4.bpf.o
+          cp internal/drift/bpf/bin/drift_l4.bpf.o bin/drift_l4.bpf.o
 
       - name: Build init (static, deterministic)
         run: |
@@ -122,7 +131,7 @@ jobs:
 
       - name: Generate Checksums For All Artifacts
         run: |
-          (cd bin && sha256sum volar kestrel volantd) > checksums.txt
+          (cd bin && sha256sum volar kestrel volantd driftd drift_l4.bpf.o) > checksums.txt
           (cd ${{ env.OUT_DIR }} && sha256sum bzImage) >> checksums.txt
 
       - name: Generate build provenance for all artifacts
@@ -133,6 +142,8 @@ jobs:
             bin/volar
             bin/kestrel
             bin/volantd
+            bin/driftd
+            bin/drift_l4.bpf.o
             ${{ env.OUT_DIR }}/bzImage
             ${{ env.OUT_DIR }}/bzImage.sha256
             ${{ env.OUT_DIR }}/kernel.config
@@ -148,6 +159,8 @@ jobs:
             bin/volar
             bin/kestrel
             bin/volantd
+            bin/driftd
+            bin/drift_l4.bpf.o
             ${{ env.OUT_DIR }}/bzImage
             ${{ env.OUT_DIR }}/bzImage.sha256
             ${{ env.OUT_DIR }}/kernel.config

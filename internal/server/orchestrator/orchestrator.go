@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,9 +23,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/volantvm/volant/internal/drift/routes"
 	"github.com/volantvm/volant/internal/pluginspec"
 	"github.com/volantvm/volant/internal/server/db"
 	"github.com/volantvm/volant/internal/server/devicemanager"
+	"github.com/volantvm/volant/internal/server/driftclient"
 	"github.com/volantvm/volant/internal/server/eventbus"
 	"github.com/volantvm/volant/internal/server/orchestrator/cloudinit"
 	orchestratorevents "github.com/volantvm/volant/internal/server/orchestrator/events"
@@ -103,6 +106,7 @@ type Params struct {
 	Launcher         runtime.Launcher
 	Network          network.Manager
 	Bus              eventbus.Bus
+	Drift            *driftclient.Client
 }
 
 // New constructs the production orchestrator engine.
@@ -190,6 +194,7 @@ func New(params Params) (Engine, error) {
 		launcher:             params.Launcher,
 		network:              params.Network,
 		bus:                  params.Bus,
+		drift:                params.Drift,
 		vfioMgr:              devicemanager.NewVFIOManager(params.Logger),
 		instances:            make(map[string]processHandle),
 	}, nil
@@ -208,6 +213,7 @@ type engine struct {
 	launcher             runtime.Launcher
 	network              network.Manager
 	bus                  eventbus.Bus
+	drift                *driftclient.Client
 	vfioMgr              devicemanager.VFIOManager
 
 	mu         sync.Mutex
@@ -698,6 +704,7 @@ func (e *engine) destroyVM(ctx context.Context, name string, reconcile bool) (*d
 	var (
 		vmRecord    *db.VM
 		cloudRecord *db.VMCloudInit
+		expose      []vmconfig.Expose
 	)
 	err := e.store.WithTx(ctx, func(q db.Queries) error {
 		vmRepo := q.VirtualMachines()
@@ -709,6 +716,11 @@ func (e *engine) destroyVM(ctx context.Context, name string, reconcile bool) (*d
 			return fmt.Errorf("%w: %s", ErrVMNotFound, name)
 		}
 		vmRecord = vm
+		if cfgRecord, cfgErr := q.VMConfigs().GetCurrent(ctx, vm.ID); cfgErr == nil && cfgRecord != nil {
+			if versioned, convErr := vmconfig.FromDB(*cfgRecord); convErr == nil {
+				expose = append([]vmconfig.Expose(nil), versioned.Config.Expose...)
+			}
+		}
 		if record, err := q.VMCloudInit().Get(ctx, vm.ID); err == nil {
 			cloudRecord = record
 		} else if err != nil {
@@ -793,6 +805,10 @@ func (e *engine) destroyVM(ctx context.Context, name string, reconcile bool) (*d
 	if vmRecord != nil {
 		vmRecord.Status = db.VMStatusStopped
 		vmRecord.PID = nil
+	}
+
+	if len(expose) > 0 {
+		e.removeDriftRoutes(ctx, name, expose)
 	}
 
 	e.publishEvent(ctx, orchestratorevents.TypeVMDeleted, orchestratorevents.VMStatusStopped, vmRecord, "vm deleted")
@@ -1199,6 +1215,18 @@ func (e *engine) StartVM(ctx context.Context, name string) (*db.VM, error) {
 		return nil, err
 	}
 
+	if e.drift != nil && len(cfg.Expose) > 0 {
+		if err := e.applyDriftRoutes(ctx, *vmRecord, networkCfg, cfg.Expose); err != nil {
+			_ = instance.Stop(ctx)
+			_ = e.network.CleanupTap(ctx, tapName)
+			if seedDisk != nil {
+				_ = os.Remove(seedDisk.Path)
+			}
+			e.setVMState(ctx, vmRecord.ID, db.VMStatusStopped, nil)
+			return nil, err
+		}
+	}
+
 	e.mu.Lock()
 	seedPath := ""
 	if seedDisk != nil {
@@ -1225,6 +1253,7 @@ func (e *engine) StopVM(ctx context.Context, name string) (*db.VM, error) {
 		handle   processHandle
 		exists   bool
 		vmRecord *db.VM
+		expose   []vmconfig.Expose
 	)
 
 	e.mu.Lock()
@@ -1245,6 +1274,11 @@ func (e *engine) StopVM(ctx context.Context, name string) (*db.VM, error) {
 			return fmt.Errorf("%w: %s", ErrVMNotFound, name)
 		}
 		vmRecord = vm
+		if cfgRecord, cfgErr := q.VMConfigs().GetCurrent(ctx, vm.ID); cfgErr == nil && cfgRecord != nil {
+			if versioned, convErr := vmconfig.FromDB(*cfgRecord); convErr == nil {
+				expose = append([]vmconfig.Expose(nil), versioned.Config.Expose...)
+			}
+		}
 		return vmRepo.UpdateRuntimeState(ctx, vm.ID, db.VMStatusStopped, nil)
 	})
 	if err != nil {
@@ -1277,6 +1311,10 @@ func (e *engine) StopVM(ctx context.Context, name string) (*db.VM, error) {
 	if vmRecord != nil {
 		vmRecord.Status = db.VMStatusStopped
 		vmRecord.PID = nil
+	}
+
+	if len(expose) > 0 {
+		e.removeDriftRoutes(ctx, name, expose)
 	}
 
 	e.publishEvent(ctx, orchestratorevents.TypeVMStopped, orchestratorevents.VMStatusStopped, vmRecord, "vm stopped")
@@ -1465,6 +1503,7 @@ func (e *engine) rollbackCreate(ctx context.Context, vm *db.VM) {
 
 func (e *engine) monitorInstance(name string, handle processHandle) {
 	go func() {
+		var expose []vmconfig.Expose
 		waitCh := handle.instance.Wait()
 		var exitErr error
 		if waitCh != nil {
@@ -1498,6 +1537,11 @@ func (e *engine) monitorInstance(name string, handle processHandle) {
 				return nil
 			}
 			vmRecord = vm
+			if cfgRecord, cfgErr := q.VMConfigs().GetCurrent(ctx, vm.ID); cfgErr == nil && cfgRecord != nil {
+				if versioned, convErr := vmconfig.FromDB(*cfgRecord); convErr == nil {
+					expose = append([]vmconfig.Expose(nil), versioned.Config.Expose...)
+				}
+			}
 			return q.VirtualMachines().UpdateRuntimeState(ctx, vm.ID, status, nil)
 		}); err != nil {
 			e.logger.Error("update vm state", "vm", name, "error", err)
@@ -1515,6 +1559,10 @@ func (e *engine) monitorInstance(name string, handle processHandle) {
 			if err := os.Remove(stored.seedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 				e.logger.Debug("remove seed image", "path", stored.seedPath, "error", err)
 			}
+		}
+
+		if len(expose) > 0 {
+			e.removeDriftRoutes(ctx, name, expose)
 		}
 
 		if exitErr != nil {
@@ -2120,6 +2168,152 @@ func (e *engine) setVMState(ctx context.Context, vmID int64, status db.VMStatus,
 		return q.VirtualMachines().UpdateRuntimeState(ctx, vmID, status, pid)
 	}); err != nil {
 		e.logger.Error("update vm state", "vm_id", vmID, "status", status, "error", err)
+	}
+}
+
+func (e *engine) computeDriftRoutes(vm db.VM, netCfg *pluginspec.NetworkConfig, exposes []vmconfig.Expose) ([]routes.Route, error) {
+	defaultMode := ""
+	if netCfg != nil {
+		defaultMode = strings.TrimSpace(strings.ToLower(string(netCfg.Mode)))
+	}
+	if defaultMode == "" {
+		defaultMode = string(pluginspec.NetworkModeBridged)
+	}
+
+	result := make([]routes.Route, 0, len(exposes))
+	seen := make(map[string]struct{})
+
+	for _, rule := range exposes {
+		hostPort := rule.HostPort
+		if hostPort <= 0 {
+			continue
+		}
+		protocol := strings.TrimSpace(strings.ToLower(rule.Protocol))
+		if protocol == "" {
+			protocol = "tcp"
+		}
+		switch protocol {
+		case "tcp", "udp":
+		default:
+			return nil, fmt.Errorf("unsupported expose protocol %q", rule.Protocol)
+		}
+
+		mode := strings.TrimSpace(strings.ToLower(rule.Mode))
+		if mode == "" {
+			mode = defaultMode
+		}
+		if mode == "" {
+			mode = string(pluginspec.NetworkModeBridged)
+		}
+
+		backend := routes.Backend{Port: uint16(rule.Port)}
+		switch mode {
+		case "", "bridged", "bridge":
+			ip := strings.TrimSpace(vm.IPAddress)
+			if ip == "" {
+				return nil, fmt.Errorf("vm %s has no assigned ip for bridged exposure", vm.Name)
+			}
+			parsed := net.ParseIP(ip)
+			if parsed == nil || parsed.To4() == nil {
+				return nil, fmt.Errorf("vm %s ip %s not a valid ipv4 address", vm.Name, ip)
+			}
+			backend.Type = routes.BackendBridge
+			backend.IP = parsed.To4().String()
+		case "dhcp":
+			ip := strings.TrimSpace(vm.IPAddress)
+			if ip == "" {
+				return nil, fmt.Errorf("vm %s ip unknown for dhcp exposure", vm.Name)
+			}
+			parsed := net.ParseIP(ip)
+			if parsed == nil || parsed.To4() == nil {
+				return nil, fmt.Errorf("vm %s ip %s not a valid ipv4 address", vm.Name, ip)
+			}
+			backend.Type = routes.BackendBridge
+			backend.IP = parsed.To4().String()
+		case "vsock":
+			if protocol != "tcp" {
+				return nil, fmt.Errorf("vsock exposures require tcp protocol")
+			}
+			if vm.VsockCID == 0 {
+				return nil, fmt.Errorf("vm %s has no vsock cid assigned", vm.Name)
+			}
+			backend.Type = routes.BackendVsock
+			backend.CID = vm.VsockCID
+		default:
+			return nil, fmt.Errorf("unsupported expose mode %q", rule.Mode)
+		}
+
+		key := fmt.Sprintf("%s/%d", protocol, hostPort)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		result = append(result, routes.Route{
+			HostPort: uint16(hostPort),
+			Protocol: protocol,
+			Backend:  backend,
+		})
+	}
+
+	return result, nil
+}
+
+func (e *engine) applyDriftRoutes(ctx context.Context, vm db.VM, netCfg *pluginspec.NetworkConfig, exposes []vmconfig.Expose) error {
+	if e.drift == nil || len(exposes) == 0 {
+		return nil
+	}
+
+	routesToApply, err := e.computeDriftRoutes(vm, netCfg, exposes)
+	if err != nil {
+		return err
+	}
+
+	applied := make([]routes.Route, 0, len(routesToApply))
+	for _, route := range routesToApply {
+		if _, err := e.drift.UpsertRoute(ctx, route); err != nil {
+			for i := len(applied) - 1; i >= 0; i-- {
+				prev := applied[i]
+				if delErr := e.drift.DeleteRoute(ctx, prev.Protocol, prev.HostPort); delErr != nil {
+					var apiErr *driftclient.APIError
+					if !(errors.As(delErr, &apiErr) && apiErr.Status == http.StatusNotFound) {
+						e.logger.Warn("rollback drift route", "vm", vm.Name, "protocol", prev.Protocol, "host_port", prev.HostPort, "error", delErr)
+					}
+				}
+			}
+			return fmt.Errorf("apply drift route %s/%d: %w", route.Protocol, route.HostPort, err)
+		}
+		applied = append(applied, route)
+	}
+	return nil
+}
+
+func (e *engine) removeDriftRoutes(ctx context.Context, vmName string, exposes []vmconfig.Expose) {
+	if e.drift == nil || len(exposes) == 0 {
+		return
+	}
+	seen := make(map[string]struct{})
+	for _, rule := range exposes {
+		hostPort := rule.HostPort
+		if hostPort <= 0 {
+			continue
+		}
+		protocol := strings.TrimSpace(strings.ToLower(rule.Protocol))
+		if protocol == "" {
+			protocol = "tcp"
+		}
+		key := fmt.Sprintf("%s/%d", protocol, hostPort)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if err := e.drift.DeleteRoute(ctx, protocol, uint16(hostPort)); err != nil {
+			var apiErr *driftclient.APIError
+			if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+				continue
+			}
+			e.logger.Warn("remove drift route", "vm", vmName, "protocol", protocol, "host_port", hostPort, "error", err)
+		}
 	}
 }
 

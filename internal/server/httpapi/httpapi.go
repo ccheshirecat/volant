@@ -26,9 +26,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
+	"github.com/volantvm/volant/internal/drift/routes"
 	"github.com/volantvm/volant/internal/pluginspec"
 	"github.com/volantvm/volant/internal/server/db"
 	"github.com/volantvm/volant/internal/server/devicemanager"
+	"github.com/volantvm/volant/internal/server/driftclient"
 	"github.com/volantvm/volant/internal/server/eventbus"
 	"github.com/volantvm/volant/internal/server/orchestrator"
 	orchestratorevents "github.com/volantvm/volant/internal/server/orchestrator/events"
@@ -53,7 +55,7 @@ var hopHeaders = map[string]struct{}{
 	"upgrade":             {},
 }
 
-func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plugins *plugins.Registry) http.Handler {
+func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plugins *plugins.Registry, drift *driftclient.Client) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -85,6 +87,7 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 		agentPort:   agentDefaultPort,
 		agentClient: &http.Client{Timeout: 120 * time.Second},
 		plugins:     plugins,
+		drift:       drift,
 	}
 
 	r.GET("/healthz", func(c *gin.Context) {
@@ -159,6 +162,13 @@ func New(logger *slog.Logger, engine orchestrator.Engine, bus eventbus.Bus, plug
 			vfio.POST("/devices/bind", api.bindVFIODevices)
 			vfio.POST("/devices/unbind", api.unbindVFIODevices)
 			vfio.POST("/devices/group-paths", api.getVFIOGroupPaths)
+		}
+
+		driftRoutes := v1.Group("/drift/routes")
+		{
+			driftRoutes.GET("", api.listDriftRoutes)
+			driftRoutes.POST("", api.upsertDriftRoute)
+			driftRoutes.DELETE(":protocol/:port", api.deleteDriftRoute)
 		}
 	}
 
@@ -326,6 +336,7 @@ type apiServer struct {
 	plugins     *plugins.Registry
 	agentPort   int
 	agentClient *http.Client
+	drift       *driftclient.Client
 }
 
 type navigateActionRequest struct {
@@ -2590,4 +2601,72 @@ func (api *apiServer) getVFIOGroupPaths(c *gin.Context) {
 	c.JSON(http.StatusOK, vfioGroupPathsResponse{
 		GroupPaths: groupPaths,
 	})
+}
+
+func (api *apiServer) listDriftRoutes(c *gin.Context) {
+	if !api.ensureDriftAvailable(c) {
+		return
+	}
+	items, err := api.drift.ListRoutes(c.Request.Context())
+	if err != nil {
+		api.respondDriftError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, items)
+}
+
+func (api *apiServer) upsertDriftRoute(c *gin.Context) {
+	if !api.ensureDriftAvailable(c) {
+		return
+	}
+	var route routes.Route
+	if err := c.ShouldBindJSON(&route); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	updated, err := api.drift.UpsertRoute(c.Request.Context(), route)
+	if err != nil {
+		api.respondDriftError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, updated)
+}
+
+func (api *apiServer) deleteDriftRoute(c *gin.Context) {
+	if !api.ensureDriftAvailable(c) {
+		return
+	}
+	protocol := c.Param("protocol")
+	portStr := c.Param("port")
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid port"})
+		return
+	}
+	if err := api.drift.DeleteRoute(c.Request.Context(), protocol, uint16(port)); err != nil {
+		api.respondDriftError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (api *apiServer) ensureDriftAvailable(c *gin.Context) bool {
+	if api.drift == nil || !api.drift.Enabled() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "drift not configured"})
+		return false
+	}
+	return true
+}
+
+func (api *apiServer) respondDriftError(c *gin.Context, err error) {
+	if errors.Is(err, driftclient.ErrDisabled) {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "drift not configured"})
+		return
+	}
+	var apiErr *driftclient.APIError
+	if errors.As(err, &apiErr) {
+		c.JSON(apiErr.Status, gin.H{"error": apiErr.Error()})
+		return
+	}
+	c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 }

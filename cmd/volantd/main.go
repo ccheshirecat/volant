@@ -10,16 +10,19 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/volantvm/volant/internal/server/app"
 	"github.com/volantvm/volant/internal/server/config"
 	"github.com/volantvm/volant/internal/server/db/sqlite"
+	"github.com/volantvm/volant/internal/server/driftclient"
 	"github.com/volantvm/volant/internal/server/eventbus/memory"
 	"github.com/volantvm/volant/internal/server/httpapi"
 	"github.com/volantvm/volant/internal/server/orchestrator"
@@ -94,7 +97,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	handler := httpapi.New(logger, engine, events, runtimeRegistry)
+	var driftClient *driftclient.Client
+	if strings.TrimSpace(cfg.DriftEndpoint) != "" {
+		httpClient := &http.Client{Timeout: 15 * time.Second}
+		client, err := driftclient.New(cfg.DriftEndpoint, cfg.DriftAPIKey, httpClient)
+		if err != nil {
+			logger.Error("init drift client", "error", err)
+			os.Exit(1)
+		}
+		driftClient = client
+	}
+
+	handler := httpapi.New(logger, engine, events, runtimeRegistry, driftClient)
 
 	daemon, err := app.New(cfg, logger, store, engine, events, runtimeRegistry, handler)
 	if err != nil {

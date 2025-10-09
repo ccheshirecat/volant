@@ -8,6 +8,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +25,7 @@ const (
 	defaultLogDir        = "~/.volant/logs"
 	defaultBZImagePath   = "/var/lib/volant/kernel/bzImage"
 	defaultVMLinuxPath   = "/var/lib/volant/kernel/vmlinux"
+	defaultDriftEndpoint = ""
 )
 
 // ServerConfig captures the runtime configuration required by the daemon.
@@ -39,6 +41,8 @@ type ServerConfig struct {
 	HostIP           string
 	RuntimeDir       string
 	LogDir           string
+	DriftEndpoint    string
+	DriftAPIKey      string
 }
 
 // FromEnv loads server configuration from environment variables, applying
@@ -54,6 +58,16 @@ func FromEnv() (ServerConfig, error) {
 		HypervisorBinary: getenv("VOLANT_HYPERVISOR", "cloud-hypervisor"),
 		RuntimeDir:       getenv("VOLANT_RUNTIME_DIR", defaultRuntimeDir),
 		LogDir:           getenv("VOLANT_LOG_DIR", defaultLogDir),
+		DriftEndpoint:    strings.TrimSpace(os.Getenv("VOLANT_DRIFT_ENDPOINT")),
+		DriftAPIKey:      strings.TrimSpace(os.Getenv("VOLANT_DRIFT_API_KEY")),
+	}
+
+	if cfg.DriftEndpoint == "" {
+		cfg.DriftEndpoint = defaultDriftEndpoint
+	} else {
+		if _, err := url.ParseRequestURI(cfg.DriftEndpoint); err != nil {
+			return ServerConfig{}, fmt.Errorf("invalid drift endpoint %q: %w", cfg.DriftEndpoint, err)
+		}
 	}
 
 	// New dual-kernel config

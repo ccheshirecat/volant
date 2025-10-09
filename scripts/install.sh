@@ -227,7 +227,7 @@ resolve_version() {
 
 download_and_install_artifacts() {
   local base_url="https://github.com/${REPO}/releases/latest/download/"
-  local artifacts=("volar" "kestrel" "volantd" "bzImage" "checksums.txt")
+  local artifacts=("volar" "kestrel" "volantd" "driftd" "drift_l4.bpf.o" "bzImage" "checksums.txt")
 
   log_info "Downloading volant artifacts..."
   for artifact in "${artifacts[@]}"; do
@@ -258,11 +258,68 @@ download_and_install_artifacts() {
   sudo install -m 0755 "${TMP_DIR}/volar" /usr/local/bin/volar
   sudo install -m 0755 "${TMP_DIR}/kestrel" /usr/local/bin/kestrel
   sudo install -m 0755 "${TMP_DIR}/volantd" /usr/local/bin/volantd
+  if [[ -f "${TMP_DIR}/driftd" ]]; then
+    sudo install -m 0755 "${TMP_DIR}/driftd" /usr/local/bin/driftd
+  fi
+  if [[ -f "${TMP_DIR}/drift_l4.bpf.o" ]]; then
+    sudo install -m 0644 "${TMP_DIR}/drift_l4.bpf.o" /usr/local/bin/drift_l4.bpf.o
+  fi
 
   log_info "Installing kernel files to ${KERNEL_DIR}..."
   sudo mkdir -p "$KERNEL_DIR"
   sudo install -m 0644 "${TMP_DIR}/bzImage" "$BZIMAGE_PATH"
   sudo install -m 0644 "${TMP_DIR}/vmlinux" "$VMLINUX_PATH"
+}
+
+install_drift_service() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    log_warn "systemctl not available; skipping driftd service installation."
+    return
+  fi
+
+  local unit_path="/etc/systemd/system/driftd.service"
+  local state_dir="/var/lib/drift"
+  sudo mkdir -p "$state_dir"
+  sudo chmod 0750 "$state_dir"
+
+  if [[ -f "${SCRIPT_DIR}/../build/systemd/driftd.service" ]]; then
+    sudo install -m 0644 "${SCRIPT_DIR}/../build/systemd/driftd.service" "$unit_path"
+  else
+    sudo tee "$unit_path" >/dev/null <<'EOF'
+[Unit]
+Description=Volant Drift L4 switch
+Documentation=https://docs.volantvm.com
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/driftd
+ExecStart=/usr/local/bin/driftd
+Restart=on-failure
+RestartSec=5s
+LimitMEMLOCK=infinity
+CapabilityBoundingSet=CAP_BPF CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_BPF CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=true
+StateDirectory=drift
+StateDirectoryMode=0750
+RuntimeDirectory=drift
+RuntimeDirectoryMode=0750
+Environment=DRIFT_STATE_DIR=/var/lib/drift
+Environment=DRIFT_BPF_OBJECT=/usr/local/bin/drift_l4.bpf.o
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  fi
+
+  sudo systemctl daemon-reload
+  if prompt_yes_no "Enable and start driftd service?"; then
+    sudo systemctl enable --now driftd.service
+  else
+    log_info "You can enable the service later with 'sudo systemctl enable --now driftd.service'."
+  fi
 }
 
 run_volant_setup() {
@@ -300,6 +357,7 @@ main() {
   resolve_version
   download_and_install_artifacts
   run_volant_setup
+  install_drift_service
   log_info " Volant installation complete!"
   log_info "   Run 'volar --help' to get started."
 }

@@ -1,0 +1,25 @@
+[Unit]
+Description=Volant Drift L4 switch
+Documentation=https://docs.volantvm.com
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/driftd
+ExecStart=/usr/local/bin/driftd
+Restart=on-failure
+RestartSec=5s
+LimitMEMLOCK=infinity
+CapabilityBoundingSet=CAP_BPF CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_BPF CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=true
+StateDirectory=drift
+StateDirectoryMode=0750
+RuntimeDirectory=drift
+RuntimeDirectoryMode=0750
+Environment=DRIFT_STATE_DIR=/var/lib/drift
+Environment=DRIFT_BPF_OBJECT=/usr/local/bin/drift_l4.bpf.o
+
+[Install]
+WantedBy=multi-user.target

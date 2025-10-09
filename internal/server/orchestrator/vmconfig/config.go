@@ -33,6 +33,7 @@ type Expose struct {
 	Protocol string `json:"protocol,omitempty"`
 	Port     int    `json:"port"`
 	HostPort int    `json:"host_port,omitempty"`
+	Mode     string `json:"mode,omitempty"`
 }
 
 // Config represents the persisted, user-editable configuration of a VM.
@@ -152,6 +153,10 @@ func (c *Config) Normalize() {
 	for i := range c.Expose {
 		c.Expose[i].Name = strings.TrimSpace(c.Expose[i].Name)
 		c.Expose[i].Protocol = strings.TrimSpace(strings.ToLower(c.Expose[i].Protocol))
+		if c.Expose[i].Protocol == "" {
+			c.Expose[i].Protocol = "tcp"
+		}
+		c.Expose[i].Mode = strings.TrimSpace(strings.ToLower(c.Expose[i].Mode))
 	}
 	if c.Manifest != nil {
 		manifestCopy := *c.Manifest
@@ -199,8 +204,22 @@ func (c Config) Validate() error {
 		if rule.Port <= 0 {
 			return fmt.Errorf("vmconfig: expose port must be greater than zero")
 		}
-		if rule.HostPort < 0 {
-			return fmt.Errorf("vmconfig: expose host_port cannot be negative")
+		if rule.Port > 65535 {
+			return fmt.Errorf("vmconfig: expose port must be <= 65535")
+		}
+		if rule.HostPort <= 0 {
+			return fmt.Errorf("vmconfig: expose host_port must be greater than zero")
+		}
+		if rule.HostPort > 65535 {
+			return fmt.Errorf("vmconfig: expose host_port must be <= 65535")
+		}
+		protocol := strings.TrimSpace(strings.ToLower(rule.Protocol))
+		if protocol != "tcp" && protocol != "udp" && protocol != "" {
+			return fmt.Errorf("vmconfig: expose protocol %q not supported", rule.Protocol)
+		}
+		mode := strings.TrimSpace(strings.ToLower(rule.Mode))
+		if mode != "" && mode != "bridged" && mode != "bridge" && mode != "vsock" && mode != "dhcp" {
+			return fmt.Errorf("vmconfig: expose mode %q not supported", rule.Mode)
 		}
 	}
 	if c.CloudInit != nil {
