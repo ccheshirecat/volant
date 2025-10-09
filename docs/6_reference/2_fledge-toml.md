@@ -44,11 +44,16 @@ Init mode is derived as:
 ## SourceConfig
 
 - For oci_rootfs:
-  - image: string (required) — e.g., docker://nginx:1.25
+  - image: string — reference to an existing image (mutually exclusive with dockerfile)
+  - dockerfile: string — path to a Dockerfile to build locally (mutually exclusive with image)
+  - context: string (optional) — build context directory; defaults to the Dockerfile's directory
+  - target: string (optional) — multi-stage target
+  - build_args: map[string]string (optional) — forwarded as build arguments
 
 - For initramfs:
-  - busybox_url: string (required)
-  - busybox_sha256: string (optional)
+  - dockerfile/context/target/build_args — optional Dockerfile overlay before init payload is added
+  - busybox_url: string (optional) — override default BusyBox URL
+  - busybox_sha256: string (optional) — override default BusyBox checksum
 
 ## FilesystemConfig (oci_rootfs only)
 
@@ -77,12 +82,12 @@ Placement rules follow FHS semantics (see fledge/internal/builder/mapping.go):
 - version must be "1"
 - strategy must be initramfs or oci_rootfs
 - initramfs:
-  - source.busybox_url required
   - default mode requires [agent]
   - custom/none forbid [agent]
+  - BusyBox URL/checksum default automatically if omitted
 - oci_rootfs:
-  - source.image required
-  - filesystem required; type in {ext4,xfs,btrfs}; size_buffer_mb >= 0
+  - exactly one of source.image or source.dockerfile must be set
+  - [filesystem] required; type in {ext4,xfs,btrfs}; size_buffer_mb >= 0
 - mappings: destination absolute and no ".."
 
 See fledge/internal/config/config.go for full validation logic.

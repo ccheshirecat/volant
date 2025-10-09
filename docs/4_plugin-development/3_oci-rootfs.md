@@ -15,8 +15,12 @@
  version = "1"
  strategy = "oci_rootfs"
 
+[agent]
+source_strategy = "release"
+version = "latest"
+
  [source]
- image = "nginx:alpine"
+image = "docker://nginx:alpine"
 
  [filesystem]
  type = "ext4"        # ext4|xfs|btrfs
@@ -30,13 +34,30 @@
  # → outputs <name>.img
  ```
 
- ## What Fledge Does
- - Fetch image via skopeo (docker-daemon: first, docker:// fallback)
- - Unpack layers with umoci into an intermediate rootfs
- - Optionally extract OCI config to /etc/fsify-entrypoint for introspection
- - Install kestrel agent to /bin/kestrel (when agent configured)
- - Apply file mappings and permissions following FHS
- - Create filesystem image (mkfs.ext4/xfs/btrfs), mount via loop, copy rootfs, optionally shrink (ext4)
+You can swap `source.image` for a Dockerfile build by providing `source.dockerfile` (plus optional `context`, `target`, and `build_args`).
+
+### Direct Dockerfile build (no fledge.toml)
+
+Use the embedded BuildKit workflow without writing a config file:
+
+```bash
+sudo fledge build ./Dockerfile \
+  --context . \
+  --target runtime-stage \
+  --build-arg FOO=bar \
+  --output custom-rootfs
+# → outputs custom-rootfs.img + custom-rootfs.manifest.json
+```
+
+`--output` overrides the artifact prefix. Without it, Fledge derives a name from the context directory. The same flags are available for initramfs builds, and `--output-initramfs` switches the output format to `.cpio.gz`.
+
+## What Fledge Does
+- Fetch image layers or build locally via embedded BuildKit
+- Unpack layers with umoci into an intermediate rootfs
+- Optionally extract OCI config to /etc/fsify-entrypoint for introspection
+- Install kestrel agent to /bin/kestrel (when agent configured)
+- Apply file mappings and permissions following FHS
+- Create filesystem image (mkfs.ext4/xfs/btrfs), mount via loop, copy rootfs, optionally shrink (ext4)
 
  ## Manifest
  ```json
@@ -87,6 +108,10 @@ Ground truth:
 version  = "1"
 strategy = "oci_rootfs"
 
+[agent]
+source_strategy = "release"
+version = "latest"
+
 [source]
 image = "docker://nginx:1.25"
 
@@ -100,8 +125,8 @@ mappings = { "./my.conf" = "/etc/my.conf" }
 ```
 
 Validation (config.Validate):
-- source.image is required.
-- [filesystem] required with type in {ext4,xfs,btrfs} and non‑negative size_buffer_mb.
+- Either `source.image` **or** `source.dockerfile` must be set (mutually exclusive).
+- `[filesystem]` required with type in {ext4,xfs,btrfs} and non‑negative size_buffer_mb.
 
 Build with Fledge to produce a disk image (e.g., rootfs.img).
 

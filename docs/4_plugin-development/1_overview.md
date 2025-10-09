@@ -28,10 +28,15 @@ References:
    - init: init mode (default, custom, none) for initramfs
    - filesystem: FS type and sizing for OCI rootfs
    - mappings: host files to include in the image
+   - optional Dockerfile inputs: `source.dockerfile`, `context`, `target`, `build_args`
 
  - Outputs after build:
    - initramfs: plugin.cpio.gz + suggested manifest (initramfs.url)
    - oci_rootfs: <name>.img + suggested manifest (rootfs.url)
+
+- Direct-build mode (no fledge.toml):
+  - `sudo fledge build ./Dockerfile [--context DIR --target stage --build-arg KEY=VAL ...]`
+  - `--output-initramfs` switches the artifact to `.cpio.gz`, otherwise `.img`
 
  ## Authoring a Manifest
 

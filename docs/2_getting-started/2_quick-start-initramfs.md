@@ -18,11 +18,14 @@ Result: a microVM that boots in ~100ms and serves HTTP on its assigned IP.
 ## Build your own (with Fledge)
 
 ```bash
-# Install fledge
+# Install fledge (once)
 curl -LO https://github.com/volantvm/fledge/releases/latest/download/fledge-linux-amd64
 chmod +x fledge-linux-amd64 && sudo mv fledge-linux-amd64 /usr/local/bin/fledge
+```
 
-# Minimal fledge.toml
+### Option A: fledge.toml workflow
+
+```bash
 cat > fledge.toml <<'EOF'
 version = "1"
 strategy = "initramfs"
@@ -32,18 +35,32 @@ source_strategy = "release"
 version = "latest"
 
 [source]
-busybox_url = "https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox"
-busybox_sha256 = "6e123e7f3202a8c1e9b1f94d8941580a25135382b99e8d3e34fb858bba311348"
+# BusyBox defaults are applied automatically, override if you need a different build
+# busybox_url = "https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox"
+# busybox_sha256 = "6e123e7f3202a8c1e9b1f94d8941580a25135382b99e8d3e34fb858bba311348"
 
 [mappings]
 "./myapp" = "/usr/bin/myapp"
 EOF
 
 sudo fledge build
-# → outputs plugin.cpio.gz and manifest JSON
+# → outputs plugin.cpio.gz and myapp.manifest.json
 ```
 
-Install and run:
+### Option B: build a Dockerfile directly
+
+Fledge can execute Dockerfiles inside its embedded BuildKit and emit an initramfs artifact:
+
+```bash
+sudo fledge build ./Dockerfile \
+  --context . \
+  --output-initramfs \
+  --build-arg APP_VERSION=1.0.0
+# → outputs <directory>.cpio.gz + <directory>.manifest.json
+```
+
+Install and run either artifact:
+
 ```bash
 volar plugins install --manifest myapp.manifest.json
 volar vms create demo --plugin myapp
