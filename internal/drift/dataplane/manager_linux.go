@@ -66,14 +66,14 @@ func newManager(opts Options) (Interface, error) {
 		return nil, fmt.Errorf("dataplane: lookup interface %s: %w", opts.Interface, err)
 	}
 
-	l, err := link.AttachTC(link.TCOptions{
-		Program:     prog,
-		Interface:   iface.Index,
-		AttachPoint: link.TCIngress,
+	l, err := link.AttachTCX(link.TCXOptions{
+		Program:   prog,
+		Interface: iface.Index,
+		Attach:    ebpf.AttachTCXIngress,
 	})
 	if err != nil {
 		coll.Close()
-		return nil, fmt.Errorf("dataplane: attach tc: %w", err)
+		return nil, fmt.Errorf("dataplane: attach tcx: %w", err)
 	}
 
 	return &manager{

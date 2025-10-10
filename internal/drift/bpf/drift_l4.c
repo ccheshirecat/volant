@@ -8,7 +8,6 @@
 
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
-#include <bpf/bpf_tc.h>
 
 struct portmap_key {
 	__u8 proto;

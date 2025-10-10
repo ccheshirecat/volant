@@ -147,7 +147,7 @@ func (p *proxy) start(ctx context.Context) {
 
 func (p *proxy) handleConnection(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
-	vsockConn, err := vsock.DialContext(ctx, int(p.cid), int(p.guestPort), nil)
+	vsockConn, err := dialVsock(ctx, p.cid, uint32(p.guestPort))
 	if err != nil {
 		p.logger.Error("vsock dial failed", "error", err)
 		return
@@ -173,6 +173,7 @@ func (p *proxy) stop() {
 	<-p.done
 	p.logger.Info("vsock proxy stopped")
 }
+<<<<<<< HEAD
 ||||||| parent of 1682feb (Add Drift L4 switch integration)
 =======
 //go:build linux
@@ -379,3 +380,35 @@ func dialVsock(ctx context.Context, cid uint32, port uint32) (*vsock.Conn, error
 	}
 }
 >>>>>>> 1682feb (Add Drift L4 switch integration)
+||||||| parent of c60d494 (Add Drift L4 switch integration)
+=======
+
+func dialVsock(ctx context.Context, cid uint32, port uint32) (*vsock.Conn, error) {
+	type result struct {
+		conn *vsock.Conn
+		err  error
+	}
+
+	ch := make(chan result, 1)
+	go func() {
+		conn, err := vsock.Dial(cid, port, nil)
+		ch <- result{conn: conn, err: err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		go func() {
+			res := <-ch
+			if res.err == nil {
+				_ = res.conn.Close()
+			}
+		}()
+		return nil, ctx.Err()
+	case res := <-ch:
+		if res.err != nil {
+			return nil, res.err
+		}
+		return res.conn, nil
+	}
+}
+>>>>>>> c60d494 (Add Drift L4 switch integration)
